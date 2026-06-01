@@ -20,7 +20,7 @@
     "pino": "10.3.1",
     "pino-pretty": "^11.3.0",
     "semver": "^7.6.0",
-    "ws": "^8.18.0"
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
