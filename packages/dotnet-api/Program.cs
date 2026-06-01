@@ -83,7 +83,7 @@ else
     builder.Services.AddNoOpBackgroundJobClient();
 }
 
-builder.Services.AddAuthenticationServices(builder.Configuration);
+builder.Services.AddAuthenticationServices(builder.Configuration, builder.Environment);
 // Additive: registers the "RuntimeToken" JWT scheme used by daemon-facing endpoints.
 // MUST run AFTER AddAuthenticationServices so the user-auth scheme keeps the default-scheme slot.
 builder.Services.AddRuntimeTokenAuthScheme();

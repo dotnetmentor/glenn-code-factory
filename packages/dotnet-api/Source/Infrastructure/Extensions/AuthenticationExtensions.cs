@@ -10,9 +10,16 @@ namespace Source.Infrastructure.Extensions;
 
 public static class AuthenticationExtensions
 {
-    public static IServiceCollection AddAuthenticationServices(this IServiceCollection services, IConfiguration configuration)
+    private const string JwtConfigSection = "Jwt";
+    private const string JwtKeyName = "Key";
+    private const int MinJwtKeyLength = 32;
+
+    public static IServiceCollection AddAuthenticationServices(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
-        var jwtKey = configuration["Jwt:Key"] ?? "your-secret-key-here-minimum-32-characters-long";
+        var jwtKey = RequireJwtSigningKey(configuration, environment);
         var jwtIssuer = configuration["Jwt:Issuer"] ?? "api";
         var jwtAudience = configuration["Jwt:Audience"] ?? "api";
 
@@ -69,6 +76,34 @@ public static class AuthenticationExtensions
         services.AddScoped<IJwtTokenService, JwtTokenService>();
 
         return services;
+    }
+
+    /// <summary>
+    /// Read <c>Jwt:Key</c> from configuration. Refuses to boot when absent or too short —
+    /// same fail-closed posture as <c>SystemSettings:EncryptionKey</c>.
+    /// </summary>
+    internal static string RequireJwtSigningKey(IConfiguration configuration, IHostEnvironment environment)
+    {
+        var key = configuration[$"{JwtConfigSection}:{JwtKeyName}"];
+        if (!string.IsNullOrWhiteSpace(key) && key.Length >= MinJwtKeyLength)
+        {
+            return key;
+        }
+
+        var hint = environment.IsDevelopment()
+            ? $".env / appsettings (\"{JwtConfigSection}\": {{ \"{JwtKeyName}\": \"...\" }}) — min {MinJwtKeyLength} chars"
+            : $"the {JwtConfigSection}__{JwtKeyName} environment variable — min {MinJwtKeyLength} chars";
+
+        throw new InvalidOperationException(
+            $"""
+            {JwtConfigSection}:{JwtKeyName} is not configured or is too short.
+
+            User JWTs are signed with this key. Booting with a missing or weak key would
+            let anyone forge sessions — we refuse to start.
+
+            Generate: openssl rand -base64 48
+            Set in {hint}.
+            """);
     }
 
     /// <summary>

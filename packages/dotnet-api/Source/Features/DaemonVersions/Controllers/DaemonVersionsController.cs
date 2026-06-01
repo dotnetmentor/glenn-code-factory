@@ -5,6 +5,7 @@ using Source.Features.DaemonVersions.Commands.PublishDaemonVersion;
 using Source.Features.DaemonVersions.Models;
 using Source.Features.DaemonVersions.Queries.ListDaemonVersions;
 using Source.Features.DaemonVersions.Queries.ResolveDaemonVersion;
+using Source.Infrastructure.AuthorizationModels;
 using Source.Shared.Controllers;
 
 namespace Source.Features.DaemonVersions.Controllers;
@@ -34,7 +35,7 @@ public class DaemonVersionsController : BaseApiController
     /// publicly-resolvable download URL.
     /// </summary>
     [HttpPost]
-    [Authorize]
+    [Authorize(Roles = RoleConstants.SuperAdmin)]
     [Consumes("multipart/form-data")]
     // Bumped to 500MB after daemon bundles grew to include @cursor/sdk +
     // node_modules peers (SignalR, sqlite3 native binding, etc.).
@@ -110,7 +111,7 @@ public class DaemonVersionsController : BaseApiController
     /// rollout UI.
     /// </summary>
     [HttpGet]
-    [Authorize]
+    [Authorize(Roles = RoleConstants.SuperAdmin)]
     [ProducesResponseType(typeof(List<DaemonVersionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<List<DaemonVersionDto>>> List()

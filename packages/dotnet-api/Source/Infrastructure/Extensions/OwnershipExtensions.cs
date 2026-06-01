@@ -243,20 +243,32 @@ public static class OwnershipExtensions
         Guid projectId,
         CancellationToken ct)
     {
-        var callerUserId = user.GetUserId();
+        return await db.UserCanAccessProjectAsync(
+            user.GetUserId(),
+            user.IsInRole(RoleConstants.SuperAdmin),
+            projectId,
+            ct);
+    }
+
+    /// <summary>
+    /// Project access gate keyed by user id + SuperAdmin flag — for MediatR handlers
+    /// that receive <c>CallerUserId</c> from the controller instead of a
+    /// <see cref="ClaimsPrincipal"/>.
+    /// </summary>
+    public static async Task<bool> UserCanAccessProjectAsync(
+        this ApplicationDbContext db,
+        string? callerUserId,
+        bool callerIsSuperAdmin,
+        Guid projectId,
+        CancellationToken ct)
+    {
         if (string.IsNullOrEmpty(callerUserId))
         {
             return false;
         }
 
-        // SuperAdmin bypass — matches RequireWorkspaceRoleAttribute and the
-        // SignalR hub auto-join convention. Done before the DB hit so a
-        // SuperAdmin probe is a single claims check.
-        if (user.IsInRole(RoleConstants.SuperAdmin))
+        if (callerIsSuperAdmin)
         {
-            // Still require the project to exist — a SuperAdmin probing a
-            // non-existent id should get the same uniform 404 a non-admin would,
-            // so the response shape can't be used as an existence oracle.
             return await db.Projects
                 .AsNoTracking()
                 .AnyAsync(p => p.Id == projectId, ct);
@@ -278,9 +290,6 @@ public static class OwnershipExtensions
             return true;
         }
 
-        // Workspace membership — read-side surfaces are visible to every member
-        // regardless of role (Owner ⊃ Admin ⊃ Member). Same semantics as
-        // ListWorkspaceSpecsHandler's membership probe.
         return await db.WorkspaceMemberships
             .AsNoTracking()
             .AnyAsync(
@@ -289,7 +298,22 @@ public static class OwnershipExtensions
     }
 
     /// <summary>
-    /// Read-side access gate for runtime-id-keyed observability endpoints
+    /// Returns the parent project's id for a conversation, or null when the row is missing.
+    /// </summary>
+    public static async Task<Guid?> FindProjectIdForConversationAsync(
+        this ApplicationDbContext db,
+        Guid conversationId,
+        CancellationToken ct)
+    {
+        return await db.Conversations
+            .AsNoTracking()
+            .Where(c => c.Id == conversationId)
+            .Select(c => (Guid?)c.ProjectId)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>
+    /// Read-side access gate for project-scoped observability endpoints
     /// (e.g. <c>/api/runtime-events</c>, the SignalR <c>runtime-events:{id}</c>
     /// group join). Returns the loaded <see cref="ProjectRuntime"/> (with its
     /// <see cref="ProjectRuntime.Project"/> nav) when the caller is ANY of:

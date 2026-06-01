@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Source.Features.Users.Events;
 using Source.Features.Users.Models;
@@ -23,16 +24,28 @@ public class RegisterUserHandler : ICommandHandler<RegisterUserCommand, Result<R
     private readonly UserManager<User> _userManager;
     private readonly IMediator _mediator;
     private readonly ILogger<RegisterUserHandler> _logger;
+    private readonly IWebHostEnvironment _environment;
 
-    public RegisterUserHandler(UserManager<User> userManager, IMediator mediator, ILogger<RegisterUserHandler> logger)
+    public RegisterUserHandler(
+        UserManager<User> userManager,
+        IMediator mediator,
+        ILogger<RegisterUserHandler> logger,
+        IWebHostEnvironment environment)
     {
         _userManager = userManager;
         _mediator = mediator;
         _logger = logger;
+        _environment = environment;
     }
 
     public async Task<Result<RegisterUserResponse>> Handle(RegisterUserCommand request, CancellationToken cancellationToken)
     {
+        if (!_environment.IsDevelopment() && !_environment.IsEnvironment("Testing"))
+        {
+            _logger.LogWarning("Registration rejected in {Environment}", _environment.EnvironmentName);
+            return Result.Failure<RegisterUserResponse>("Registration is disabled in this environment.");
+        }
+
         _logger.LogInformation("Attempting to register user with email: {Email}", request.Email);
 
         var existingUser = await _userManager.FindByEmailAsync(request.Email);

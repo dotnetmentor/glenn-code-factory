@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Source.Features.Attachments.Commands;
 using Source.Features.Attachments.Queries;
+using Source.Infrastructure.AuthorizationExtensions;
+using Source.Infrastructure.AuthorizationModels;
 using Source.Shared.Controllers;
 
 namespace Source.Features.Attachments.Controllers;
@@ -28,9 +30,8 @@ namespace Source.Features.Attachments.Controllers;
 /// file copy) is wired by a follow-up card. This controller persists the
 /// upload-completion handshake only.</para>
 ///
-/// <para><b>Auth.</b> Standard JWT; tenant-level ownership gating arrives in
-/// the same follow-up card that wires staging. The presign endpoint validates
-/// the conversation exists, which is the minimum bar for v1.</para>
+/// <para><b>Auth.</b> JWT plus project access via the parent conversation's
+/// project (SuperAdmin, owner, or workspace member).</para>
 /// </summary>
 [ApiController]
 [Authorize]
@@ -70,11 +71,19 @@ public class AttachmentsController : BaseApiController
             return BadRequest(new { error = "Request body is required" });
         }
 
+        var userId = GetCurrentUserId();
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Unauthorized();
+        }
+
         var command = new PresignAttachmentCommand(
             body.ConversationId,
             body.FileName,
             body.ContentType,
-            body.SizeBytes);
+            body.SizeBytes,
+            userId,
+            User.IsInRole(RoleConstants.SuperAdmin));
 
         var result = await Mediator.Send(command, ct);
         return HandleResult(result);
@@ -94,7 +103,16 @@ public class AttachmentsController : BaseApiController
         Guid id,
         CancellationToken ct)
     {
-        var command = new CompleteAttachmentCommand(id);
+        var userId = GetCurrentUserId();
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Unauthorized();
+        }
+
+        var command = new CompleteAttachmentCommand(
+            id,
+            userId,
+            User.IsInRole(RoleConstants.SuperAdmin));
         var result = await Mediator.Send(command, ct);
         return HandleResultWithNotFound(result);
     }
@@ -112,7 +130,13 @@ public class AttachmentsController : BaseApiController
         Guid id,
         CancellationToken ct)
     {
-        var query = new GetAttachmentQuery(id);
+        var userId = GetCurrentUserId();
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Unauthorized();
+        }
+
+        var query = new GetAttachmentQuery(id, userId, User.IsInRole(RoleConstants.SuperAdmin));
         var result = await Mediator.Send(query, ct);
         return HandleResultWithNotFound(result);
     }

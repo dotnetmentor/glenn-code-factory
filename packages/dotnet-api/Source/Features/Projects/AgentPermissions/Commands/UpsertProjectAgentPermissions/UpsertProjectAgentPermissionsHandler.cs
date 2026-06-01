@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Source.Features.Projects.AgentPermissions.Models;
 using Source.Features.Projects.Models;
+using Source.Features.Workspaces.Models;
 using Source.Infrastructure;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
@@ -111,7 +112,22 @@ public sealed class UpsertProjectAgentPermissionsHandler
                 $"{NotFoundPrefix} project {request.ProjectId} not found");
         }
 
-        // Step 4: load-or-create. The unique index on ProjectId guarantees
+        if (request.PermissionMode == BypassMode && !request.CallerIsSuperAdmin)
+        {
+            var role = await _db.WorkspaceMemberships
+                .AsNoTracking()
+                .Where(m => m.WorkspaceId == project.WorkspaceId && m.UserId == request.CallerUserId)
+                .Select(m => (WorkspaceRole?)m.Role)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (role is null || !role.Value.IsAtLeast(WorkspaceRole.Admin))
+            {
+                return Result.Failure<ProjectAgentPermissionsDto>(
+                    "admin_required_for_bypass_permissions");
+            }
+        }
+
+        // Step 4: load-or-create.
         // there's at most one row, so SingleOrDefault is safe even under a
         // write race (the second writer would catch a 23505 — but we're inside
         // a single transaction here, so the realistic concurrent case is two

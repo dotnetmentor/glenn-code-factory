@@ -169,7 +169,8 @@ public abstract class IntegrationTestBase : IDisposable
                         // in SystemSettingsExtensions only kicks in for Development, so without this
                         // entry the cipher constructor throws and any code path that resolves
                         // ISystemSettingsService (now including IGithubOptionsAccessor) returns 500.
-                        ["SystemSettings:EncryptionKey"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+                        ["SystemSettings:EncryptionKey"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                        ["Jwt:Key"] = "integration-test-jwt-signing-key-min-32-chars-long!!"
                     });
                 });
 

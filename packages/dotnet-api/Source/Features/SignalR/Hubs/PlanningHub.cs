@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Source.Infrastructure;
+using Source.Infrastructure.Extensions;
 using TypedSignalR.Client;
 
 namespace Source.Features.SignalR.Hubs;
@@ -9,33 +11,16 @@ namespace Source.Features.SignalR.Hubs;
 /// React-facing planning hub. One connection per browser tab on a planning
 /// surface (kanban board, spec list, spec detail). JWT-authenticated via the
 /// default user scheme — same as <see cref="AgentHub"/>.
-///
-/// <para><b>No auto-join on connect.</b> Unlike <see cref="AgentHub"/> (which
-/// auto-joins per-user / per-branch on connect from the negotiate query string),
-/// a single planning tab may watch multiple projects (the kanban board hops
-/// between projects without reconnecting). The frontend explicitly calls
-/// <see cref="JoinProject"/> / <see cref="LeaveProject"/> on mount / unmount of
-/// each planning surface. Lifecycle hooks here are minimal — connection-level
-/// logging only; SignalR cleans group memberships automatically on disconnect.</para>
-///
-/// <para><b>Auth gate on <see cref="JoinProject"/>.</b> No project-membership
-/// model exists yet in this codebase — the closest existing pattern (project-
-/// ownership) is tagged TODO across <see cref="AgentHub"/>. Following that
-/// precedent we accept any authenticated user — admin / dev mode. Deviation
-/// noted in the card summary; tighten when the Project entity gains an
-/// ownership / membership column.</para>
-///
-/// <para>Outbound broadcasts come from event handlers in the owning feature
-/// (Specifications / ProjectKanban), not from this hub class. The hub itself
-/// is pure subscribe / unsubscribe wire.</para>
 /// </summary>
 [Authorize]
 public class PlanningHub : Hub<IPlanningClient>, IPlanningHub
 {
+    private readonly ApplicationDbContext _db;
     private readonly ILogger<PlanningHub> _logger;
 
-    public PlanningHub(ILogger<PlanningHub> logger)
+    public PlanningHub(ApplicationDbContext db, ILogger<PlanningHub> logger)
     {
+        _db = db;
         _logger = logger;
     }
 
@@ -44,7 +29,6 @@ public class PlanningHub : Hub<IPlanningClient>, IPlanningHub
         var userId = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userId))
         {
-            // [Authorize] should have rejected — defense in depth.
             _logger.LogWarning(
                 "PlanningHub connection {ConnectionId} authenticated but missing NameIdentifier claim; aborting.",
                 Context.ConnectionId);
@@ -64,7 +48,6 @@ public class PlanningHub : Hub<IPlanningClient>, IPlanningHub
         var userId = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userId))
         {
-            // [Authorize] should have rejected — defense in depth.
             throw new HubException("Unauthenticated");
         }
 
@@ -73,10 +56,11 @@ public class PlanningHub : Hub<IPlanningClient>, IPlanningHub
             throw new HubException("Invalid projectId");
         }
 
-        // TODO(project-ownership): when the Project entity owner / membership
-        // column lands, verify the caller has access to this project before
-        // joining the group. Today's behavior matches AgentHub's project auto-
-        // join — authenticated user only.
+        if (Context.User is null
+            || !await _db.CallerCanAccessProjectAsync(Context.User, projectId, Context.ConnectionAborted))
+        {
+            throw new HubException("Project not found");
+        }
 
         await Groups.AddToGroupAsync(
             Context.ConnectionId,

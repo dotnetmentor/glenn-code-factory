@@ -877,7 +877,10 @@ public class AgentHubSubmitPromptTests : IDisposable
 
     private async Task<ProjectRuntime> SeedOnlineRuntime(Guid projectId)
     {
-        return await SeedRuntime(projectId, RuntimeState.Online);
+        await SeedProject(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedBranch(projectId, branchId);
+        return await SeedOnlineRuntimeInternal(projectId, branchId);
     }
 
     /// <summary>
@@ -887,6 +890,13 @@ public class AgentHubSubmitPromptTests : IDisposable
     /// across the seed + the SubmitPromptPayload via this overload.
     /// </summary>
     private async Task<ProjectRuntime> SeedOnlineRuntime(Guid projectId, Guid branchId)
+    {
+        await SeedProject(projectId);
+        await SeedBranch(projectId, branchId);
+        return await SeedOnlineRuntimeInternal(projectId, branchId);
+    }
+
+    private async Task<ProjectRuntime> SeedOnlineRuntimeInternal(Guid projectId, Guid branchId)
     {
         var runtime = new ProjectRuntime
         {
@@ -901,11 +911,33 @@ public class AgentHubSubmitPromptTests : IDisposable
         return runtime;
     }
 
+    private async Task SeedBranch(Guid projectId, Guid branchId)
+    {
+        if (await _db.ProjectBranches.AnyAsync(b => b.Id == branchId))
+        {
+            return;
+        }
+
+        _db.ProjectBranches.Add(new ProjectBranch
+        {
+            Id = branchId,
+            ProjectId = projectId,
+            Name = "main",
+            IsDefault = true,
+        });
+        await _db.SaveChangesAsync();
+        _db.ChangeTracker.Clear();
+    }
+
     private async Task<ProjectRuntime> SeedRuntime(Guid projectId, RuntimeState state)
     {
+        await SeedProject(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedBranch(projectId, branchId);
         var runtime = new ProjectRuntime
         {
             ProjectId = projectId,
+            BranchId = branchId,
             State = state,
             Region = "arn",
         };

@@ -34,8 +34,10 @@ public class JwtTokenService : IJwtTokenService
         _userManager = userManager;
         _context = context;
 
-        // Load JWT configuration once
-        _jwtKey = _configuration["Jwt:Key"] ?? "your-secret-key-here-minimum-32-characters-long";
+        // Load JWT configuration once — AddAuthenticationServices already refused to boot
+        // if Jwt:Key is missing; this null-forgiving read is defensive only.
+        _jwtKey = _configuration["Jwt:Key"]
+            ?? throw new InvalidOperationException("Jwt:Key is not configured.");
         _jwtIssuer = _configuration["Jwt:Issuer"] ?? "api";
         _jwtAudience = _configuration["Jwt:Audience"] ?? "api";
         _expiryMinutes = int.TryParse(_configuration["Jwt:ExpiryMinutes"], out var minutes) ? minutes : 1440 * 30; // Default: 30 days
@@ -143,12 +145,6 @@ public class JwtTokenService : IJwtTokenService
         foreach (var role in userRoles)
         {
             claims.Add(new Claim(ClaimTypes.Role, role));
-        }
-
-        // Add Cursor API key claim if present
-        if (!string.IsNullOrEmpty(user.CursorApiKey))
-        {
-            claims.Add(new Claim("cursor_api_key", user.CursorApiKey));
         }
 
         return claims;

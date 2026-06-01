@@ -101,41 +101,47 @@ public class AgentHub : Hub<IAgentClient>, IAgentHub
             // No HTTP context (unusual transport / test context).
         }
 
-        // Join the branch group if we got one. Branch is the unit of live
-        // broadcast routing for AgentEvent / RuntimeStateChanged after
-        // CopyBranch — a project may own N branches, each with its own
-        // runtime + conversations, and the React tab is scoped to exactly
-        // one of them. Missing branchId is logged as a warning (the tab won't
-        // receive live ticks but REST history still works).
-        if (Guid.TryParse(branchIdRaw, out var branchId))
+        // Join the branch group when the caller can access the branch's project.
+        if (Guid.TryParse(branchIdRaw, out var branchId) && Context.User is not null)
         {
-            await Groups.AddToGroupAsync(Context.ConnectionId, $"branch-{branchId}");
+            var branchProjectId = await _db.ProjectBranches
+                .AsNoTracking()
+                .Where(b => b.Id == branchId)
+                .Select(b => (Guid?)b.ProjectId)
+                .FirstOrDefaultAsync(Context.ConnectionAborted);
+
+            if (branchProjectId is Guid resolvedProjectId
+                && (!Guid.TryParse(projectIdRaw, out var queryProjectId) || queryProjectId == resolvedProjectId)
+                && await _db.CallerCanAccessProjectAsync(Context.User, resolvedProjectId, Context.ConnectionAborted))
+            {
+                await Groups.AddToGroupAsync(Context.ConnectionId, $"branch-{branchId}");
+            }
+            else if (branchProjectId is not null)
+            {
+                _logger.LogInformation(
+                    "AgentHub connection {ConnectionId} (user {UserId}) skipped branch-{BranchId} group — no project access.",
+                    Context.ConnectionId, userId, branchId);
+            }
         }
-        else
+        else if (!Guid.TryParse(branchIdRaw, out _))
         {
             _logger.LogWarning(
                 "AgentHub connection {ConnectionId} (user {UserId}) negotiated without a valid branchId query parameter; live AgentEvent broadcasts will not be delivered to this tab.",
                 Context.ConnectionId, userId);
         }
 
-        // Join the project group when projectId is on the negotiate query so
-        // project-scoped broadcasts (RuntimeProposalCreated / Updated,
-        // ConversationRenamed, RuntimeStateChanged fan-outs, etc.) reach every
-        // open tab on this project — not just the super-admin runtime page
-        // which previously was the only surface that received them by virtue of
-        // its own out-of-band hub instance.
-        //
-        // Without this, the workspace chat canvas would never see the
-        // RuntimeProposalCreated event when the agent submits a proposal via
-        // propose_runtime_spec — users would only see the agent's chat text
-        // asking for approval, with no UI affordance to actually approve.
-        //
-        // Missing projectId is harmless: the connection still gets the user
-        // and (if present) branch groups, so non-project-scoped broadcasts
-        // still flow.
-        if (Guid.TryParse(projectIdRaw, out var projectId))
+        if (Guid.TryParse(projectIdRaw, out var projectId) && Context.User is not null)
         {
-            await Groups.AddToGroupAsync(Context.ConnectionId, $"project-{projectId}");
+            if (await _db.CallerCanAccessProjectAsync(Context.User, projectId, Context.ConnectionAborted))
+            {
+                await Groups.AddToGroupAsync(Context.ConnectionId, $"project-{projectId}");
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "AgentHub connection {ConnectionId} (user {UserId}) skipped project-{ProjectId} group — no access.",
+                    Context.ConnectionId, userId, projectId);
+            }
         }
 
         _logger.LogInformation("AgentHub connected. User {UserId}, Connection {ConnectionId}", userId, Context.ConnectionId);
@@ -216,9 +222,18 @@ public class AgentHub : Hub<IAgentClient>, IAgentHub
         // branch lookup baked in.
         var branchId = payload.BranchId;
 
-        // TODO(project-ownership): when the Project entity lands, verify
-        // userId owns / has access to payload.ProjectId. For now we accept
-        // any authenticated user — admin / dev mode.
+        if (Context.User is null || !await _db.CallerCanAccessProjectAsync(Context.User, payload.ProjectId, Context.ConnectionAborted))
+        {
+            throw new HubException("Project not found");
+        }
+
+        var branchBelongsToProject = await _db.ProjectBranches
+            .AsNoTracking()
+            .AnyAsync(b => b.Id == branchId && b.ProjectId == payload.ProjectId, Context.ConnectionAborted);
+        if (!branchBelongsToProject)
+        {
+            throw new HubException("Project not found");
+        }
 
         // Resolve or create the parent conversation.
         Conversation conversation;
@@ -442,10 +457,28 @@ public class AgentHub : Hub<IAgentClient>, IAgentHub
         // The "session not found" Failure is logged as Debug below (matches
         // the previous silent no-op behavior — clients with stale ids).
         //
-        // TODO(project-ownership): when the Project entity lands, verify
-        // userId owns / has access to session.Conversation.ProjectId BEFORE
-        // dispatching the command, so unauthorized users can't cancel
-        // arbitrary sessions.
+        // Session must exist and belong to a project the caller can access.
+        var session = await _db.AgentSessions
+            .AsNoTracking()
+            .Include(s => s.Conversation)
+            .FirstOrDefaultAsync(s => s.Id == payload.SessionId, Context.ConnectionAborted);
+        if (session is null)
+        {
+            _logger.LogDebug(
+                "CancelTurn: session {SessionId} not found.",
+                payload.SessionId);
+            return;
+        }
+
+        if (Context.User is null
+            || !await _db.CallerCanAccessProjectAsync(Context.User, session.Conversation.ProjectId, Context.ConnectionAborted))
+        {
+            _logger.LogDebug(
+                "CancelTurn: caller denied for session {SessionId}.",
+                payload.SessionId);
+            return;
+        }
+
         var result = await _mediator.Send(new CancelSessionCommand(payload.SessionId, "user_canceled"));
 
         if (!result.IsSuccess)
@@ -494,13 +527,20 @@ public class AgentHub : Hub<IAgentClient>, IAgentHub
             throw new HubException("Unauthenticated");
         }
 
-        // TODO(project-ownership): when the Project entity lands, verify
-        // userId owns / has access to the conversation behind this session.
-        // For now: existence check only. Unknown id → empty list (NOT throw)
-        // because replay is best-effort; the client figures gone-sessions out
-        // from other state.
-        var sessionExists = await _db.AgentSessions.AnyAsync(s => s.Id == payload.SessionId);
-        if (!sessionExists)
+        // Unknown id → empty list (NOT throw) — replay is best-effort.
+        var sessionRow = await (
+            from s in _db.AgentSessions
+            join c in _db.Conversations on s.ConversationId equals c.Id
+            where s.Id == payload.SessionId
+            select new { s.Id, c.ProjectId })
+            .FirstOrDefaultAsync(Context.ConnectionAborted);
+        if (sessionRow is null)
+        {
+            return new List<AgentEventNotification>();
+        }
+
+        if (Context.User is null
+            || !await _db.CallerCanAccessProjectAsync(Context.User, sessionRow.ProjectId, Context.ConnectionAborted))
         {
             return new List<AgentEventNotification>();
         }
@@ -715,6 +755,14 @@ public class AgentHub : Hub<IAgentClient>, IAgentHub
                 "AgentHub.ResolvePermission: connection {ConnectionId} (user {UserId}) has no projectId on its negotiate query; dropping decision {Decision} for toolUseId {ToolUseId}.",
                 Context.ConnectionId, userId, payload.Decision, payload.ToolUseId);
             throw new HubException("Connection is not bound to a project");
+        }
+
+        if (Context.User is null || !await _db.CallerCanAccessProjectAsync(Context.User, projectId, Context.ConnectionAborted))
+        {
+            _logger.LogWarning(
+                "AgentHub.ResolvePermission: user {UserId} denied for project {ProjectId}.",
+                userId, projectId);
+            return;
         }
 
         // A project can own multiple ProjectRuntime rows after CopyBranch (one
