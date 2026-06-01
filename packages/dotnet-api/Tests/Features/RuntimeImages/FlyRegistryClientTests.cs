@@ -90,8 +90,11 @@ public class FlyRegistryClientTests
 
         captured.Should().NotBeNull();
         captured!.RequestUri!.AbsolutePath.Should().Be("/v2/glenn-runtime-base/tags/list");
-        captured.Headers.Authorization!.Scheme.Should().Be("Bearer");
-        captured.Headers.Authorization.Parameter.Should().Be(FlyToken);
+        // The registry uses HTTP Basic auth with username "x" and the Fly token
+        // as the password (Docker-registry convention), not a Bearer token.
+        captured.Headers.Authorization!.Scheme.Should().Be("Basic");
+        captured.Headers.Authorization.Parameter.Should()
+            .Be(Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"x:{FlyToken}")));
     }
 
     [Fact]

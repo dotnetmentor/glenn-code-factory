@@ -130,7 +130,7 @@ public class GithubInstallEndpointsTests : IntegrationTestBase
 
         var response = await client.GetAsync($"/api/github/install/callback?installation_id=555&setup_action=install&state={Uri.EscapeDataString(state)}");
         response.StatusCode.Should().Be(HttpStatusCode.Redirect, await response.Content.ReadAsStringAsync());
-        response.Headers.Location!.ToString().Should().StartWith($"/w/{alice.Slug}/integrations");
+        response.Headers.Location!.ToString().Should().StartWith($"/w/{alice.Slug}/projects?install=success");
 
         using var scope = CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();

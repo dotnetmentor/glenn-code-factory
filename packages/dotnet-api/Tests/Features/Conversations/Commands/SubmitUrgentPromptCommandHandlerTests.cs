@@ -409,30 +409,50 @@ public class SubmitUrgentPromptCommandHandlerTests : HandlerTestBase
 
     private async Task<(Guid ConversationId, Guid RuntimeId, Guid ProjectId)> SeedRuntimeAndConversation()
     {
+        // The handler resolves the runtime via the conversation's BranchId and
+        // then loads the project for its model defaults, so the runtime and
+        // conversation must share a branch and the Project row must exist.
         var projectId = Guid.NewGuid();
-        var runtimeId = await SeedRuntime(projectId);
-        var conversationId = await SeedConversationOnly(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedProject(projectId);
+        var runtimeId = await SeedRuntime(projectId, branchId);
+        var conversationId = await SeedConversationOnly(projectId, branchId);
         return (conversationId, runtimeId, projectId);
     }
 
-    private async Task<Guid> SeedRuntime(Guid projectId)
+    private async Task SeedProject(Guid projectId)
+    {
+        Context.Projects.Add(new Source.Features.Projects.Models.Project
+        {
+            Id = projectId,
+            OwnerUserId = "user-1",
+            WorkspaceId = Guid.NewGuid(),
+            Name = "test-project",
+        });
+        await Context.SaveChangesAsync();
+    }
+
+    private async Task<Guid> SeedRuntime(Guid projectId, Guid? branchId = null)
     {
         var runtime = new ProjectRuntime
         {
             ProjectId = projectId,
+            BranchId = branchId ?? Guid.NewGuid(),
+            Region = "arn",
+            State = RuntimeState.Online,
         };
         Context.ProjectRuntimes.Add(runtime);
         await Context.SaveChangesAsync();
         return runtime.Id;
     }
 
-    private async Task<Guid> SeedConversationOnly(Guid projectId)
+    private async Task<Guid> SeedConversationOnly(Guid projectId, Guid? branchId = null)
     {
         var conversation = new Conversation
         {
             ProjectId = projectId,
             Title = "test",
-            BranchId = Guid.NewGuid(),
+            BranchId = branchId ?? Guid.NewGuid(),
             Status = ConversationStatus.Active,
             LastActivityAt = DateTime.UtcNow,
         };

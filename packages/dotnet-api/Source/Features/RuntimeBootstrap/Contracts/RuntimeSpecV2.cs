@@ -184,10 +184,14 @@ public record RuntimeSpecV2
     /// </summary>
     public Result Validate()
     {
+        // ValidateDetailed ALWAYS succeeds (the act of validating worked); the
+        // validation failure, if any, is carried in Value (null = spec is valid).
+        // Checking IsSuccess here was a bug — it's always true, so Validate never
+        // reported an invalid spec. Inspect Value instead.
         var detailed = ValidateDetailed();
-        return detailed.IsSuccess
+        return detailed.Value is null
             ? Result.Success()
-            : Result.Failure(detailed.Value!.Code);
+            : Result.Failure(detailed.Value.Code);
     }
 
     /// <summary>
