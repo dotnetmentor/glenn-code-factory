@@ -793,7 +793,7 @@ public class RuntimeProvisionerJobTests : IDisposable
     [Fact]
     public void Run_HasDisableConcurrentExecutionAttribute()
     {
-        var method = typeof(RuntimeProvisionerJob).GetMethod(nameof(RuntimeProvisionerJob.Run))!;
+        var method = typeof(RuntimeProvisionerJob).GetMethod(nameof(RuntimeProvisionerJob.Run), new[] { typeof(Hangfire.IJobCancellationToken) })!;
         var attr = method.GetCustomAttributes(typeof(Hangfire.DisableConcurrentExecutionAttribute), inherit: false);
         attr.Should().NotBeEmpty(
             "two Hangfire workers must not race on the same Pending row — the attribute is the lock");

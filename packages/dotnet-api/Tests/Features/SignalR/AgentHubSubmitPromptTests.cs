@@ -107,11 +107,11 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_NewConversation_CreatesConversationAndSession()
     {
         var projectId = Guid.NewGuid();
-        var runtime = await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        var runtime = await SeedOnlineRuntime(projectId, branchId);
 
         var harness = BuildHarness();
 
-        var branchId = Guid.NewGuid();
         var before = DateTime.UtcNow;
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
@@ -166,15 +166,16 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_ExistingConversation_ReusesIt()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
-        var existing = await SeedConversation(projectId, eventCount: 4);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
+        var existing = await SeedConversation(projectId, branchId, eventCount: 4);
 
         var harness = BuildHarness();
 
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: existing.Id,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "follow-up"));
 
         // No new conversation row.
@@ -204,7 +205,8 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_LongPrompt_TitleTruncated()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
 
         var prompt = new string('a', 200);
         var harness = BuildHarness();
@@ -212,7 +214,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: prompt));
 
         var conversation = await _db.Conversations.SingleAsync();
@@ -224,7 +226,8 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_PromptUnder80Chars_TitleIsFullPrompt()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
 
         var prompt = new string('x', 30);
         var harness = BuildHarness();
@@ -232,7 +235,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: prompt));
 
         var conversation = await _db.Conversations.SingleAsync();
@@ -248,8 +251,9 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_ResumesAgentId_FromMostRecentSucceededSession()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
-        var conversation = await SeedConversation(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
+        var conversation = await SeedConversation(projectId, branchId);
 
         // Older Succeeded with claude-A.
         var oldSucceeded = new AgentSession
@@ -285,7 +289,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: conversation.Id,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "next"));
 
         var newSession = await _db.AgentSessions.SingleAsync(s => s.Id == response.SessionId);
@@ -300,8 +304,9 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_NoPriorSucceededSession_AgentIdIsNull()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
-        var conversation = await SeedConversation(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
+        var conversation = await SeedConversation(projectId, branchId);
 
         var failed = new AgentSession
         {
@@ -318,7 +323,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: conversation.Id,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "next"));
 
         var newSession = await _db.AgentSessions.SingleAsync(s => s.Id == response.SessionId);
@@ -330,13 +335,14 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_FirstPromptOnNewConversation_NoAgentId()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
 
         var harness = BuildHarness();
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "brand new"));
 
         var session = await _db.AgentSessions.SingleAsync(s => s.Id == response.SessionId);
@@ -351,14 +357,18 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_NoRuntimeForProject_ThrowsHubException()
     {
         var projectId = Guid.NewGuid();
-        // Deliberately no runtime seeded.
+        var branchId = Guid.NewGuid();
+        // Project + branch exist so the branch-FK check passes, but
+        // deliberately no runtime is seeded on the branch.
+        await SeedProject(projectId);
+        await SeedBranch(projectId, branchId);
 
         var harness = BuildHarness();
 
         var act = async () => await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "hi"));
 
         var ex = await act.Should().ThrowAsync<HubException>();
@@ -385,14 +395,15 @@ public class AgentHubSubmitPromptTests : IDisposable
         // throwing. The DispatchQueuedSessionsOnRuntimeOnlineHandler drains the
         // queue once the runtime reaches Online.
         var projectId = Guid.NewGuid();
-        await SeedRuntime(projectId, state);
+        var branchId = Guid.NewGuid();
+        await SeedRuntime(projectId, branchId, state);
 
         var harness = BuildHarness();
 
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "hi"));
 
         response.Queued.Should().BeTrue("the runtime isn't Online yet so the prompt is soft-queued");
@@ -424,14 +435,15 @@ public class AgentHubSubmitPromptTests : IDisposable
         // Deleting / Deleted) still reject the prompt — there's no future
         // transition to drain the queue against.
         var projectId = Guid.NewGuid();
-        await SeedRuntime(projectId, state);
+        var branchId = Guid.NewGuid();
+        await SeedRuntime(projectId, branchId, state);
 
         var harness = BuildHarness();
 
         var act = async () => await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "hi"));
 
         var ex = await act.Should().ThrowAsync<HubException>();
@@ -448,7 +460,8 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_DispatchesStartTurnToCorrectRuntimeGroup()
     {
         var projectId = Guid.NewGuid();
-        var runtime = await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        var runtime = await SeedOnlineRuntime(projectId, branchId);
 
         StartTurnPayload? dispatched = null;
         _runtimeGroupClient
@@ -460,7 +473,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "go"));
 
         // Dispatched once to the runtime-{runtime.Id} group.
@@ -523,7 +536,8 @@ public class AgentHubSubmitPromptTests : IDisposable
     {
         var projectIdA = Guid.NewGuid();
         var projectIdB = Guid.NewGuid();
-        await SeedOnlineRuntime(projectIdA);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectIdA, branchId);
         // Conversation belongs to project B, not A.
         var conversation = await SeedConversation(projectIdB);
 
@@ -531,7 +545,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var act = async () => await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectIdA,
             ConversationId: conversation.Id,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "cross-project attempt"));
 
         var ex = await act.Should().ThrowAsync<HubException>();
@@ -542,13 +556,14 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_UnknownConversationId_ThrowsHubException()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
 
         var harness = BuildHarness();
         var act = async () => await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: Guid.NewGuid(),
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "hi"));
 
         var ex = await act.Should().ThrowAsync<HubException>();
@@ -563,7 +578,8 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_RaisesAgentEventEmittedDomainEvent()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
 
         _eventSink.Captured.Clear();
 
@@ -571,7 +587,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "first"));
 
         _eventSink.Captured.Should().HaveCount(1,
@@ -600,13 +616,14 @@ public class AgentHubSubmitPromptTests : IDisposable
     {
         // Idle runtime → first prompt dispatches without queueing.
         var projectId = Guid.NewGuid();
-        var runtime = await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        var runtime = await SeedOnlineRuntime(projectId, branchId);
 
         var harness = BuildHarness();
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "first"));
 
         response.Queued.Should().BeFalse("nothing else was running on the runtime");
@@ -626,14 +643,15 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_ActiveSessionRunning_QueuesNewPromptAndSkipsStartTurn()
     {
         var projectId = Guid.NewGuid();
-        var runtime = await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        var runtime = await SeedOnlineRuntime(projectId, branchId);
 
         // First prompt → Running. Tracks the StartTurn invocation count.
         var harness = BuildHarness();
         var first = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "first"));
         _runtimeGroupClient.Verify(c => c.StartTurn(It.IsAny<StartTurnPayload>()), Times.Once);
 
@@ -641,7 +659,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var second = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: first.ConversationId,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "second"));
 
         second.Queued.Should().BeTrue("first session is still Running on this runtime");
@@ -666,7 +684,8 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_ThirdPromptWhileTwoQueued_GetsQueuePositionTwo()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
 
         var harness = BuildHarness();
 
@@ -674,7 +693,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var first = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "first"));
         first.Queued.Should().BeFalse();
 
@@ -682,7 +701,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var second = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: first.ConversationId,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "second"));
         second.Queued.Should().BeTrue();
         second.QueuePosition.Should().Be(1);
@@ -691,7 +710,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var third = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: first.ConversationId,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "third"));
         third.Queued.Should().BeTrue();
         third.QueuePosition.Should().Be(2, "queue positions monotonically increment per runtime");
@@ -711,10 +730,11 @@ public class AgentHubSubmitPromptTests : IDisposable
         // runtime — the daemon hasn't acked the cancel yet, and dispatching
         // another StartTurn would race the cancel-confirm event stream.
         var projectId = Guid.NewGuid();
-        var runtime = await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        var runtime = await SeedOnlineRuntime(projectId, branchId);
 
         // Manually seed a Canceling session on this runtime.
-        var conversation = await SeedConversation(projectId);
+        var conversation = await SeedConversation(projectId, branchId);
         var canceling = new AgentSession
         {
             ConversationId = conversation.Id,
@@ -730,7 +750,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: conversation.Id,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "follow-up"));
 
         response.Queued.Should().BeTrue("a Canceling session still occupies the runtime");
@@ -749,8 +769,9 @@ public class AgentHubSubmitPromptTests : IDisposable
         // Terminal sessions (Succeeded / Failed / Canceled) on the runtime
         // must NOT count as occupying — only Running / Canceling do.
         var projectId = Guid.NewGuid();
-        var runtime = await SeedOnlineRuntime(projectId);
-        var conversation = await SeedConversation(projectId);
+        var branchId = Guid.NewGuid();
+        var runtime = await SeedOnlineRuntime(projectId, branchId);
+        var conversation = await SeedConversation(projectId, branchId);
 
         foreach (var terminal in new[]
                  {
@@ -774,7 +795,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: conversation.Id,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "fresh"));
 
         response.Queued.Should().BeFalse("terminal sessions do not block new dispatches");
@@ -790,7 +811,8 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_DispatchedSession_RaisesSessionDispatchedEvent()
     {
         var projectId = Guid.NewGuid();
-        var runtime = await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        var runtime = await SeedOnlineRuntime(projectId, branchId);
 
         var dispatchedSink = new TestNotificationSink<SessionDispatched>();
         var enqueuedSink = new TestNotificationSink<SessionEnqueued>();
@@ -809,7 +831,7 @@ public class AgentHubSubmitPromptTests : IDisposable
         var response = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "fresh"));
 
         var stored = await _db.StoredDomainEvents
@@ -828,7 +850,8 @@ public class AgentHubSubmitPromptTests : IDisposable
     public async Task SubmitPrompt_QueuedSession_RaisesSessionEnqueuedEvent()
     {
         var projectId = Guid.NewGuid();
-        await SeedOnlineRuntime(projectId);
+        var branchId = Guid.NewGuid();
+        await SeedOnlineRuntime(projectId, branchId);
 
         var harness = BuildHarness();
 
@@ -836,14 +859,14 @@ public class AgentHubSubmitPromptTests : IDisposable
         var first = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: null,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "first"));
 
         // Second prompt — must be enqueued.
         var second = await harness.Hub.SubmitPrompt(new SubmitPromptPayload(
             ProjectId: projectId,
             ConversationId: first.ConversationId,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             Text: "second"));
 
         var stored = await _db.StoredDomainEvents
@@ -929,10 +952,9 @@ public class AgentHubSubmitPromptTests : IDisposable
         _db.ChangeTracker.Clear();
     }
 
-    private async Task<ProjectRuntime> SeedRuntime(Guid projectId, RuntimeState state)
+    private async Task<ProjectRuntime> SeedRuntime(Guid projectId, Guid branchId, RuntimeState state)
     {
         await SeedProject(projectId);
-        var branchId = Guid.NewGuid();
         await SeedBranch(projectId, branchId);
         var runtime = new ProjectRuntime
         {

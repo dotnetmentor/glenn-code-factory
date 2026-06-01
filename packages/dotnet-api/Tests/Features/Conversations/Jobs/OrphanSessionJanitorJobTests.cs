@@ -381,7 +381,7 @@ public class OrphanSessionJanitorJobTests : IDisposable
     [Fact]
     public void Run_HasDisableConcurrentExecutionAttribute()
     {
-        var method = typeof(OrphanSessionJanitorJob).GetMethod(nameof(OrphanSessionJanitorJob.Run))!;
+        var method = typeof(OrphanSessionJanitorJob).GetMethod(nameof(OrphanSessionJanitorJob.Run), new[] { typeof(Hangfire.IJobCancellationToken) })!;
         var attr = method.GetCustomAttributes(typeof(DisableConcurrentExecutionAttribute), inherit: false);
         attr.Should().NotBeEmpty(
             "two Hangfire workers must not race on the same orphan-scan minute — the attribute is the lock");
