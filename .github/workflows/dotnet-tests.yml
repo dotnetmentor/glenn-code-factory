@@ -37,6 +37,17 @@ jobs:
     defaults:
       run:
         working-directory: packages/dotnet-api
+    # The API fails closed at host-build time if these aren't configured
+    # (AuthenticationExtensions.RequireJwtSigningKey / SystemSettingsExtensions.
+    # RequireEncryptionKey read them straight off IConfiguration in Program.cs,
+    # BEFORE IntegrationTestBase's in-memory overrides apply — so a real env var
+    # is the only thing read early enough). These are throwaway TEST values (the
+    # test DB is in-memory and discarded); they match the ones IntegrationTestBase
+    # already seeds, so they are NOT secrets. Locally these come from each dev's
+    # .env / user-secrets, which is why the gap only shows up in CI.
+    env:
+      Jwt__Key: 'integration-test-jwt-signing-key-min-32-chars-long!!'
+      SystemSettings__EncryptionKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
     steps:
       - uses: actions/checkout@v4
 

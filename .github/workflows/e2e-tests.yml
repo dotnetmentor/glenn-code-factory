@@ -61,6 +61,12 @@ jobs:
       DATABASE_URL: 'postgres://postgres@localhost:5432/app'
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: 'http://localhost:5338'
+      # Boot guards (fail-closed): the API refuses to start without a JWT signing
+      # key and a SystemSettings encryption key. Throwaway TEST values for this
+      # ephemeral CI stack (the Postgres service + its data are discarded at job
+      # end) — NOT secrets. EncryptionKey must be valid 32-byte base64.
+      Jwt__Key: 'e2e-ci-jwt-signing-key-which-is-comfortably-over-32-chars'
+      SystemSettings__EncryptionKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
 
     steps:
       - uses: actions/checkout@v4
