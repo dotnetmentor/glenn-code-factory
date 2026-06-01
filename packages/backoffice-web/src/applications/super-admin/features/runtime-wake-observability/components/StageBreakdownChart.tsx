@@ -132,7 +132,8 @@ export function StageBreakdownChart({
                   typeof value === 'number' ? formatMsTick(value) : String(value ?? ''),
                   String(name ?? ''),
                 ]}
-                labelFormatter={(stageName: string) => stageName}
+                // recharts 3.8+: labelFormatter label is ReactNode, not string (Tooltip labelFormatter API)
+                labelFormatter={(label) => (typeof label === 'string' ? label : String(label ?? ''))}
                 contentStyle={{
                   background: theme.palette.background.paper,
                   border: `1px solid ${theme.palette.divider}`,
