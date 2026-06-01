@@ -1,0 +1,52 @@
+name: API Tests
+
+# =====================================================================================
+# Runs the .NET API xunit suite (packages/dotnet-api/Tests, ~150 tests). These are
+# self-contained: every test spins up the ASP.NET pipeline via WebApplicationFactory
+# backed by EF Core's in-memory provider (Hangfire disabled, environment "Testing"),
+# so NO Postgres / Docker is required — just the SDK. Gated on API-touching PRs and
+# run nightly.
+# =====================================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'packages/dotnet-api/**'
+      - '.github/workflows/dotnet-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/dotnet-api/**'
+      - '.github/workflows/dotnet-tests.yml'
+  schedule:
+    # 03:27 UTC nightly — staggered off the daemon (03:17) and backoffice (03:22) jobs.
+    - cron: '27 3 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: dotnet-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: dotnet test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/dotnet-api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # Targets net9.0 (api.csproj). No global.json pin, so track the latest 9.0 SDK.
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore Tests/Api.Tests.csproj
+
+      - name: Test
+        run: dotnet test Tests/Api.Tests.csproj --no-restore --configuration Release --verbosity normal

@@ -1,0 +1,136 @@
+name: E2E Tests (nightly)
+
+# =====================================================================================
+# Playwright end-to-end suite (packages/e2e, 7 specs). Unlike the unit suites this
+# needs the WHOLE stack running — Postgres + the .NET API (:5338) + the Vite frontend
+# (:5173, which proxies /api and /hubs to the API) — so it's NIGHTLY-ONLY (plus manual
+# dispatch). Too heavy and slow for every PR.
+#
+# How the pieces fit (discovered from the code, not guessed):
+#   - The API on ASPNETCORE_ENVIRONMENT=Development migrates the DB and runs DevSeed,
+#     which creates the exact users packages/e2e/auth.setup.ts logs in as:
+#     admin@test.com / user@test.com, password Test123! (see DevSeedData.cs).
+#   - The API reads its connection string from DATABASE_URL (PostgresConnectionString.cs).
+#   - The frontend's Vite dev server proxies /api + /hubs to localhost:5338
+#     (vite.config), and Playwright's baseURL is http://localhost:5173.
+#   - auth.setup.ts polls /health (mapped in Program.cs) before authenticating.
+#
+# ⚠️  FIRST-RUN NOTE: this boots a real API in Development mode. If startup needs extra
+# configuration (secrets / appsettings the dev profile expects), the "Start API" step
+# will time out — its log is printed on failure for diagnosis. Add any required values
+# as repo secrets and surface them as env on the "Start API" step.
+# =====================================================================================
+
+on:
+  schedule:
+    # 03:40 UTC nightly — after the unit suites (03:17–03:27) so a broken unit
+    # suite shows up first in the morning's run list.
+    - cron: '40 3 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: e2e-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: app
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # API config. DATABASE_URL is normalised to Npgsql keyword form by the API.
+      DATABASE_URL: 'postgres://postgres@localhost:5432/app'
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: 'http://localhost:5338'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # --- Bring up the API (migrates + DevSeeds on Development startup) ---
+      - name: Start API
+        run: |
+          nohup dotnet run --project api.csproj -c Release > /tmp/api.log 2>&1 &
+          echo "Waiting for API /health on :5338 ..."
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:5338/health >/dev/null 2>&1; then
+              echo "API healthy after ${i}s"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::API did not become healthy in time"; exit 1
+        working-directory: packages/dotnet-api
+
+      # --- Bring up the frontend (Vite dev server proxies to the API) ---
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: packages/backoffice-web
+
+      - name: Start frontend
+        run: |
+          nohup npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/web.log 2>&1 &
+          echo "Waiting for frontend on :5173 ..."
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5173 >/dev/null 2>&1; then
+              echo "Frontend up after ${i}s"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Frontend did not come up in time"; exit 1
+        working-directory: packages/backoffice-web
+
+      # --- Run Playwright ---
+      - name: Install e2e deps
+        run: npm ci
+        working-directory: packages/e2e
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: packages/e2e
+
+      - name: Run Playwright tests
+        run: npm test
+        working-directory: packages/e2e
+
+      # --- Diagnostics ---
+      - name: Server logs on failure
+        if: failure()
+        run: |
+          echo "===== API log ====="; tail -n 200 /tmp/api.log || true
+          echo "===== Frontend log ====="; tail -n 100 /tmp/web.log || true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: packages/e2e/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
