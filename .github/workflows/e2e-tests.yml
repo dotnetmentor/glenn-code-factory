@@ -58,7 +58,9 @@ jobs:
 
     env:
       # API config. DATABASE_URL is normalised to Npgsql keyword form by the API.
-      DATABASE_URL: 'postgres://postgres@localhost:5432/app'
+      # sslmode=disable is REQUIRED: PostgresConnectionString defaults to SslMode=Require
+      # when the URI omits sslmode, but the stock postgres:16 service has no TLS.
+      DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/app?sslmode=disable'
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: 'http://localhost:5338'
       # Boot guards (fail-closed): the API refuses to start without a JWT signing
