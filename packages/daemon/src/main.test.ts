@@ -379,6 +379,15 @@ function buildFakes(opts: BuildOpts = {}): BuiltFakes {
   const signalrOnForceRebootstrap = vi.fn(() => {
     order.push('signalr.onForceRebootstrap')
   })
+  // chat-file-attachments — server pushes StageAttachment when an upload
+  // completes; runMain wires this to the AttachmentStager. The stub only needs
+  // to exist (and record order) for the wiring test; the staging round-trip is
+  // covered by AttachmentStager.test.
+  const stageAttachmentHandlers: Array<(p: unknown) => void | Promise<void>> = []
+  const signalrOnStageAttachment = vi.fn((h: (p: unknown) => void | Promise<void>) => {
+    stageAttachmentHandlers.push(h)
+    order.push('signalr.onStageAttachment')
+  })
   const signalrStub = {
     start: signalrStart,
     emitEvent: signalrEmitEvent,
@@ -399,6 +408,7 @@ function buildFakes(opts: BuildOpts = {}): BuiltFakes {
     onGetBranchFileDiff: signalrOnGetBranchFileDiff,
     onGetCommitRange: signalrOnGetCommitRange,
     onForceRebootstrap: signalrOnForceRebootstrap,
+    onStageAttachment: signalrOnStageAttachment,
     invokePermissionRequested: signalrInvokePermissionRequested,
   } as unknown as SignalRClient
 
@@ -877,6 +887,7 @@ describe('runMain', () => {
       'signalr.onGetCommitRange',
       'signalr.onApplyRuntimeSpecDelta',
       'signalr.onForceRebootstrap',
+      'signalr.onStageAttachment',
       'signalr.onRestartService',
       'shutdown.install',
       'turnRunner.start',

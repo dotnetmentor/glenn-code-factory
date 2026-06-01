@@ -1,0 +1,69 @@
+name: Daemon Tests
+
+# =====================================================================================
+# Runs the daemon's vitest suite (packages/daemon). The suite is fast (~6s, ~900
+# tests, no network or real processes — every collaborator is a hand-rolled fake),
+# so we gate it on every daemon-touching PR AND run the full thing nightly.
+#
+# Why both PR + nightly:
+#   - PR / push (path-filtered): catches drift at the source. The suite has rotted
+#     before precisely because nothing ran it — a fake fell out of sync with the
+#     composition root and 35 tests went red unnoticed. Cheap to prevent: 6 seconds.
+#   - Nightly (schedule): a backstop that also attempts the env-gated integration
+#     test (McpStreamableHttp.integration) when the INTEGRATION_* secrets are set.
+#     Without those secrets it stays skipped, exactly as it does locally.
+#
+# Manual runs: use the "Run workflow" button (workflow_dispatch).
+# =====================================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'packages/daemon/**'
+      - '.github/workflows/daemon-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/daemon/**'
+      - '.github/workflows/daemon-tests.yml'
+  schedule:
+    # 03:17 UTC nightly. Off-peak and off the top-of-hour to dodge GHA scheduler
+    # congestion (cron is best-effort and busiest on the hour).
+    - cron: '17 3 * * *'
+  workflow_dispatch: {}
+
+# A newer commit on the same branch/PR supersedes an in-flight run.
+concurrency:
+  group: daemon-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/daemon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/daemon/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        # On the nightly schedule, surface the integration test's env gate. The
+        # secrets are optional — when unset the test skips itself (same as a
+        # normal PR run), so this never turns a green suite red on a fork/PR.
+        env:
+          INTEGRATION_BACKEND_URL: ${{ github.event_name == 'schedule' && secrets.INTEGRATION_BACKEND_URL || '' }}
+          INTEGRATION_RUNTIME_TOKEN: ${{ github.event_name == 'schedule' && secrets.INTEGRATION_RUNTIME_TOKEN || '' }}
+        run: npm test

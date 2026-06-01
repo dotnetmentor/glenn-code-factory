@@ -311,19 +311,30 @@ describe('GitModule', () => {
       expect(invocations(invoke).some(([m]) => m === 'CommitMade')).toBe(false)
     })
 
-    it('returns ok:false on git add failure without running commit', async () => {
+    it('returns ok:false on git add failure without running commit (but resolves branch for CommitFailed)', async () => {
       const { module, runner, invoke } = buildModule()
 
       runner.enqueue({ exitCode: 0, outputTail: ' M file.ts\n' }) // status dirty
       runner.enqueue({ exitCode: 128, outputTail: 'fatal: cannot add\n' }) // add fail
+      // 3rd op: #emitCommitFailed enriches the CommitFailed event with the
+      // current branch via `currentBranch()` (rev-parse). Synthetic default
+      // result from the runner is fine.
 
       const result = await module.commit('subject')
 
       expect(result.ok).toBe(false)
       expect(result.exitCode).toBe(128)
       expect(result.outputTail).toContain('fatal: cannot add')
-      expect(runner.runs).toHaveLength(2)
+
+      // commit is never attempted (the add failed). The flow is:
+      //   status --porcelain  →  add -A  →  rev-parse (branch for the event)
+      expect(runner.runs.map((r) => r.args[0])).toEqual(['status', 'add', 'rev-parse'])
+      // The third op MUST NOT be a commit — that's the regression this guards.
+      expect(runner.runs.some((r) => r.args[0] === 'commit')).toBe(false)
+
+      // No CommitMade, but a CommitFailed IS fanned out.
       expect(invocations(invoke).some(([m]) => m === 'CommitMade')).toBe(false)
+      expect(invocations(invoke).some(([m]) => m === 'CommitFailed')).toBe(true)
     })
 
     it('stamps conversationId / turnId on GitOperationStarted payloads', async () => {

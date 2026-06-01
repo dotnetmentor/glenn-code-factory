@@ -208,15 +208,21 @@ describe('V2 end-to-end smoke', () => {
     //
     // The expected sequence is:
     //   ServiceStarting(postgres)
-    //   ServiceRunning(postgres, durationMs)
+    //   ServiceRunning(postgres, durationMs)        — supervisord reports RUNNING
+    //   ServiceHealthcheckProbeFailed(postgres)     — first pg_isready probe (exit 2); Info, expected during startup
+    //   ServiceHealthy(postgres)                    — second pg_isready probe (exit 0)
     //   SetupCommandStarted(...)
     //   SetupCommandCompleted(...)
     //
+    // The probe-failed event reflects the mock's "still booting" first probe;
+    // the active healthcheck retries and succeeds, yielding ServiceHealthy.
     // Each *Completed / *Running event must carry a non-null durationMs.
     const eventTypes = emitter.events.map((e) => e.type)
     expect(eventTypes).toEqual([
       'ServiceStarting',
       'ServiceRunning',
+      'ServiceHealthcheckProbeFailed',
+      'ServiceHealthy',
       'SetupCommandStarted',
       'SetupCommandCompleted',
     ])
@@ -229,9 +235,13 @@ describe('V2 end-to-end smoke', () => {
     expect(setupCompleted.durationMs).toBeTypeOf('number')
     expect(setupCompleted.durationMs!).toBeGreaterThanOrEqual(0)
 
-    // Severity defaults: Started / Running / Completed are all Info.
+    // Severity: every event on the happy path is Info. A transient probe
+    // failure (service still booting, healthcheck will retry) is deliberately
+    // Info too — NOT Error/Warn — so it doesn't surface as a hard failure in
+    // the Timeline. (The terminal ServiceHealthcheckTimedOut is the Warn case,
+    // which this happy path never reaches.)
     for (const ev of emitter.events) {
-      expect(ev.severity).toBe('Info')
+      expect(ev.severity, `severity for ${ev.type}`).toBe('Info')
     }
   })
 
@@ -333,13 +343,31 @@ describe('V2 end-to-end smoke', () => {
 
     // === Structured RuntimeEvent assertions ===
     //
-    // The applier should have emitted a paired SpecDeltaApplied (Started/
-    // Completed) with phaseTimings on the completion event.
+    // The applier emits an outer paired SpecDeltaApplied (Started/Completed)
+    // that brackets per-phase paired events. For this delta (top-level install
+    // changed, one service with an empty-but-changed install, setup changed):
+    //   SpecDeltaApplied        — outer start
+    //     InstallStarted/Completed   — top-level install bash ran
+    //     InstallStarted/Skipped     — per-service install (hash differs, no script)
+    //     SetupCommandStarted/Completed
+    //   SpecDeltaApplied        — outer completion (carries phaseTimings)
     const applierTypes = applierEmitter.events.map((e) => e.type)
-    expect(applierTypes).toEqual(['SpecDeltaApplied', 'SpecDeltaApplied'])
+    expect(applierTypes).toEqual([
+      'SpecDeltaApplied',
+      'InstallStarted',
+      'InstallCompleted',
+      'InstallStarted',
+      'InstallSkipped',
+      'SetupCommandStarted',
+      'SetupCommandCompleted',
+      'SpecDeltaApplied',
+    ])
 
+    // The outer pair brackets the per-phase events: start is first, the
+    // completion (with phaseTimings) is last.
     const startEvent = applierEmitter.events[0]!
-    const completedEvent = applierEmitter.events[1]!
+    const completedEvent = applierEmitter.events.at(-1)!
+    expect(completedEvent.type).toBe('SpecDeltaApplied')
     expect(startEvent.payload['startedAt']).toBeTypeOf('string')
     expect(startEvent.payload['proposalId']).toBe('smoke-1')
     expect(startEvent.payload['deltaSummary']).toEqual({
