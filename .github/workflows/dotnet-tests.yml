@@ -78,6 +78,10 @@ jobs:
       # sslmode=disable is REQUIRED: PostgresConnectionString defaults to SslMode=Require
       # when the URI omits sslmode, but the stock postgres:16 service has no TLS.
       DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/app?sslmode=disable'
+      # Use the no-op Console email sender. appsettings.json pins Email:Provider=Resend
+      # with an empty ApiToken, so any flow that sends mail (e.g. user registration ->
+      # welcome email) 500s on "API key is invalid" without this override.
+      Email__Provider: 'Console'
 
     steps:
       - uses: actions/checkout@v4

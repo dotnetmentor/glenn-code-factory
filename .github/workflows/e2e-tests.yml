@@ -69,6 +69,10 @@ jobs:
       # end) — NOT secrets. EncryptionKey must be valid 32-byte base64.
       Jwt__Key: 'e2e-ci-jwt-signing-key-which-is-comfortably-over-32-chars'
       SystemSettings__EncryptionKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+      # No-op email sender — DevSeed registers users on Development startup, which
+      # would otherwise try (and fail) to send welcome mail via the unconfigured
+      # Resend provider pinned in appsettings.json.
+      Email__Provider: 'Console'
 
     steps:
       - uses: actions/checkout@v4
