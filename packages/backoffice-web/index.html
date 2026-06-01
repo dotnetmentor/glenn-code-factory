@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link id="favicon" rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="description" content="GlennCode Agent Template — a full-stack starter for building production-grade AI-powered systems. Scaffolded by glenncode.ai." />
+    <!--
+      theme-color tints iOS Safari's URL bar (browser mode) and the Android
+      Chrome status bar to match the app. Use the same canvas colour the shell
+      paints with so the device chrome blends into the page instead of cutting
+      a sharp purple strip across the top.
+    -->
+    <meta name="theme-color" content="#F5F5F7" />
+    <!--
+      iOS PWA / "Add to Home Screen" status-bar style.
+      Counter-intuitively, `black-translucent` is the ONLY value that makes the
+      status bar transparent — `default` paints an opaque white panel over the
+      safe-area zone (which is what showed up as a white strip behind the
+      notch). `black-translucent` keeps glyphs dark and lets our beige canvas
+      paint through. The "black" in the name refers only to the glyph colour,
+      not the bar background.
+    -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="author" content="GlennCode" />
+    <!--
+      Geist + Geist Mono — primary type stack for the workspace.
+      Loaded from Google Fonts; preconnect to cut handshake latency on first paint.
+      Falls back to system stack if the network blocks Google Fonts (`index.css`
+      keeps a system-only fallback so we never render a bare serif).
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap"
+    />
+    <title>GlennCode — Agent Template</title>
+    <script>
+      (function() {
+        var queue = [];
+        var timeout = null;
+        function send(type, payload) {
+          try { window.parent.postMessage({ type: type, payload: payload, timestamp: Date.now() }, '*'); } catch (e) {}
+        }
+        function flush() {
+          queue.forEach(function(e) { send('preview:error', e); });
+          queue = [];
+          timeout = null;
+        }
+        function queueError(err) {
+          queue.push(err);
+          if (!timeout) timeout = setTimeout(flush, 500);
+        }
+        window.onerror = function(message, filename, lineno, colno, error) {
+          queueError({
+            message: String(message),
+            stack: error && error.stack,
+            filename: filename,
+            lineno: lineno,
+            colno: colno,
+            source: 'module-load'
+          });
+        };
+        window.onunhandledrejection = function(event) {
+          queueError({
+            message: event.reason && event.reason.message || String(event.reason),
+            stack: event.reason && event.reason.stack,
+            source: 'module-load'
+          });
+        };
+        window.__previewBridgeBootstrapped = true;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

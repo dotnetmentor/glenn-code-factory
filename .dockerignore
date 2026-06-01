@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Node
+**/node_modules
+**/.npm
+
+# .NET
+**/bin
+**/obj
+**/*.user
+**/*.suo
+**/Tests
+
+# Build artifacts
+**/dist
+**/build
+
+# IDE
+.idea
+.vscode
+**/.cursorrules
+
+# Local development
+local-db
+*.db
+*.db-shm
+*.db-wal
+
+# Documentation
+*.md
+!README.md
+
+# Claude
+.claude
+
+# Misc
+.DS_Store
+Thumbs.db

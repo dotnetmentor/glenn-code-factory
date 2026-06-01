@@ -1,0 +1,98 @@
+.env
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+# The .NET-style [Ll]ogs/ above also matches packages/daemon/src/logs/
+# (LogTailer + future log handling). Re-include it explicitly.
+!packages/daemon/src/logs/
+.vs/
+*.dbmdl
+*.jfm
+appsettings.*.json
+!appsettings.json
+*.publishsettings
+
+# Deployment artifacts
+*.tar.gz
+web-dist.tar.gz
+api-dist.tar.gz
+
+# Next.js
+.next/
+out/
+build/
+dist/
+.vercel
+.turbo
+*.tsbuildinfo
+next-env.d.ts
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Testing
+coverage/
+.nyc_output
+
+# Misc
+.DS_Store
+*.pem
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+
+
+*obj/
+*bin/core
+.playwright-data
+.playwright-mcp
+
+# chat-file-attachments — daemon stages uploaded files here inside the repo
+# (cwd of the Cursor agent) so they can be read with the Read tool. Never
+# commit staged attachment bytes.
+.glenn/
+
+# Local-only agent / platform config (never commit real keys)
+.sdd/local-*.json
+.sdd/claude-session-map.json
+.daemon-publish-stage/
+secret-note.txt
+nav-snapshot.md
+.tmp-*
+.sdd-tmp-*
+.fly.runtime-base.toml

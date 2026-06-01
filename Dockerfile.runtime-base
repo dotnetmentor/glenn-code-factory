@@ -1,0 +1,337 @@
+# =====================================================================================
+# Glenn Runtime Base Image (slim — daemon-as-downloadable, services-as-installable)
+# =====================================================================================
+# Universal substrate for every project runtime Machine. Contains generic tooling only:
+# Node 20, Cursor SDK runtime peers (via daemon bundle), mise, supervisord, git, gh, Playwright + Chromium, plus
+# **PostgreSQL** as the one pre-baked database (large to apt-install, very common),
+# and a bootstrap script that fetches the daemon bundle from R2 at container boot.
+#
+# ----------------------- Philosophy (Runtime Spec V2) -------------------------------
+# Per the freeform runtime spec (runtime-spec-v2), this image carries ONLY:
+#   - Generic system tooling (curl, git, gh, build-essential, python3, supervisor, ...)
+#   - Universal language runtimes (Node 20) and toolchain installers (mise)
+#   - Playwright + Chromium (large; pre-baked so projects don't pay the cost)
+#   - PostgreSQL 15 (the most common service; slow to apt-install)
+#
+# Everything else — redis, minio, mailhog, mongodb, elasticsearch, rabbitmq, ... —
+# is installed **on demand** by each project's per-service `install` snippet (see
+# RuntimeSpecV2.services[].install). The daemon's bootstrap pipeline runs those
+# install scripts on first boot and hash-skips them on subsequent boots, so the
+# one-time install is amortized across the volume's lifetime.
+#
+# REMOVED from this image (vs. earlier drafts that pre-baked them):
+#   - redis-server (apt) → projects install via spec
+#   - minio (binary download) → projects install via spec
+#   - mailhog (binary download) → projects install via spec
+# Approximate size reduction: ~150 MB across the three (redis ~40 MB, minio ~80 MB,
+# mailhog ~30 MB plus their data/config). Postgres stays — it's ~250 MB installed
+# and not worth re-installing on every cold boot for a service that most projects use.
+#
+# TODO(P2 · InstallStage): Until the daemon's InstallStage ships (kanban card id
+# 016bfe3b-9c11-4de7-a702-b8a193fb4210), projects that require redis/minio/mailhog
+# in their spec will fail to start those services — supervisord can't exec a binary
+# that doesn't exist. This is a KNOWN, INTENTIONAL gap during the V2 migration. Do
+# NOT add the binaries back; instead, land the InstallStage card.
+# ------------------------------------------------------------------------------------
+#
+# The daemon is NO LONGER baked into this image. On boot, supervisord runs
+# /usr/local/bin/bootstrap-daemon.sh, which:
+#   1. Reads DAEMON_BUNDLE_URL + DAEMON_BUNDLE_SHA256 from the env (stamped in by
+#      RuntimeProvisionerJob from /api/daemon-versions/resolve).
+#   2. Downloads + sha256-verifies the tarball.
+#   3. Extracts to /opt/agent/.
+#   4. Execs `node /opt/agent/daemon.js`.
+#
+# This means daemon code can ship in minutes (build → publish → re-create Machines)
+# without rebuilding/pushing this base image.
+#
+# Tag format: glenn-runtime-base:YYYY.MM.DD-{shortsha} + :latest (local dev only)
+#
+# Built via .github/workflows/runtime-image.yml on merges to main.
+#
+# Build context: repo root.
+#   docker build -f Dockerfile.runtime-base .
+# =====================================================================================
+
+FROM debian:bookworm-slim
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# ----------------------- Layer 1: OS packages (rarely change) -----------------------
+# curl + ca-certificates + tar + gzip are required at runtime by bootstrap-daemon.sh
+# (curl pulls the tarball, tar/gzip extract it, ca-certificates so HTTPS to R2 works).
+# sudo is required by per-service install snippets in RuntimeSpecV2 — the daemon
+# runs as `agent` (uid 1001) but service installs need to apt-install packages,
+# create /data subdirs, chown to a service user, etc. We pair this with a
+# passwordless sudoers entry below (Layer 1d) so `sudo -n` succeeds without a
+# prompt. Documented by daemon's InstallStage.ts (Card P2 / sudo TODO).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        wget \
+        gnupg \
+        git \
+        build-essential \
+        supervisor \
+        python3 \
+        procps \
+        tini \
+        tar \
+        gzip \
+        sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# ----------------------- Layer 1a: Kernel sysctl tuning (very stable) ---------------
+# Raise inotify limits well above Debian's stock 8192/128. chokidar (used by the
+# daemon for file change hooks, and by every Vite/Next/Webpack dev server users
+# run inside their project) registers one watch per directory recursively. A
+# realistic monorepo with dozens of nested node_modules can blow past 8k watches
+# during initial traversal, causing `ENOSPC: System limit for number of file
+# watchers reached` and crash-looping the daemon. 524288 watches + 512 instances
+# matches the Linux desktop convention and costs ~1 KB kernel memory per watch.
+#
+# Important: writing the file alone is not enough — we don't run systemd, so
+# /etc/sysctl.d/ is NOT auto-applied. entrypoint.sh applies it on every boot via
+# `sudo sysctl --system` (the agent user has passwordless sudo per Layer 5).
+RUN mkdir -p /etc/sysctl.d \
+    && printf "fs.inotify.max_user_watches=524288\nfs.inotify.max_user_instances=512\n" \
+        > /etc/sysctl.d/90-inotify.conf
+
+# ----------------------- Layer 1b: System-wide git identity (very stable) -----------
+# Every auto-commit emitted by the daemon authors against this identity. Set --system
+# (not --global) so it applies regardless of which user runs git inside the container —
+# root during image build, `agent` (uid 1001) at runtime, or any future shell-out from a
+# different uid. Without this, `git commit` exits 128 with "Please tell me who you are"
+# and the entire auto-commit loop silently no-ops (we hit this in production: every row
+# in the GitOperations audit table was an exit-128 from missing identity).
+RUN git config --system user.name "Glenncode Agent" \
+    && git config --system user.email "agent@glenncode.ai"
+
+# ----------------------- Layer 1c: PostgreSQL 15 (large, rarely changes) ------------
+# Postgres is the one pre-baked service. Rationale (Runtime Spec V2): postgres is the
+# most common dependency, the apt install is multi-minute, and the bookworm package
+# ships a working server + client + initdb. Other services (redis, minio, mailhog,
+# mongodb, ...) install on demand via per-service `install` snippets in the project's
+# spec, so this layer is the deliberate exception, not the rule.
+#
+# Bookworm ships postgresql-15 in its default repos — no PGDG keyring dance needed.
+# We install the server, contrib (extensions like pg_stat_statements that projects
+# commonly enable), and the client tools (psql, pg_dump). The `postgres` user is
+# created by the package post-install. The data dir lives at /data/project/services/
+# postgres/data (entrypoint pre-creates it; service-init `initdb` populates it on
+# first boot and chowns it to `postgres:postgres`).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        postgresql-15 \
+        postgresql-contrib-15 \
+        postgresql-client-15 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pg_config --version
+
+# ----------------------- Layer 1d: cloudflared (Cloudflare Tunnel) ------------------
+# cloudflared is the Cloudflare Tunnel daemon. Used by the agent daemon to expose the
+# project's preview port (PREVIEW_PORT, default 5173) to a stable Cloudflare-managed
+# public URL like https://{8-char-subdomain}.glenncode.ai.
+#
+# The daemon writes a supervisord conf for cloudflared at boot if TUNNEL_TOKEN is set
+# in the env (stamped by RuntimeProvisionerJob from the branch's assigned subdomain).
+# If TUNNEL_TOKEN is missing (legacy branches pre-Phase 3), no tunnel is started.
+#
+# We install via the official .deb from GitHub releases so the binary version is
+# predictable and the layer caches cleanly. The .deb may register a systemd unit
+# under /lib/systemd/system/cloudflared.service — that's harmless here because
+# supervisord (our PID 1 in this container) does not run systemd. The binary at
+# /usr/local/bin/cloudflared (symlinked from /usr/bin/cloudflared by the .deb)
+# is what supervisord exec's directly.
+#
+# Bump the URL to update the version.
+RUN curl -fsSL -o /tmp/cloudflared.deb \
+        https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
+    && dpkg -i /tmp/cloudflared.deb \
+    && rm /tmp/cloudflared.deb \
+    && cloudflared --version
+
+# ----------------------- Layer 2: Node 20 LTS (rarely changes) ----------------------
+ENV NODE_MAJOR=20
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version && npm --version
+
+# ----------------------- Layer 3: GitHub CLI (rarely changes) -----------------------
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod 0644 /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# ----------------------- Layer 4: mise (pinned, rarely changes) ---------------------
+ENV MISE_VERSION=v2025.1.5
+RUN curl -fsSL https://mise.run | MISE_VERSION=${MISE_VERSION} sh \
+    && mv /root/.local/bin/mise /usr/local/bin/mise \
+    && mise --version
+
+# ----------------------- Layer 5: agent user + dirs (very stable) -------------------
+# /opt/agent is created EMPTY here. The bootstrap script populates it at runtime with
+# daemon.js and node_modules/ extracted from the published bundle.
+#
+# Passwordless sudo for `agent` so per-service install snippets in RuntimeSpecV2
+# (which run via daemon's InstallStage as the `agent` user) can elevate to
+# apt-install packages, chown data dirs to service users, etc. Without this,
+# spec installs that contain `sudo apt-get install -y ...` fail with
+# `sudo: a password is required` (or `command not found` if sudo itself is
+# absent). The seeded presets (mongodb, minio, redis, ...) all assume this.
+#
+# Docker group + agent membership (paired with entrypoint.sh GID alignment).
+#
+# Why this exists: dockerd's unix socket (/var/run/docker.sock) is owned
+# root:docker mode 660, so any user that needs to drive Docker (build/run/ps)
+# must be in the `docker` group. The agent user is uid 1001 and would
+# otherwise fall back to `sudo docker ...` — extra friction, extra surface,
+# and an easy way for agents to waste a turn diagnosing a permissions error
+# that should never have been visible to them. Baking membership in here
+# makes `docker ps` Just Work the moment a socket is exposed to the container.
+#
+# GID choice: 999 is the Debian / Docker convention. If the runtime socket
+# arrives with a DIFFERENT GID (e.g. host-bind-mount from a VM where the
+# docker group ended up at a different number), entrypoint.sh aligns the
+# in-image group's GID at boot via `groupmod` and re-execs the rest of the
+# boot under `sg docker` so supervisord (and every child) picks up the new
+# GID in its supplementary groups. See entrypoint.sh "Docker socket GID
+# alignment" block.
+#
+# `getent group docker || groupadd ...` makes this idempotent against any
+# earlier layer that might already have created the group (none today, but
+# future apt installs like docker.io would).
+RUN useradd --create-home --shell /bin/bash --uid 1001 agent \
+    && mkdir -p /data /opt/agent /var/log/supervisor /etc/supervisor/conf.d \
+    && chown -R agent:agent /data /opt/agent /var/log/supervisor /etc/supervisor/conf.d \
+    && echo "agent ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/agent \
+    && chmod 0440 /etc/sudoers.d/agent \
+    && visudo -c -f /etc/sudoers.d/agent \
+    && ( getent group docker >/dev/null 2>&1 || groupadd -g 999 docker ) \
+    && usermod -aG docker agent
+
+# ----------------------- Layer 5a: Modern Ruby (3.3.7) via mise ---------------------
+# Why this exists: Debian bookworm's system Ruby is 3.1.2 (RubyGems 3.3.x). That
+# RubyGems pre-dates the libc-split linux platform-tag convention introduced in
+# RubyGems 3.5+ (alongside Ruby 3.3 / Rails 8 era, late 2024). Gems published
+# under that newer convention — notably `tailwindcss-ruby >= 4.1` — are only
+# uploaded for `x86_64-linux-gnu` / `x86_64-linux-musl` platforms; the legacy
+# bare `x86_64-linux` tarball is missing.
+#
+# Symptom we hit: a Rails 8 project running `bundle install` against system
+# Ruby 3.1.2 asks rubygems.org for `tailwindcss-ruby-4.3.0-x86_64-linux.gem`
+# and gets back HTTP 403 (S3 returns 403 not 404 for missing objects when
+# LIST is denied). `bundle install` aborts, the agent can't scaffold Rails.
+#
+# Fix: ship a modern Ruby (3.3.7 → RubyGems 3.5.x → Bundler 2.5.x). With that,
+# bundler resolves to `x86_64-linux-gnu` which is what the publishers actually
+# upload.
+#
+# Why mise (rather than apt PPA or ruby-install or rbenv): mise is already
+# installed on this image (Layer 4) and the daemon also uses it for per-project
+# language pinning. Reusing it keeps the image surface small. Build deps (libssl,
+# libyaml, libreadline, etc.) are required because mise's ruby plugin compiles
+# from source via ruby-build. We keep the build deps in the image AFTER the
+# compile because Rails projects routinely install native gems (pg requires
+# libpq-dev, nokogiri now ships as binary but used to need libxml2-dev, etc.).
+#
+# Layout:
+#   MISE_DATA_DIR=/opt/mise    — shared install location (root-owned during build)
+#   /opt/mise/installs/ruby/3.3.7/bin/{ruby,gem,bundle,rake,irb,erb}
+#   Symlinked into /usr/local/bin so any user finds them on PATH without needing
+#   `mise activate` shims. Chown'd to agent so `gem install` and `bundle install`
+#   into the system gem dir work without sudo.
+ENV MISE_DATA_DIR=/opt/mise
+ENV RUBY_VERSION=3.3.7
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        autoconf \
+        bison \
+        libssl-dev \
+        libyaml-dev \
+        libreadline-dev \
+        zlib1g-dev \
+        libncurses-dev \
+        libffi-dev \
+        libgmp-dev \
+        libgdbm-dev \
+        libdb-dev \
+        uuid-dev \
+        libpq-dev \
+        libxml2-dev \
+        libxslt1-dev \
+        libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p ${MISE_DATA_DIR} \
+    && mise install ruby@${RUBY_VERSION} \
+    && RUBY_BIN=${MISE_DATA_DIR}/installs/ruby/${RUBY_VERSION}/bin \
+    && ln -sf ${RUBY_BIN}/ruby /usr/local/bin/ruby \
+    && ln -sf ${RUBY_BIN}/gem /usr/local/bin/gem \
+    && ln -sf ${RUBY_BIN}/bundle /usr/local/bin/bundle \
+    && ln -sf ${RUBY_BIN}/bundler /usr/local/bin/bundler \
+    && ln -sf ${RUBY_BIN}/rake /usr/local/bin/rake \
+    && ln -sf ${RUBY_BIN}/irb /usr/local/bin/irb \
+    && ln -sf ${RUBY_BIN}/erb /usr/local/bin/erb \
+    && ln -sf ${RUBY_BIN}/rdoc /usr/local/bin/rdoc \
+    && ln -sf ${RUBY_BIN}/ri /usr/local/bin/ri \
+    && chown -R agent:agent ${MISE_DATA_DIR} \
+    && ruby --version \
+    && gem --version \
+    && bundle --version
+# /etc/supervisor/conf.d is chowned to agent so the daemon (running as agent)
+# can write per-service supervisord conf files via plain node:fs writeFile,
+# without needing a sudo shell-out. supervisord itself runs as agent (see
+# `USER agent` below), so it can read these confs. The daemon then calls
+# `supervisorctl reread && supervisorctl update` to apply them — these talk
+# to the supervisord unix socket which is also agent-owned.
+
+# ----------------------- Layer 6: (REMOVED) Legacy native CLI binaries ----------------
+# Historical context — DO NOT add this layer back without re-reading the doc!
+#
+# Until 2026-05, this layer installed heavy x86_64 native npm packages globally
+# (Anthropic Claude Agent SDK CLI, opencode, etc.). Those binaries dominated
+# image weight and forced full base-image rebuilds on every SDK bump.
+#
+# The platform now runs agent turns exclusively via `@cursor/sdk`. The SDK and
+# its peers (including sqlite3 native bindings) ship inside the **daemon bundle**
+# published by `./scripts/publish-daemon.sh`, not in the base image. bootstrap-daemon.sh
+# extracts that bundle to `/opt/agent/` at boot.
+#
+# Trade: daemon bundle is larger (~100+ MB with node_modules), but base-image
+# churn dropped sharply and SDK updates ship via daemon publish in minutes.
+
+# ----------------------- Layer 7: Playwright + Chromium (large, occasional) ---------
+# Installed system-wide so any user can run it. Chromium drops a ~300MB blob — kept in
+# its own layer so npm-package upgrades don't invalidate the cache for it.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN mkdir -p ${PLAYWRIGHT_BROWSERS_PATH} \
+    && chown -R agent:agent ${PLAYWRIGHT_BROWSERS_PATH} \
+    && npm install -g playwright@latest \
+    && npx playwright install --with-deps chromium \
+    && npm cache clean --force
+
+# ----------------------- Layer 8: Bootstrap + entrypoint + supervisord --------------
+# bootstrap-daemon.sh is what supervisord [program:agent] now runs in place of
+# `node /opt/agent/daemon.js`. It downloads the bundle from R2, sha256-verifies it,
+# extracts to /opt/agent/, then exec's node.
+COPY docker/bootstrap-daemon.sh /usr/local/bin/bootstrap-daemon.sh
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/agent-debug.sh /usr/local/bin/agent-debug
+COPY docker/supervisord.base.conf /etc/supervisor/supervisord.conf
+RUN chmod +x /usr/local/bin/bootstrap-daemon.sh /usr/local/bin/entrypoint.sh /usr/local/bin/agent-debug
+
+# ----------------------- Final image config -----------------------------------------
+USER agent
+WORKDIR /data
+
+# tini is PID 1 — reaps zombies and forwards signals correctly
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+CMD ["supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
+
+# ----------------------- Image labels (for `docker inspect`) ------------------------
+LABEL org.opencontainers.image.title="glenn-runtime-base"
+LABEL org.opencontainers.image.description="Universal substrate for project runtimes (slim — daemon downloaded at boot)"
+LABEL org.opencontainers.image.source="https://github.com/glenn/platform"
+LABEL com.glenn.image.role="runtime-base"

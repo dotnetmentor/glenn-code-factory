@@ -1,0 +1,100 @@
+name: Runtime Base Image
+
+# =====================================================================================
+# Builds, scans, and pushes the runtime base image used by every project Machine.
+# The actual pipeline lives in scripts/publish-runtime-image.sh — this workflow is
+# a thin wrapper that wires GHA-specific concerns (buildx cache, secrets,
+# size-baseline auto-commit, job summary).
+#
+# Activation (deciding which pushed tag to actually use) is a separate, manual step
+# performed from the super-admin UI — this workflow only puts pixels in the registry.
+#
+# Default registry is registry.fly.io (no external provider needed — Fly Machines
+# auto-authenticate to it). Override by setting the REGISTRY repo secret.
+#
+# Required repository secrets:
+#   FLY_API_TOKEN         — Fly token used as docker password against registry.fly.io
+#                           (or REGISTRY_USERNAME + REGISTRY_TOKEN for non-Fly registries)
+# Optional repository secrets:
+#   REGISTRY              — override default "registry.fly.io"
+# =====================================================================================
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile.runtime-base'
+      - 'docker/**'
+      - 'packages/daemon/**'
+      - 'scripts/publish-runtime-image.sh'
+      - '.github/workflows/runtime-image.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # for size-baseline auto-commit
+  packages: write
+
+env:
+  REGISTRY: ${{ secrets.REGISTRY || 'registry.fly.io' }}
+  IMAGE_NAME: glenn-runtime-base
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    outputs:
+      tag: ${{ steps.publish.outputs.tag }}
+      digest: ${{ steps.publish.outputs.digest }}
+      size_mb: ${{ steps.publish.outputs.size_mb }}
+
+    steps:
+      - name: Checkout (full history for git SHA)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | \
+              sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Run publish-runtime-image.sh
+        id: publish
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          BUILDX_CACHE_FROM: type=gha,scope=runtime-base
+          BUILDX_CACHE_TO: type=gha,scope=runtime-base,mode=max
+        run: bash scripts/publish-runtime-image.sh --enforce-size-budget
+
+      - name: Persist size baseline
+        if: success()
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update runtime image size baseline to ${{ steps.publish.outputs.size_mb }} MB [skip ci]"
+          file_pattern: .image-size.last
+        continue-on-error: true
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Runtime Base Image"
+            echo
+            echo "- **Tag:** \`${{ steps.publish.outputs.tag }}\`"
+            echo "- **Digest:** \`${{ steps.publish.outputs.digest }}\`"
+            echo "- **Size:** ${{ steps.publish.outputs.size_mb }} MB"
+            echo "- **Git SHA:** \`${{ steps.publish.outputs.full_sha }}\`"
+            echo "- **Registry:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

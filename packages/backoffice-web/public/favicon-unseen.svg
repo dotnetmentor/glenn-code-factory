@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Paper card: rounded square in canvas tone with a hairline border -->
+  <rect x="4" y="4" width="56" height="56" rx="7" ry="7"
+        fill="#FAFAF7"
+        stroke="rgba(0, 0, 0, 0.12)" stroke-width="1.5" />
+  <!-- Wax seal: solid warm copper, slightly off-center toward lower-right -->
+  <circle cx="36" cy="36" r="14" fill="#B07F44" />
+  <!-- Notification dot: paper-tone halo first, then a calm rust attention dot.
+       Sits at the top-right corner, ~70% inside, ~30% bleeding outside. -->
+  <circle cx="56" cy="8" r="7" fill="#FAFAF7" />
+  <circle cx="56" cy="8" r="5.75" fill="#A05B3E" />
+</svg>

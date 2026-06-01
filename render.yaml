@@ -1,0 +1,83 @@
+# Render Blueprint — single self-contained .NET service (API + bundled React frontend)
+# + a Render-managed Postgres database.
+#
+# Apply via the Render dashboard: New > Blueprint, point it at this repo.
+# After the first deploy, fill in the secret env vars marked `sync: false`
+# (they are intentionally NOT stored in this file — see the comments below).
+#
+# ── IMPORTANT: single instance only ──────────────────────────────────────────
+# SignalR uses the in-memory backplane and several services are process-local
+# singletons (rate limiters, health buffers, token-usage recorder). Do NOT scale
+# past numInstances: 1 without first adding a Redis backplane.
+
+databases:
+  - name: orchestrator-db
+    databaseName: app
+    plan: basic-256mb           # entry paid tier (256 MB RAM, 1 GB storage); ~$6–7/mo
+    postgresMajorVersion: "16"
+    # Empty allow-list = reachable only from your Render services on the private network,
+    # not the public internet. The web service below connects over the internal connection.
+    ipAllowList: []
+
+services:
+  - type: web
+    name: orchestrator-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter               # cheapest always-on tier (~$7/mo); `free` spins down and
+                                # would PAUSE Hangfire jobs / the error worker / SignalR.
+    numInstances: 1
+    healthCheckPath: /health
+    autoDeploy: true
+    # Keep the DB and web service in the same region so the internal connection works
+    # and latency stays low. `oregon` is Render's default; change both together if needed.
+    region: oregon
+    envVars:
+      # Postgres — injected as a postgres:// URI from the managed DB above. The app
+      # normalizes it to Npgsql keyword form and enables TLS automatically
+      # (see PostgresConnectionString). `connectionString` is the internal connection.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: orchestrator-db
+          property: connectionString
+
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+
+      # ── Secrets — set these in the dashboard after the blueprint is created ──
+      # REQUIRED at boot. Generate once: openssl rand -base64 32. BACK IT UP — losing it
+      # makes every encrypted secret stored in the DB unrecoverable.
+      - key: SystemSettings__EncryptionKey
+        sync: false
+      # JWT signing key, min 32 chars. e.g. openssl rand -base64 48
+      - key: Jwt__Key
+        sync: false
+      # Resend (transactional email — used to deliver login OTPs).
+      - key: Email__Resend__ApiToken
+        sync: false
+      - key: Email__Resend__FromEmail
+        sync: false
+      # Cloudflare R2 (file storage). AccessKey + SecretKey are credentials.
+      - key: FileStorage__R2__AccountId
+        sync: false
+      - key: FileStorage__R2__AccessKey
+        sync: false
+      - key: FileStorage__R2__SecretKey
+        sync: false
+      - key: FileStorage__R2__BucketName
+        sync: false
+      - key: FileStorage__R2__PublicUrl
+        sync: false
+      # OpenRouter (LLM access).
+      - key: OpenRouter__ApiKey
+        sync: false
+
+      # ── Non-secret config ──
+      # Public base URL runtime daemons dial back at. Set to this service's URL once known
+      # (only relevant if you use the runtime/daemon features). Safe to leave blank otherwise.
+      - key: Runtime__PublicApiUrl
+        sync: false
+      # Bootstrap SuperAdmin seeded on every boot (self-registration is closed).
+      - key: Bootstrap__SuperAdminEmail
+        sync: false

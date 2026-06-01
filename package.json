@@ -1,0 +1,53 @@
+{
+  "name": "agent-template",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack template for AI-powered applications - prompt your own systems",
+  "scripts": {
+    "create-admin": "bash ./scripts/create-admin.sh",
+    "generate-swagger": "bash ./scripts/generate-swagger.sh",
+    "generate-signalr": "bash ./scripts/generate-signalr.sh",
+    "db:up": "cd packages/local-db && docker-compose up -d",
+    "db:down": "cd packages/local-db && docker-compose down",
+    "db:logs": "cd packages/local-db && docker-compose logs -f",
+    "db:restart": "npm run db:down && npm run db:up",
+    "api:restore": "cd packages/dotnet-api && dotnet restore",
+    "api:build": "cd packages/dotnet-api && dotnet build",
+    "api:run": "cd packages/dotnet-api && dotnet run",
+    "api:watch": "cd packages/dotnet-api && dotnet watch",
+    "web:install": "cd packages/backoffice-web && npm install",
+    "web:dev": "cd packages/backoffice-web && npm run dev",
+    "web:build": "cd packages/backoffice-web && npm run build",
+    "web:preview": "cd packages/backoffice-web && npm run preview",
+    "migration:add": "cd packages/dotnet-api && dotnet ef migrations add",
+    "migration:update": "cd packages/dotnet-api && dotnet ef database update",
+    "migration:remove": "cd packages/dotnet-api && dotnet ef migrations remove",
+    "setup": "npm run db:up && npm run api:restore && npm run web:install && npm run migration:update",
+    "dev": "npm run db:up && dotenv -e .env -- concurrently -n \"API,WEB\" -c \"blue,magenta\" \"npm run api:watch\" \"npm run web:dev\"",
+    "dev:api": "npm run db:up && dotenv -e .env -- npm run api:watch",
+    "dev:web": "npm run web:dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "dotenv-cli": "^8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/agent-template"
+  },
+  "keywords": [
+    "dotnet",
+    "postgresql",
+    "docker",
+    "react",
+    "agent",
+    "template",
+    "signalr",
+    "orval"
+  ],
+  "author": "Agent Template",
+  "license": "MIT",
+  "dependencies": {
+    "@cursor/sdk": "^1.0.13"
+  }
+}
