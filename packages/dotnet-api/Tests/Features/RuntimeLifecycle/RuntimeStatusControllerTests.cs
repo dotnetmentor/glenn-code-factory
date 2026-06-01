@@ -24,6 +24,9 @@ public class RuntimeStatusControllerTests : IntegrationTestBase
 {
     private const string Password = "Password123!";
 
+    // Owner user id of the registered caller, used to seed an owned Project for access checks.
+    private string? _callerUserId;
+
     /// <summary>
     /// Match the API's controller JSON config (<c>AddJsonOptions</c>) so we deserialise
     /// <see cref="RuntimeState"/> from its string form ("Online") rather than the
@@ -143,6 +146,23 @@ public class RuntimeStatusControllerTests : IntegrationTestBase
     // ----------------------------------------------------------------------
 
     /// <summary>
+    /// Seed a <see cref="Source.Features.Projects.Models.Project"/> owned by the caller so the
+    /// controller's project-access gate (owner short-circuit) lets the request through. Idempotent.
+    /// </summary>
+    private async Task EnsureOwnedProjectAsync(ApplicationDbContext db, Guid projectId)
+    {
+        if (_callerUserId is null) return;
+        if (await db.Projects.AnyAsync(p => p.Id == projectId)) return;
+        db.Projects.Add(new Source.Features.Projects.Models.Project
+        {
+            Id = projectId,
+            OwnerUserId = _callerUserId,
+            WorkspaceId = Guid.NewGuid(),
+            Name = "Test Project",
+        });
+    }
+
+    /// <summary>
     /// Insert a <see cref="ProjectRuntime"/> row in the requested state. Region defaults
     /// to "arn" so the response shape's Region assertion has something stable to match.
     /// </summary>
@@ -159,6 +179,7 @@ public class RuntimeStatusControllerTests : IntegrationTestBase
             State = state,
         };
         db.ProjectRuntimes.Add(runtime);
+        await EnsureOwnedProjectAsync(db, projectId);
         await db.SaveChangesAsync();
         return runtime;
     }
@@ -230,6 +251,7 @@ public class RuntimeStatusControllerTests : IntegrationTestBase
         using var scope = CreateScope();
         var um = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
         var user = await um.FindByEmailAsync(email);
-        return (client, user!.Id);
+        _callerUserId = user!.Id;
+        return (client, user.Id);
     }
 }

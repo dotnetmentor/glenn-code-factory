@@ -37,6 +37,9 @@ public class GitDestructiveOpsControllerTests : IntegrationTestBase
 {
     private const string Password = "Password123!";
 
+    // Caller user id captured at registration, used to own the gated project.
+    private string? _callerUserId;
+
     // SignalR mock chain — hub.Clients.Group("runtime-{id}").ExecuteDestructiveGitOp(opId).
     private readonly Mock<IHubContext<RuntimeHub, IRuntimeClient>> _runtimeHub = new();
     private readonly Mock<IHubClients<IRuntimeClient>> _hubClients = new();
@@ -194,10 +197,11 @@ public class GitDestructiveOpsControllerTests : IntegrationTestBase
         using var scope = CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
+        var projectId = Guid.NewGuid();
         var runtime = new ProjectRuntime
         {
             Id = Guid.NewGuid(),
-            ProjectId = Guid.NewGuid(),
+            ProjectId = projectId,
             Region = "arn",
             VolumeSizeGb = 1,
             State = RuntimeState.Online,
@@ -218,6 +222,8 @@ public class GitDestructiveOpsControllerTests : IntegrationTestBase
             OutputHash = string.Empty,
         };
         db.GitOperations.Add(op);
+
+        await EnsureOwnedProjectAsync(db, projectId);
 
         await db.SaveChangesAsync();
         return (runtime, op);
@@ -248,6 +254,24 @@ public class GitDestructiveOpsControllerTests : IntegrationTestBase
         using var scope = CreateScope();
         var um = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<User>>();
         var user = await um.FindByEmailAsync(email);
-        return (client, user!.Id);
+        _callerUserId = user!.Id;
+        return (client, user.Id);
+    }
+
+    /// <summary>
+    /// Idempotently seed a <see cref="Source.Features.Projects.Models.Project"/>
+    /// owned by the calling user so <c>CallerOwnsProjectAsync</c> passes the gate.
+    /// </summary>
+    private async Task EnsureOwnedProjectAsync(ApplicationDbContext db, Guid projectId)
+    {
+        if (_callerUserId is null) return;
+        if (await db.Projects.AnyAsync(p => p.Id == projectId)) return;
+        db.Projects.Add(new Source.Features.Projects.Models.Project
+        {
+            Id = projectId,
+            OwnerUserId = _callerUserId,
+            WorkspaceId = Guid.NewGuid(),
+            Name = "Test Project",
+        });
     }
 }

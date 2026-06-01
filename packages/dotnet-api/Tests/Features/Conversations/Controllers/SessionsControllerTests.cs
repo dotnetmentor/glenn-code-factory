@@ -37,6 +37,10 @@ public class SessionsControllerTests : IntegrationTestBase
 {
     private const string Password = "Password123!";
 
+    // Captured during RegisterUserAsync; seed helpers create a Project owned by
+    // this user so the controller/handler ownership gate short-circuits to pass.
+    private string? _callerUserId;
+
     /// <summary>
     /// Match the API's controller JSON config (<c>AddJsonOptions</c>) so we
     /// deserialise the enum response (<see cref="AgentSessionStatus"/>) from
@@ -209,10 +213,11 @@ public class SessionsControllerTests : IntegrationTestBase
         using var scope = CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
+        var projectId = Guid.NewGuid();
         var conversation = new Conversation
         {
             Id = Guid.NewGuid(),
-            ProjectId = Guid.NewGuid(),
+            ProjectId = projectId,
             Title = "queued-trio",
             BranchId = Guid.NewGuid(),
             Status = ConversationStatus.Active,
@@ -232,6 +237,7 @@ public class SessionsControllerTests : IntegrationTestBase
 
         var sessions = Enumerable.Range(1, count).Select(Make).ToArray();
         db.AgentSessions.AddRange(sessions);
+        await EnsureOwnedProjectAsync(db, projectId);
         await db.SaveChangesAsync();
 
         // Pad to a 3-tuple so the deconstruction in the happy-path test stays
@@ -248,10 +254,11 @@ public class SessionsControllerTests : IntegrationTestBase
         using var scope = CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
+        var projectId = Guid.NewGuid();
         var conversation = new Conversation
         {
             Id = Guid.NewGuid(),
-            ProjectId = Guid.NewGuid(),
+            ProjectId = projectId,
             Title = "test",
             BranchId = Guid.NewGuid(),
             Status = ConversationStatus.Active,
@@ -271,6 +278,7 @@ public class SessionsControllerTests : IntegrationTestBase
         };
         db.AgentSessions.Add(session);
 
+        await EnsureOwnedProjectAsync(db, projectId);
         await db.SaveChangesAsync();
         return (session.Id, runtimeId);
     }
@@ -296,6 +304,24 @@ public class SessionsControllerTests : IntegrationTestBase
         using var scope = CreateScope();
         var um = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
         var user = await um.FindByEmailAsync(email);
-        return (client, user!.Id);
+        _callerUserId = user!.Id;
+        return (client, user.Id);
+    }
+
+    /// <summary>
+    /// Ensure a Project row owned by the current caller exists for <paramref name="projectId"/>.
+    /// Idempotent. The ownership gate 404s without it.
+    /// </summary>
+    private async Task EnsureOwnedProjectAsync(ApplicationDbContext db, Guid projectId)
+    {
+        if (_callerUserId is null) return;
+        if (await db.Projects.AnyAsync(p => p.Id == projectId)) return;
+        db.Projects.Add(new Source.Features.Projects.Models.Project
+        {
+            Id = projectId,
+            OwnerUserId = _callerUserId,
+            WorkspaceId = Guid.NewGuid(),
+            Name = "Test Project",
+        });
     }
 }

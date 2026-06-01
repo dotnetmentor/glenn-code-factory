@@ -3,9 +3,11 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Api.Tests.Infrastructure;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Source.Features.RuntimeEvents.Models;
 using Source.Features.RuntimeEvents.Queries;
+using Source.Features.RuntimeLifecycle.Models;
 using Source.Features.Users.Models;
 using Source.Infrastructure;
 
@@ -117,6 +119,9 @@ public class RuntimeEventsControllerTests : IntegrationTestBase
     {
         var (client, _) = await RegisterUserAsync();
         var runtimeId = Guid.NewGuid();
+        // The runtime must exist + be accessible for the gate to pass; the
+        // "no events" assertion is about the events payload, not the gate.
+        await EnsureAccessibleRuntimeAsync(runtimeId);
 
         // No seeded events at all — the "no events yet" shape is an empty
         // events array with HasMore=false, NOT a 404. The drawer renders the
@@ -396,6 +401,8 @@ public class RuntimeEventsControllerTests : IntegrationTestBase
         Guid runtimeId,
         params (string Type, RuntimeEventSeverity Severity, DateTime Timestamp, long? DurationMs, string Payload)[] events)
     {
+        await EnsureAccessibleRuntimeAsync(runtimeId);
+
         using var scope = CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
@@ -441,6 +448,42 @@ public class RuntimeEventsControllerTests : IntegrationTestBase
         using var scope = CreateScope();
         var um = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
         var user = await um.FindByEmailAsync(email);
-        return (client, user!.Id);
+        _callerUserId = user!.Id;
+        return (client, user.Id);
+    }
+
+    // The user registered for the current test. The list endpoint gates via
+    // ResolveAccessibleRuntimeAsync, which requires a ProjectRuntime row whose
+    // Project is accessible to the caller — without it every request 404s.
+    private string? _callerUserId;
+
+    /// <summary>
+    /// Ensure a ProjectRuntime with <paramref name="runtimeId"/> exists, backed by a
+    /// Project owned by the current caller. Idempotent. Required for the
+    /// runtime-events access gate to pass.
+    /// </summary>
+    private async Task EnsureAccessibleRuntimeAsync(Guid runtimeId)
+    {
+        if (_callerUserId is null) return;
+        using var scope = CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        if (await db.ProjectRuntimes.AnyAsync(r => r.Id == runtimeId)) return;
+        var projectId = Guid.NewGuid();
+        db.Projects.Add(new Source.Features.Projects.Models.Project
+        {
+            Id = projectId,
+            OwnerUserId = _callerUserId,
+            WorkspaceId = Guid.NewGuid(),
+            Name = "Test Project",
+        });
+        db.ProjectRuntimes.Add(new ProjectRuntime
+        {
+            Id = runtimeId,
+            ProjectId = projectId,
+            BranchId = Guid.NewGuid(),
+            Region = "arn",
+            State = RuntimeState.Online,
+        });
+        await db.SaveChangesAsync();
     }
 }
