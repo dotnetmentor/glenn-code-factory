@@ -133,12 +133,15 @@ public class CancelSessionCommandHandlerTests : HandlerTestBase
             new CancelSessionCommand(sessionId, "user_requested"),
             CancellationToken.None);
 
-        // Re-load with a fresh tracker to inspect the raised events on the
-        // tracked entity; the in-memory provider keeps DomainEvents on the
-        // entity instance until ClearDomainEvents is called.
-        var tracked = Context.AgentSessions.Local.Single(s => s.Id == sessionId);
-        tracked.DomainEvents.OfType<SessionCancelRequested>().Should().HaveCount(1);
-        tracked.DomainEvents.OfType<AgentSessionTerminated>().Should().BeEmpty(
+        // The DomainEventInterceptor persists every raised event to
+        // StoredDomainEvents on SaveChanges and clears them off the entity after
+        // dispatch — so assert against the durable event store, not the
+        // (now-cleared) entity instance.
+        var storedTypes = await Context.StoredDomainEvents
+            .Select(e => e.EventType)
+            .ToListAsync();
+        storedTypes.Count(t => t == nameof(SessionCancelRequested)).Should().Be(1);
+        storedTypes.Should().NotContain(nameof(AgentSessionTerminated),
             "Canceling is intermediate; the terminal event fires later when the daemon confirms.");
     }
 

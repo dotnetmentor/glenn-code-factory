@@ -35,7 +35,11 @@ public class CreateWorkspaceHandlerTests : HandlerTestBase
         workspace.OwnerId.Should().Be(owner.Id);
         workspace.Memberships.Should().HaveCount(1);
         workspace.Memberships.Single().Role.Should().Be(WorkspaceRole.Owner);
-        workspace.DomainEvents.Should().NotBeEmpty("a WorkspaceCreated event should be raised");
+        // The DomainEventInterceptor persists raised events to StoredDomainEvents
+        // and clears them off the entity after dispatch, so the re-fetched
+        // workspace has no in-memory events — assert against the event store.
+        (await Context.StoredDomainEvents.AnyAsync(e => e.EventType == "WorkspaceCreated"))
+            .Should().BeTrue("a WorkspaceCreated event should be raised");
     }
 
     [Fact]

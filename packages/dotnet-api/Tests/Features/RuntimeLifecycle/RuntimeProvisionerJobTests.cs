@@ -343,7 +343,7 @@ public class RuntimeProvisionerJobTests : IDisposable
     }
 
     [Fact]
-    public async Task Run_NoActiveImage_LogsWarningAndSkips()
+    public async Task Run_NoActiveImage_LogsWarningAndFails()
     {
         var runtime = await SeedPendingAsync();
         var handler = new ScriptedHandler();
@@ -351,15 +351,17 @@ public class RuntimeProvisionerJobTests : IDisposable
 
         await job.Run(CancellationToken.None);
 
-        // No Fly call should have fired and the runtime stays Pending.
+        // No Fly call should have fired — the job fails the runtime before any
+        // provisioning happens (there is nothing to boot without an image).
         handler.CallCount.Should().Be(0);
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
-        refreshed.State.Should().Be(RuntimeState.Pending);
+        refreshed.State.Should().Be(RuntimeState.Failed);
         refreshed.FlyMachineId.Should().BeNull();
         refreshed.FlyVolumeId.Should().BeNull();
 
-        (await _db.RuntimeStateEvents.CountAsync()).Should().Be(0);
+        // The Pending -> Failed transition is recorded as a state event.
+        (await _db.RuntimeStateEvents.CountAsync()).Should().Be(1);
     }
 
     [Fact]
@@ -533,15 +535,15 @@ public class RuntimeProvisionerJobTests : IDisposable
         handler.CapturedBodies.Should().HaveCount(2);
         var machineBody = handler.CapturedBodies[1];
 
-        // Parse the snake_case JSON Fly receives and dig out config.env.glenn_runtime_token.
-        // FlyClient serialises with DictionaryKeyPolicy=SnakeCaseLower, so the env dict
-        // keys arrive on the wire lowercased (existing behaviour for RUNTIME_ID too).
+        // FlyClient does NOT snake-case dictionary keys — env var names pass
+        // through verbatim, so the daemon reads RUNTIME_ID / GLENN_RUNTIME_TOKEN
+        // (see Run_PendingRuntime_StampsFlyEnv which pins this same contract).
         using var doc = JsonDocument.Parse(machineBody);
         var env = doc.RootElement.GetProperty("config").GetProperty("env");
-        env.TryGetProperty("runtime_id", out var runtimeIdProp).Should().BeTrue();
+        env.TryGetProperty("RUNTIME_ID", out var runtimeIdProp).Should().BeTrue();
         runtimeIdProp.GetString().Should().Be(runtime.Id.ToString());
 
-        env.TryGetProperty("glenn_runtime_token", out var tokenProp).Should().BeTrue(
+        env.TryGetProperty("GLENN_RUNTIME_TOKEN", out var tokenProp).Should().BeTrue(
             "the daemon needs GLENN_RUNTIME_TOKEN in its env to authenticate back to main API");
         var token = tokenProp.GetString();
         token.Should().NotBeNullOrEmpty();
@@ -595,12 +597,12 @@ public class RuntimeProvisionerJobTests : IDisposable
         await job.Run(CancellationToken.None);
 
         // Dig the JWT back out of the captured machine-create body.
-        // (Wire-format key is lowercase snake_case — see Run_PendingRuntime_InjectsRuntimeTokenIntoMachineEnv.)
+        // (Env var keys pass through verbatim — uppercase GLENN_RUNTIME_TOKEN.)
         using var doc = JsonDocument.Parse(handler.CapturedBodies[1]);
         var token = doc.RootElement
             .GetProperty("config")
             .GetProperty("env")
-            .GetProperty("glenn_runtime_token")
+            .GetProperty("GLENN_RUNTIME_TOKEN")
             .GetString();
         token.Should().NotBeNullOrEmpty();
 

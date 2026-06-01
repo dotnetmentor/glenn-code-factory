@@ -56,11 +56,12 @@ public class BroadcastRuntimeStateChangedHandlerTests
     {
         var runtimeId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
         var occurredAt = new DateTime(2026, 5, 8, 10, 0, 0, DateTimeKind.Utc);
         var domainEvent = new RuntimeStateChanged(
             RuntimeId: runtimeId,
             ProjectId: projectId,
-            BranchId: Guid.NewGuid(),
+            BranchId: branchId,
             FromState: RuntimeState.Booting,
             ToState: RuntimeState.Bootstrapping,
             Reason: "fly_webhook:machine.started",
@@ -79,9 +80,12 @@ public class BroadcastRuntimeStateChangedHandlerTests
 
         await handler.Handle(domainEvent, CancellationToken.None);
 
-        // Group selection — exact, project-scoped.
-        _clients.Verify(c => c.Group($"project-{projectId}"), Times.Once);
-        _clients.Verify(c => c.Group(It.Is<string>(s => s != $"project-{projectId}")), Times.Never);
+        // Group selection — the live broadcast is branch-scoped (the per-branch
+        // chat tab subscribes to branch-{id}). No Project row is seeded, so the
+        // additive workspace-{id} fan-out short-circuits and branch is the only
+        // group touched.
+        _clients.Verify(c => c.Group($"branch-{branchId}"), Times.Once);
+        _clients.Verify(c => c.Group(It.Is<string>(s => s != $"branch-{branchId}")), Times.Never);
 
         // Single broadcast with the mapped payload.
         _groupClient.Verify(c => c.RuntimeStateChanged(It.IsAny<RuntimeStateChangedNotification>()), Times.Once);
