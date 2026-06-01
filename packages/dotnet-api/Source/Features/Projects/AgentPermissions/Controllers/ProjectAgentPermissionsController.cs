@@ -5,6 +5,8 @@ using Source.Features.Projects.AgentPermissions.Commands.RemoveProjectAgentPermi
 using Source.Features.Projects.AgentPermissions.Commands.UpsertProjectAgentPermissions;
 using Source.Features.Projects.AgentPermissions.Models;
 using Source.Features.Projects.AgentPermissions.Queries.GetProjectAgentPermissions;
+using Source.Infrastructure.AuthorizationExtensions;
+using Source.Infrastructure.AuthorizationModels;
 using Source.Shared.Controllers;
 
 namespace Source.Features.Projects.AgentPermissions.Controllers;
@@ -110,6 +112,7 @@ public class ProjectAgentPermissionsController : BaseApiController
         var command = new UpsertProjectAgentPermissionsCommand(
             ProjectId: projectId,
             CallerUserId: userId,
+            CallerIsSuperAdmin: User.IsInRole(RoleConstants.SuperAdmin),
             PermissionMode: request.PermissionMode ?? string.Empty,
             AllowDangerouslySkipPermissions: request.AllowDangerouslySkipPermissions,
             AllowedTools: request.AllowedTools ?? Array.Empty<string>(),

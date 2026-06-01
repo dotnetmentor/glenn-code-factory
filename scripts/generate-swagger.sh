@@ -12,6 +12,13 @@ lsof -ti:$SWAGGER_API_PORT | xargs kill -9 2>/dev/null || true
 
 # Start the API in the background with swagger generation mode on dedicated port
 cd ./packages/dotnet-api
+if [ -f ../../.env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source ../../.env
+  set +a
+fi
+export Jwt__Key="${Jwt__Key:-swagger-export-only-jwt-key-min-32-chars!!}"
 SWAGGER_GENERATION_MODE=true dotnet run --no-build --urls "http://localhost:$SWAGGER_API_PORT" &
 API_PID=$!
 

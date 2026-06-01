@@ -32,6 +32,7 @@ namespace Source.Features.Projects.AgentPermissions.Commands.UpsertProjectAgentP
 public sealed record UpsertProjectAgentPermissionsCommand(
     Guid ProjectId,
     string CallerUserId,
+    bool CallerIsSuperAdmin,
     string PermissionMode,
     bool AllowDangerouslySkipPermissions,
     IReadOnlyList<string> AllowedTools,

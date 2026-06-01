@@ -38,8 +38,14 @@ public class AuthController : BaseApiController
     [EnableRateLimiting("EmailPolicy")]
     [ProducesResponseType<AuthCookieResponse>(200)]
     [ProducesResponseType(400)]
+    [ProducesResponseType(403)]
     public async Task<ActionResult<AuthCookieResponse>> Register([FromBody] RegisterRequest request)
     {
+        if (!_environment.IsDevelopment() && !_environment.IsEnvironment("Testing"))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = "Registration is disabled in this environment." });
+        }
+
         var command = new RegisterUserCommand(request.Email, request.Password);
         var result = await Mediator.Send(command);
 
