@@ -42,6 +42,12 @@ public class CiPublishController : ControllerBase
         return Ok(result.Value);
     }
 
+    /// <summary>
+    /// Fly registry login material for CI push steps. Returns the org
+    /// <c>Fly:ApiToken</c> from System Settings — treat
+    /// <c>CONTROL_PLANE_PUBLISH_API_KEY</c> as tier-0 (registry + publish APIs).
+    /// Rotate both keys on leak; restrict GitHub secrets to protected environments.
+    /// </summary>
     [HttpGet("registry-credentials")]
     [ProducesResponseType(typeof(CiRegistryCredentialsDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]

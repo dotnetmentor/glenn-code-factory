@@ -43,4 +43,4 @@ REG_RESP="$(curl -fsS -X POST "${API%/}/api/admin/runtime-images" \
   -H "Content-Type: application/json" \
   -d "$REG_BODY")" || fail "register HTTP call failed"
 echo "$REG_RESP" | python3 -m json.tool 2>/dev/null || echo "$REG_RESP"
-log "done (Register demotes prior Active rows in the API)"
+log "done (registered as Active; prior Active rows demoted to Deprecated)"

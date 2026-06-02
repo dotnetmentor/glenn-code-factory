@@ -18,7 +18,6 @@ on:
       - 'packages/dotnet-api/Source/Features/SignalR/**'
       - 'packages/dotnet-api/Source/Features/CiPublish/**'
       - 'packages/dotnet-api/Source/Features/DaemonVersions/**'
-      - 'packages/dotnet-api/Migrations/**'
       - 'scripts/generate-signalr.sh'
       - 'scripts/publish-daemon.sh'
       - 'scripts/lib/ci-publish-auth.sh'

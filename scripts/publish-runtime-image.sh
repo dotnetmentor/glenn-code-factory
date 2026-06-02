@@ -8,10 +8,11 @@
 # Default registry is registry.fly.io because Fly Machines auto-authenticate to it
 # (no pull secrets, no external provider). Override REGISTRY to point elsewhere.
 #
-# Note: This script ONLY pushes. Activating an image for use by the runtime
-# provisioner is a separate step done from the super-admin UI (which lists
-# pushed tags from the registry on demand and registers/activates them in the
-# DB). Build pipeline = dumb publisher; humans decide what's blessed.
+# Push only happens here. On main, .github/workflows/runtime-base-image.yml also
+# calls scripts/ci/register-runtime-image.sh, which POSTs to the control plane;
+# that API registers the image as Active and demotes the previous Active row.
+# Local-only runs (--no-push) do not touch the catalog — use the admin UI to
+# register/activate manually if you are not going through CI.
 #
 # Usage:
 #   scripts/publish-runtime-image.sh                       # full pipeline

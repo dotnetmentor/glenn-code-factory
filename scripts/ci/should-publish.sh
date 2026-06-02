@@ -62,8 +62,8 @@ echo "$TARGET-relevant paths changed in $HEAD_SHA"
 API="${CONTROL_PLANE_API:-${API:-}}"
 KEY="${CONTROL_PLANE_PUBLISH_API_KEY:-}"
 if [[ -z "$API" || -z "$KEY" ]]; then
-  echo "CONTROL_PLANE_API or CONTROL_PLANE_PUBLISH_API_KEY unset — will publish (cannot check remote)"
-  exit 0
+  echo "CONTROL_PLANE_API or CONTROL_PLANE_PUBLISH_API_KEY unset — aborting (fail-closed)" >&2
+  exit 1
 fi
 
 STATUS_JSON="$(curl -fsS "${API%/}/api/ci/publish-status?gitSha=${HEAD_SHA}" \

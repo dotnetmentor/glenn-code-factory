@@ -96,6 +96,49 @@ public class CiPublishControllerTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task PublishStatus_WhenInactiveRowHasGitSha_StillReportsPublished()
+    {
+        using var scope = CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        db.DaemonVersions.Add(new DaemonVersion
+        {
+            Id = Guid.NewGuid(),
+            Channel = "stable",
+            Version = "2026.06.01.120000",
+            IsActive = false,
+            GitSha = "abc123fullsha",
+            Notes = "superseded",
+            BundleSha256 = new string('c', 64),
+            BundleSizeBytes = 1,
+            BundleStorageKey = "test/key-old",
+            ReleasedAt = DateTime.UtcNow.AddDays(-1),
+        });
+        db.DaemonVersions.Add(new DaemonVersion
+        {
+            Id = Guid.NewGuid(),
+            Channel = "stable",
+            Version = "2026.06.02.120002",
+            IsActive = true,
+            GitSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Notes = "current active",
+            BundleSha256 = new string('d', 64),
+            BundleSizeBytes = 1,
+            BundleStorageKey = "test/key-new",
+            ReleasedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var response = await CiClient().GetAsync(
+            "/api/ci/publish-status?gitSha=abc123fullsha");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<CiPublishStatusDto>();
+        body!.DaemonPublishedForRequestedSha.Should().BeTrue();
+        body.DaemonStableGitSha.Should().Be("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    }
+
+    [Fact]
     public async Task PublishStatus_WhenDaemonHasNoGitSha_ReturnsNullDaemonSha()
     {
         using var scope = CreateScope();
