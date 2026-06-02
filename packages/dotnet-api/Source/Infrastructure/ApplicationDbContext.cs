@@ -93,6 +93,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<RuntimeGitConfig> RuntimeGitConfigs { get; set; } = null!;
     public DbSet<ProjectSecret> ProjectSecrets { get; set; } = null!;
     public DbSet<ProjectKeyMaterial> ProjectKeyMaterials { get; set; } = null!;
+    public DbSet<WorkspaceKeyMaterial> WorkspaceKeyMaterials { get; set; } = null!;
     public DbSet<SecretAuditEvent> SecretAuditEvents { get; set; } = null!;
     public DbSet<McpServer> McpServers { get; set; } = null!;
     public DbSet<McpCall> McpCalls { get; set; } = null!;
@@ -213,6 +214,8 @@ public class ApplicationDbContext : IdentityDbContext<User>
                 .WithMany()
                 .HasForeignKey(e => e.OwnerId)
                 .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(e => e.EncryptedCursorApiKey);
+            entity.Property(e => e.AllowProjectCursorApiKeyOverride).HasDefaultValue(true);
             entity.HasQueryFilter(e => !e.IsDeleted);
         });
 
@@ -1722,6 +1725,18 @@ public class ApplicationDbContext : IdentityDbContext<User>
             e.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
             e.Property(x => x.DeletedAt).HasColumnType("timestamp with time zone");
 
+            e.HasQueryFilter(x => !x.IsDeleted);
+        });
+
+        builder.Entity<WorkspaceKeyMaterial>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.WorkspaceId).IsUnique();
+            e.Property(x => x.WrappedDek).IsRequired();
+            e.Property(x => x.MasterKeyVersion).HasDefaultValue(1);
+            e.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
+            e.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
+            e.Property(x => x.DeletedAt).HasColumnType("timestamp with time zone");
             e.HasQueryFilter(x => !x.IsDeleted);
         });
 

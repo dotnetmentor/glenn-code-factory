@@ -45,6 +45,15 @@ import type {
 import type { BootstrapState } from '../BootstrapState.js'
 import { BootstrapOutputBatcher } from '../BootstrapOutputBatcher.js'
 import type { BootIssueStore } from '../BootIssueStore.js'
+import {
+  mergeServiceRuntimeEnv,
+  missingRequiredEnvKeys,
+  readRequiredEnv,
+} from '../../env/serviceRuntimeEnv.js'
+import { isDevPreviewService } from '../devPreviewService.js'
+import {
+  PLATFORM_MANAGED_SUPERVISORD_PROGRAMS,
+} from '../../runtime/platformSupervisordPrograms.js'
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 180_000
 const HEALTH_POLL_INTERVAL_MS = 1_000
@@ -66,37 +75,6 @@ const DEFAULT_HEALTHCHECK_INTERVAL_SECONDS = 5
 const EXITED_FASTFAIL_POLLS = 5
 
 /**
- * Narrow structural shape of a `requiredEnv` entry on a `ServiceSpec`. The
- * generated wire `ServiceSpec` type doesn't yet declare `requiredEnv` (the
- * signalr codegen is currently blocked on an unrelated V3 preset type that
- * uses `JsonElement`), but the backend DOES serialize
- * `ServiceSpec.RequiredEnv` onto the wire — so the data is present at runtime.
- * We read it through this structural type until codegen is unblocked, at which
- * point this can be replaced by the generated field.
- */
-interface RequiredEnvDecl {
-  key: string
-  description?: string
-  secret?: boolean
-}
-
-/**
- * Pull the (possibly absent) `requiredEnv` declarations off a service spec.
- * Returns `[]` when the field is missing or malformed so callers can iterate
- * unconditionally.
- */
-function readRequiredEnv(spec: unknown): RequiredEnvDecl[] {
-  const raw = (spec as { requiredEnv?: unknown }).requiredEnv
-  if (!Array.isArray(raw)) return []
-  return raw.filter(
-    (e): e is RequiredEnvDecl =>
-      typeof e === 'object' &&
-      e !== null &&
-      typeof (e as { key?: unknown }).key === 'string',
-  )
-}
-
-/**
  * Cap per stream (stdout/stderr) on the rolling probe-result tail we surface
  * in the {@link RuntimeEventTypes.ServiceHealthcheckTimedOut} payload. Probes
  * are short by nature (curl, pg_isready), but a misbehaving probe that prints
@@ -112,6 +90,13 @@ const PROBE_TAIL_MAX_BYTES = 2 * 1024
  * lower-bound liveness signal.
  */
 const PROBE_FAILED_EMIT_EVERY = 5
+
+/**
+ * When a service already crash-flapped during the supervisorctl poll, don't
+ * burn the full 180s healthcheck deadline on a probe that will never succeed
+ * while the process keeps dying.
+ */
+const HEALTHCHECK_MAX_ATTEMPTS_WHEN_UNSTABLE = 3
 
 /**
  * Supervisord renders every program's stdout+stderr (merged) at this path.
@@ -132,7 +117,11 @@ export interface StartingServicesStageDeps {
   state: BootstrapState
   supervisord: Pick<
     SupervisordController,
-    'addService' | 'reconcileServices' | 'listConfiguredServiceNames'
+    | 'addService'
+    | 'removeService'
+    | 'reconcileServices'
+    | 'restartService'
+    | 'listConfiguredServiceNames'
   >
   executor: IExecutor
   /**
@@ -192,7 +181,11 @@ export class StartingServicesStage implements BootstrapStage {
   readonly #state: BootstrapState
   readonly #supervisord: Pick<
     SupervisordController,
-    'addService' | 'reconcileServices' | 'listConfiguredServiceNames'
+    | 'addService'
+    | 'removeService'
+    | 'reconcileServices'
+    | 'restartService'
+    | 'listConfiguredServiceNames'
   >
   readonly #executor: IExecutor
   readonly #emitter: RuntimeEventEmitter | undefined
@@ -243,7 +236,9 @@ export class StartingServicesStage implements BootstrapStage {
     // succeed for boot to be considered OK).
     try {
       const desired = new Set(services.map((s) => s.name))
-      const removed = await this.#supervisord.reconcileServices(desired)
+      const removed = await this.#supervisord.reconcileServices(desired, {
+        preserve: new Set(PLATFORM_MANAGED_SUPERVISORD_PROGRAMS),
+      })
       if (removed.length > 0) {
         ctx.logger.info(
           { removed, desired: [...desired] },
@@ -301,7 +296,7 @@ export class StartingServicesStage implements BootstrapStage {
         // Before asking supervisord to start this service, verify every
         // `requiredEnv` key it declares is present (and non-empty) in the
         // runtime's env snapshot. A service that's missing a required secret
-        // (e.g. OPENROUTER_API_KEY) would otherwise boot and immediately
+        // (e.g. a secret API key) would otherwise boot and immediately
         // crash-loop, burning the whole health deadline and flooding the
         // Timeline with ServiceCrashed events. Instead we SKIP registration,
         // emit a single ServiceEnvMissing event, and let the runtime come
@@ -315,12 +310,7 @@ export class StartingServicesStage implements BootstrapStage {
           const required = readRequiredEnv(spec)
           if (required.length > 0) {
             const env = this.#envVarManager.current()
-            const missingEnvVars = required
-              .map((r) => r.key)
-              .filter((key) => {
-                const value = env.get(key)
-                return value === undefined || value === ''
-              })
+            const missingEnvVars = missingRequiredEnvKeys(spec, env)
             if (missingEnvVars.length > 0) {
               ctx.logger.warn(
                 { serviceName: spec.name, missingEnvVars },
@@ -336,6 +326,14 @@ export class StartingServicesStage implements BootstrapStage {
                 `skip ${spec.name}: missing env ${missingEnvVars.join(', ')}`,
               )
               envSkipped.add(spec.name)
+              try {
+                await this.#supervisord.removeService(spec.name)
+              } catch (err) {
+                ctx.logger.warn(
+                  { err, serviceName: spec.name },
+                  'starting-services: failed to remove stale supervisord conf for skipped service',
+                )
+              }
               continue
             }
           }
@@ -350,13 +348,34 @@ export class StartingServicesStage implements BootstrapStage {
           serviceName: spec.name,
         })
         try {
+          const runtimeEnv = this.#envVarManager?.current()
+          const wireSpec = spec as ServiceSpec
+          const serviceSpec =
+            runtimeEnv !== undefined
+              ? mergeServiceRuntimeEnv(wireSpec, runtimeEnv)
+              : wireSpec
           // The generated ServiceSpec from the wire has `env` typed as
           // `Partial<Record<string, string>>` (because tsrts loosens Dictionary
           // values). The SupervisordController.ServiceSpec uses the simpler
           // `Record<string, string>`; the env values are non-undefined at
           // runtime (the C# Validate doesn't allow null values into the dict),
           // so we cast the entire spec at the boundary.
-          await this.#supervisord.addService(spec as ServiceSpec, ctx.signal)
+          await this.#supervisord.addService(serviceSpec, ctx.signal)
+          if (isDevPreviewService(serviceSpec)) {
+            try {
+              await this.#supervisord.restartService(spec.name, ctx.signal)
+              void this.#emit(
+                ctx,
+                'progress',
+                `restarted ${spec.name} after setup (refresh Vite dep cache)`,
+              )
+            } catch (restartErr) {
+              ctx.logger.warn(
+                { err: restartErr, serviceName: spec.name },
+                'starting-services: dev preview restart failed (continuing)',
+              )
+            }
+          }
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err)
           void this.#emit(ctx, 'failed', `${spec.name}: ${reason}`)
@@ -599,6 +618,7 @@ export class StartingServicesStage implements BootstrapStage {
           ctx,
           spec as ServiceSpec,
           deadline,
+          crashCounts.get(spec.name) ?? 0,
         )
         if (probeResult.ok) {
           this.#emitter?.emit(RuntimeEventTypes.ServiceHealthy, 'Info', {
@@ -671,6 +691,7 @@ export class StartingServicesStage implements BootstrapStage {
     ctx: BootstrapContext,
     spec: ServiceSpec,
     deadline: number,
+    priorCrashCount = 0,
   ): Promise<HealthcheckResult> {
     const intervalMs =
       (spec.healthcheck?.intervalSeconds ?? DEFAULT_HEALTHCHECK_INTERVAL_SECONDS) * 1_000
@@ -694,6 +715,21 @@ export class StartingServicesStage implements BootstrapStage {
           lastStderrTail,
         }
       }
+
+      const supervisorState = (await this.#readStates(ctx)).get(spec.name)
+      if (supervisorState !== undefined && supervisorState !== 'RUNNING') {
+        ctx.logger.debug(
+          { service: spec.name, supervisorState },
+          'healthcheck: service not RUNNING; bailing early',
+        )
+        return {
+          ok: false,
+          lastExitCode,
+          lastStdoutTail,
+          lastStderrTail,
+        }
+      }
+
       attemptCount += 1
       let exitCode: number | undefined
       let stdoutTail = ''
@@ -727,6 +763,22 @@ export class StartingServicesStage implements BootstrapStage {
         return {
           ok: true,
           lastExitCode: 0,
+          lastStdoutTail,
+          lastStderrTail,
+        }
+      }
+
+      if (
+        priorCrashCount > 0 &&
+        attemptCount >= HEALTHCHECK_MAX_ATTEMPTS_WHEN_UNSTABLE
+      ) {
+        ctx.logger.debug(
+          { service: spec.name, priorCrashCount, attemptCount, exitCode },
+          'healthcheck: unstable service exceeded probe cap; bailing early',
+        )
+        return {
+          ok: false,
+          lastExitCode,
           lastStdoutTail,
           lastStderrTail,
         }

@@ -64,14 +64,20 @@ public sealed class ExportEnvironmentHandler
         }
 
         // ---- Workspaces / memberships / invites / specs ----
-        var workspaces = await _db.Workspaces.AsNoTracking().ToListAsync(ct);
-        snapshot.Workspaces = workspaces.Select(w => new WorkspaceSnapshot
+        var workspaces = await _db.Workspaces.IgnoreQueryFilters().AsNoTracking().ToListAsync(ct);
+        snapshot.Workspaces = new List<WorkspaceSnapshot>();
+        foreach (var w in workspaces)
         {
-            Id = w.Id,
-            Slug = w.Slug,
-            Name = w.Name,
-            OwnerId = w.OwnerId,
-        }).ToList();
+            snapshot.Workspaces.Add(new WorkspaceSnapshot
+            {
+                Id = w.Id,
+                Slug = w.Slug,
+                Name = w.Name,
+                OwnerId = w.OwnerId,
+                CursorApiKey = await DecryptWorkspaceCursorKeyAsync(w.Id, w.EncryptedCursorApiKey, ct),
+                AllowProjectCursorApiKeyOverride = w.AllowProjectCursorApiKeyOverride,
+            });
+        }
 
         var memberships = await _db.WorkspaceMemberships.AsNoTracking().ToListAsync(ct);
         snapshot.WorkspaceMemberships = memberships.Select(m => new WorkspaceMembershipSnapshot
@@ -127,7 +133,8 @@ public sealed class ExportEnvironmentHandler
         }).ToList();
 
         // ---- Projects (decrypt cursor key) ----
-        var projects = await _db.Projects.AsNoTracking().ToListAsync(ct);
+        var projects = await _db.Projects.IgnoreQueryFilters().AsNoTracking().ToListAsync(ct);
+        var projectIds = projects.Select(p => p.Id).ToHashSet();
         foreach (var p in projects)
         {
             snapshot.Projects.Add(new ProjectSnapshot
@@ -153,7 +160,9 @@ public sealed class ExportEnvironmentHandler
         }
 
         // ---- Project branches (metadata only) ----
-        var branches = await _db.ProjectBranches.AsNoTracking().ToListAsync(ct);
+        var branches = await _db.ProjectBranches.AsNoTracking()
+            .Where(b => projectIds.Contains(b.ProjectId))
+            .ToListAsync(ct);
         snapshot.ProjectBranches = branches.Select(b => new ProjectBranchSnapshot
         {
             Id = b.Id,
@@ -165,7 +174,9 @@ public sealed class ExportEnvironmentHandler
         }).ToList();
 
         // ---- Project secrets (decrypt to clear text) ----
-        var secrets = await _db.ProjectSecrets.AsNoTracking().ToListAsync(ct);
+        var secrets = await _db.ProjectSecrets.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => projectIds.Contains(s.ProjectId))
+            .ToListAsync(ct);
         foreach (var s in secrets)
         {
             string plaintext;
@@ -193,7 +204,9 @@ public sealed class ExportEnvironmentHandler
         }
 
         // ---- Project agent permissions ----
-        var permissions = await _db.ProjectAgentPermissions.AsNoTracking().ToListAsync(ct);
+        var permissions = await _db.ProjectAgentPermissions.AsNoTracking()
+            .Where(a => projectIds.Contains(a.ProjectId))
+            .ToListAsync(ct);
         snapshot.ProjectAgentPermissions = permissions.Select(a => new ProjectAgentPermissionsSnapshot
         {
             Id = a.Id,
@@ -206,7 +219,9 @@ public sealed class ExportEnvironmentHandler
         }).ToList();
 
         // ---- Specifications ----
-        var specs = await _db.Specifications.AsNoTracking().ToListAsync(ct);
+        var specs = await _db.Specifications.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => projectIds.Contains(s.ProjectId))
+            .ToListAsync(ct);
         snapshot.Specifications = specs.Select(s => new SpecificationSnapshot
         {
             Id = s.Id,
@@ -219,8 +234,13 @@ public sealed class ExportEnvironmentHandler
         }).ToList();
 
         // ---- Kanban cards (+ subtasks) ----
-        var cards = await _db.ProjectKanbanCards.AsNoTracking().ToListAsync(ct);
-        var subtasks = await _db.ProjectKanbanCardSubtasks.AsNoTracking().ToListAsync(ct);
+        var cards = await _db.ProjectKanbanCards.IgnoreQueryFilters().AsNoTracking()
+            .Where(c => projectIds.Contains(c.ProjectId))
+            .ToListAsync(ct);
+        var cardIds = cards.Select(c => c.Id).ToHashSet();
+        var subtasks = await _db.ProjectKanbanCardSubtasks.IgnoreQueryFilters().AsNoTracking()
+            .Where(t => cardIds.Contains(t.ProjectKanbanCardId))
+            .ToListAsync(ct);
         var subtasksByCard = subtasks
             .GroupBy(t => t.ProjectKanbanCardId)
             .ToDictionary(g => g.Key, g => g.OrderBy(t => t.Position).ToList());
@@ -300,6 +320,23 @@ public sealed class ExportEnvironmentHandler
         }
     }
 
+    private async Task<string?> DecryptWorkspaceCursorKeyAsync(Guid workspaceId, string? envelope, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(envelope)) return null;
+        try
+        {
+            var (ciphertext, nonce, dekVersion) = ProjectByokEnvelope.Unpack(envelope);
+            return await _encryption.DecryptForWorkspaceAsync(workspaceId, ciphertext, nonce, dekVersion, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "ExportEnvironment: could not decrypt workspace cursor key for workspace {WorkspaceId}; exporting as null.",
+                workspaceId);
+            return null;
+        }
+    }
+
     private async Task<List<ApplicationUserSnapshot>> BuildReferencedUsersAsync(
         EnvironmentSnapshotDto snapshot,
         CancellationToken ct)
@@ -323,6 +360,7 @@ public sealed class ExportEnvironmentHandler
         if (ids.Count == 0) return new List<ApplicationUserSnapshot>();
 
         var users = await _db.Users
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(u => ids.Contains(u.Id))
             .ToListAsync(ct);

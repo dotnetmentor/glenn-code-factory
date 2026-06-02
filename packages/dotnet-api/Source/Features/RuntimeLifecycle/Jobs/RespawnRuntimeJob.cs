@@ -13,6 +13,7 @@ using Source.Features.RuntimeEvents.Models;
 using Source.Features.RuntimeImages.Models;
 using Source.Features.RuntimeLifecycle.Configuration;
 using Source.Features.RuntimeLifecycle.Models;
+using Source.Features.RuntimeLifecycle.Provisioning;
 using Source.Features.RuntimeTokens.Services;
 using Source.Features.SystemSettings.Services;
 using Source.Infrastructure;
@@ -358,9 +359,7 @@ public class RespawnRuntimeJob
         }
 
         var machineReq = new CreateMachineRequest(
-            // Fly machine names: lowercase alphanumeric + underscores, max 30 chars.
-            // Guid "N" format = 32 hex chars; prefix "rt_" + 27 chars = 30 total.
-            Name: $"rt_{runtime.Id:N}".Substring(0, 30),
+            Name: RuntimeFlyProvisioning.BuildMachineName(runtime.Id),
             Region: runtime.Region,
             Config: new MachineConfig(
                 Image: $"{image.Registry}:{image.Tag}",
@@ -379,7 +378,8 @@ public class RespawnRuntimeJob
                     ? new List<MachineMount> { new(Volume: runtime.FlyVolumeId, Path: "/data") }
                     : new List<MachineMount>()));
 
-        var newMachine = await _fly.CreateMachineAsync(machineReq, runtimeId: runtimeId, ct: ct);
+        var newMachine = await RuntimeFlyProvisioning.CreateOrAdoptMachineAsync(
+            _fly, _db, runtime, machineReq, ct);
 
         // ---- 4. Persist the new machine id, refresh image digest, bump retries, transition ----
         runtime.FlyMachineId = newMachine.Id;
@@ -405,9 +405,9 @@ public class RespawnRuntimeJob
 
         if (transition.IsFailure)
         {
-            // Defensive: Crashed -> Booting is a legal edge in the state graph.
-            // If this fires, somebody changed the state machine. Log and don't
-            // save — the audit row would lie about what happened.
+            // Persist FlyMachineId so a redelivered job can resume instead of
+            // colliding on the deterministic machine name.
+            await _db.SaveChangesAsync(ct);
             _logger.LogError(
                 "Respawn: TransitionTo Booting failed for runtime {RuntimeId}: {Error}",
                 runtimeId, transition.Error);

@@ -1,6 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Source.Features.FlyManagement;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
@@ -68,17 +69,20 @@ public sealed class RestartRuntimeHandler
 
     private readonly ApplicationDbContext _db;
     private readonly IMediator _mediator;
+    private readonly FlyClient _fly;
     private readonly IBackgroundJobClient _backgroundJobs;
     private readonly ILogger<RestartRuntimeHandler> _logger;
 
     public RestartRuntimeHandler(
         ApplicationDbContext db,
         IMediator mediator,
+        FlyClient fly,
         IBackgroundJobClient backgroundJobs,
         ILogger<RestartRuntimeHandler> logger)
     {
         _db = db;
         _mediator = mediator;
+        _fly = fly;
         _backgroundJobs = backgroundJobs;
         _logger = logger;
     }
@@ -102,28 +106,34 @@ public sealed class RestartRuntimeHandler
                 $"{NotFoundPrefix} No runtime exists for this branch.");
         }
 
-        // Branch by state. The frontend now calls Restart for any user-driven
-        // "make this runtime usable" gesture — Suspended (wake), Failed
-        // (full restart), or Crashed (full restart). Anything else is rejected
-        // with a state-aware 409 message.
+        // Branch by state. Suspended → wake. Live / failed / stuck mid-boot →
+        // hard reboot on the existing volume (stop the Fly machine first when
+        // one is attached, then walk to Pending for the provisioner).
         switch (runtime.State)
         {
             case RuntimeState.Suspended:
-                // Suspended runtimes just need a wake — the machine + volume
-                // are intact, Fly just needs to start the VM. Reuse the
-                // existing wake command rather than tearing the runtime down
-                // and re-provisioning.
                 return await HandleSuspendedAsync(runtime, request, cancellationToken);
 
+            case RuntimeState.Online:
             case RuntimeState.Failed:
             case RuntimeState.Crashed:
-                // Full restart path — recreate the machine on the existing
-                // volume. Falls through to the legacy restart logic below.
+            case RuntimeState.Booting:
+            case RuntimeState.Bootstrapping:
+            case RuntimeState.Waking:
+                await StopMachineBestEffortAsync(runtime, cancellationToken);
                 break;
+
+            case RuntimeState.Pending:
+                return Result.Failure<RuntimeStatusResponse>(
+                    $"{ConflictPrefix} Runtime is already restarting (Pending).");
+
+            case RuntimeState.Suspending:
+                return Result.Failure<RuntimeStatusResponse>(
+                    $"{ConflictPrefix} Runtime is already stopping (Suspending).");
 
             default:
                 return Result.Failure<RuntimeStatusResponse>(
-                    $"{ConflictPrefix} Runtime is in state {runtime.State}; can only restart from Suspended, Failed, or Crashed.");
+                    $"{ConflictPrefix} Runtime is in state {runtime.State}; cannot restart.");
         }
 
         var restartResult = runtime.Restart(request.UserId);
@@ -278,5 +288,30 @@ public sealed class RestartRuntimeHandler
             runtime.ImageDigest,
             runtime.Region,
             recent));
+    }
+
+    private async Task StopMachineBestEffortAsync(
+        ProjectRuntime runtime,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(runtime.FlyMachineId))
+        {
+            return;
+        }
+
+        try
+        {
+            await _fly.StopMachineAsync(
+                machineId: runtime.FlyMachineId,
+                options: null,
+                runtimeId: runtime.Id,
+                ct: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "RestartRuntime: Fly StopMachine call failed for machine {MachineId} (runtime {RuntimeId}); provisioner will reconcile.",
+                runtime.FlyMachineId, runtime.Id);
+        }
     }
 }

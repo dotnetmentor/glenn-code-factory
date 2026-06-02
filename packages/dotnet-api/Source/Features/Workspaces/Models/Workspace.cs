@@ -35,8 +35,39 @@ public class Workspace : Entity, IAuditable, ISoftDelete
     public DateTime? DeletedAt { get; set; }
     public string? DeletedBy { get; set; }
 
+    /// <summary>BYOK Cursor API key for all projects in this workspace, encrypted under the workspace DEK.</summary>
+    public string? EncryptedCursorApiKey { get; set; }
+
+    /// <summary>
+    /// When false, projects cannot set their own <see cref="Projects.Models.Project.EncryptedCursorApiKey"/>.
+    /// They inherit this workspace key (and the host env var fallback).
+    /// </summary>
+    public bool AllowProjectCursorApiKeyOverride { get; set; } = true;
+
     public ICollection<WorkspaceMembership> Memberships { get; set; } = new List<WorkspaceMembership>();
     public ICollection<WorkspaceInvite> Invites { get; set; } = new List<WorkspaceInvite>();
+
+    public Result SetEncryptedCursorApiKey(string? envelope)
+    {
+        if (string.Equals(EncryptedCursorApiKey, envelope, StringComparison.Ordinal))
+        {
+            return Result.Success();
+        }
+
+        EncryptedCursorApiKey = envelope;
+        return Result.Success();
+    }
+
+    public Result SetAllowProjectCursorApiKeyOverride(bool allow)
+    {
+        if (AllowProjectCursorApiKeyOverride == allow)
+        {
+            return Result.Success();
+        }
+
+        AllowProjectCursorApiKeyOverride = allow;
+        return Result.Success();
+    }
 
     /// <summary>Raise this when a workspace is freshly created (after the owner membership exists).</summary>
     public void MarkCreated()

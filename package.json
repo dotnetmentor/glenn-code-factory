@@ -23,7 +23,10 @@
     "migration:update": "cd packages/dotnet-api && dotnet ef database update",
     "migration:remove": "cd packages/dotnet-api && dotnet ef migrations remove",
     "setup": "npm run db:up && npm run api:restore && npm run web:install && npm run migration:update",
-    "dev": "npm run db:up && dotenv -e .env -- concurrently -n \"API,WEB\" -c \"blue,magenta\" \"npm run api:watch\" \"npm run web:dev\"",
+    "dev": "npm run db:up && bash ./scripts/dev.sh",
+    "dev:tunnel:stop": "bash ./scripts/dev-tunnel.sh stop",
+    "dev:tunnel:status": "bash ./scripts/dev-tunnel.sh status",
+    "dev:plain": "npm run db:up && dotenv -e .env -- concurrently -n \"API,WEB\" -c \"blue,magenta\" \"npm run api:watch\" \"npm run web:dev\"",
     "dev:api": "npm run db:up && dotenv -e .env -- npm run api:watch",
     "dev:web": "npm run web:dev"
   },

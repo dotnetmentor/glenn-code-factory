@@ -576,7 +576,7 @@ public class RuntimeHubTests : IDisposable
         // GetRepoAccessToken) — bare null! placeholders keep the test rig
         // minimal without bringing the SystemSettings + cipher + github-token
         // graph into scope.
-        var hub = new RuntimeHub(_db, _mediator.Object, agentHub.Object, Mock.Of<Source.Features.Conversations.Services.ITurnDispatcher>(), new HealthSnapshotBuffer(), new ServiceDownDetector(), null!, null!, null!, null!, new Api.Tests.Infrastructure.FakeClock(), NullLogger<RuntimeHub>.Instance)
+        var hub = new RuntimeHub(_db, _mediator.Object, agentHub.Object, Mock.Of<Source.Features.Conversations.Services.ITurnDispatcher>(), new HealthSnapshotBuffer(), new ServiceDownDetector(), null!, null!, null!, null!, null!, new Api.Tests.Infrastructure.FakeClock(), NullLogger<RuntimeHub>.Instance)
         {
             Context = context,
             Groups = groups.Object,

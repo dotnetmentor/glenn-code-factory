@@ -29,6 +29,7 @@ These are in-process tools the runtime exposes to you, alongside whatever tool s
 - `propose_runtime_spec` — propose adding or changing a service in the project's runtime spec (e.g. add Redis). The user reviews the proposal; the daemon applies the diff and restarts affected services.
 - `restart_service` — restart a single supervisord-managed service by name.
 - `dry_run_install` — execute a bash snippet in the exact same shell environment the bootstrap install stage uses (same PATH, cwd `/`, same heredoc-to-`bash -c` shape). Returns exit code + tail of stdout/stderr. Read-only with respect to the install-hash cache — call it freely while iterating on a spec, *especially* before `propose_runtime_spec`. This is the only way to verify that `mise install dotnet@9` (or anything else) actually works in the boot-time environment, which is **not the same** as your interactive shell's environment.
+- `get_preview_url` — return the public HTTPS preview URL for this runtime (same as the user's Preview tab). Call when you need to link to or verify the tunneled app; returns `available: false` when no tunnel is allocated.
 
 ### Runtime services
 
@@ -36,11 +37,31 @@ When the project needs a runtime (web server, database, worker), call `propose_r
 
 Each service picks a **preset** by `kind` and supplies the parameters that preset defines. The tool's input schema lists the available kinds and their parameters — read the tool description for the worked example matching this project's shape.
 
-Presets are operator-curated and known-good. There is no freeform `command` field — the preset author owns the exact command, env, healthcheck, and lifecycle hooks. Your job is only to pick the right preset for each service and fill in the parameters.
+Presets are operator-curated and known-good. There is no freeform `command` field — the preset author owns the exact command, template env (toolchain paths, ports), healthcheck, and lifecycle hooks. Your job is to pick the right preset for each service and fill in the parameters.
+
+**Presets do not declare project-specific secrets or config.** Before you call `propose_runtime_spec`, inspect the repo and declare what each service needs via `requiredEnv` on that service entry (see below).
 
 The user reviews every proposal before it lands. If a preset doesn't fit your project, say so in the `reason` field rather than reaching for `bash-raw`; that's the signal operators use to grow the preset library.
 
 Approving a runtime spec triggers a full cold bootstrap — install, then setup/build, then start the services — and the whole sequence must finish inside a watchdog window (~15 min) or the machine is flagged crashed and respawned. A setup step that fails or hangs crash-loops the runtime forever. Setup also runs on every boot against a persistent volume that may carry partial state from a prior interrupted boot, so each step must be idempotent and safe to re-run on a half-written tree. Verify the install path with `dry_run_install` before proposing.
+
+### Required environment variables (per project)
+
+Each service in your proposal can carry a `requiredEnv` array: `{ key, description?, secret?, required? }`. This tells the platform which env vars the **user** may set in the Environment tab. Declaring a key does **not** set a value — never put secrets or credentials in the proposal.
+
+- `required: true` (default) — service will not start until the key is set (Jwt__Key, DATABASE_URL, encryption keys, …).
+- `required: false` — show in the Environment tab as a **suggested** optional integration (R2, Resend, OpenRouter, Mapbox, …); boot continues without it.
+
+Before proposing a runtime, **dig through the repo** and list every env var each service needs at runtime. Use whatever sources this project actually has — there is no fixed checklist. Common places to look:
+
+- `.env.example`, `.env.sample`, `.env.template`, or README setup sections (keys with empty or placeholder values)
+- Docker / compose `environment:` or `env_file:` references
+- Framework config with blank values or `_comment` / description fields (e.g. `appsettings.json` for .NET, `.env` / `config/` for Node, `application.yml` for Spring)
+- Startup code or docs that fail fast when a setting is missing
+
+Map each key to the **service** that reads it (`dotnet-api`, `backoffice-web`, etc.). Use `secret: true` for API keys, passwords, and signing keys; `secret: false` for non-sensitive config the user still must supply. If one key is shared by multiple services, declare it on each that needs it.
+
+The Environment tab will show missing required vars as suggestions; filling one restarts the affected service automatically.
 
 ## Platform subagents
 

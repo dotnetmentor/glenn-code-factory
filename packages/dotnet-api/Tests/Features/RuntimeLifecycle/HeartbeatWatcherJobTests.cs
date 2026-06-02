@@ -90,7 +90,8 @@ public class HeartbeatWatcherJobTests : IDisposable
     /// </summary>
     private async Task<ProjectRuntime> SeedRuntimeAsync(
         RuntimeState state,
-        DateTime? lastHeartbeatAt)
+        DateTime? lastHeartbeatAt,
+        DateTime? lastBootstrapActivityAt = null)
     {
         var runtime = new ProjectRuntime
         {
@@ -100,6 +101,7 @@ public class HeartbeatWatcherJobTests : IDisposable
             State = state,
             FlyMachineId = "mach_" + Guid.NewGuid().ToString("N")[..8],
             LastHeartbeatAt = lastHeartbeatAt,
+            LastBootstrapActivityAt = lastBootstrapActivityAt,
         };
         _db.ProjectRuntimes.Add(runtime);
         await _db.SaveChangesAsync();
@@ -478,6 +480,34 @@ public class HeartbeatWatcherJobTests : IDisposable
         (await _db.RuntimeStateEvents.CountAsync(e => e.RuntimeId == runtime.Id))
             .Should().Be(0,
             "neither the heartbeat-cutoff branch nor the bootstrap-timeout branch should fire here");
+    }
+
+    [Fact]
+    public async Task ScanOnce_Booting_WithStaleLastBootstrapActivityAt_AfterFreshBootTransition_NotFlagged()
+    {
+        // Reproduces the respawn-loop bug: a runtime that previously reached Online
+        // left LastBootstrapActivityAt hours in the past. Without clearing that
+        // timestamp on entry to Booting, the bootstrap-silence branch treats the
+        // fresh machine as silent for hours and Crashes it seconds after creation.
+        var runtime = await SeedRuntimeAsync(
+            RuntimeState.Crashed,
+            lastHeartbeatAt: null,
+            lastBootstrapActivityAt: DateTime.UtcNow.AddHours(-5));
+
+        var transition = runtime.TransitionTo(
+            RuntimeState.Booting,
+            reason: "respawn:created",
+            triggeredBy: "system:respawn");
+        transition.IsSuccess.Should().BeTrue();
+        await _db.SaveChangesAsync();
+
+        _clock.Advance(TimeSpan.FromSeconds(30));
+
+        await CreateJob().ScanOnce(CancellationToken.None);
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Booting,
+            "a freshly respawned Booting runtime must not instant-timeout on stale bootstrap activity");
     }
 
     // ------------------------------------------------------------------

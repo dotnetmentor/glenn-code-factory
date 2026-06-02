@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "cursor-sdk": {
+      "source": "cursor/plugins",
+      "sourceType": "github",
+      "skillPath": "cursor-sdk/skills/cursor-sdk/SKILL.md",
+      "computedHash": "2ff2b1de1862bd821790399b6e242aff2c47232e75214b9fc2268e99ca1b298c"
+    }
+  }
+}

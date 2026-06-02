@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Source.Features.ProjectSecrets.Models;
 using Source.Features.SystemSettings.Services;
+using Source.Features.Workspaces.Models;
 using Source.Infrastructure;
 
 namespace Source.Features.ProjectSecrets.Services;
@@ -170,6 +171,79 @@ public sealed class SecretEncryptionService
         }
     }
 
+    public async Task<(byte[] Ciphertext, byte[] Nonce, int DekVersion)> EncryptForWorkspaceAsync(
+        Guid workspaceId,
+        string plaintext,
+        CancellationToken ct)
+    {
+        var (dek, dekVersion) = await EnsureWorkspaceDekAsync(workspaceId, ct);
+        try
+        {
+            var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
+            var nonce = new byte[NonceByteSize];
+            RandomNumberGenerator.Fill(nonce);
+
+            var ciphertext = new byte[plaintextBytes.Length + TagByteSize];
+            var ctSpan = new Span<byte>(ciphertext, 0, plaintextBytes.Length);
+            var tagSpan = new Span<byte>(ciphertext, plaintextBytes.Length, TagByteSize);
+
+            using var gcm = new AesGcm(dek, TagByteSize);
+            gcm.Encrypt(nonce, plaintextBytes, ctSpan, tagSpan);
+
+            return (ciphertext, nonce, dekVersion);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(dek);
+        }
+    }
+
+    public async Task<string> DecryptForWorkspaceAsync(
+        Guid workspaceId,
+        byte[] ciphertext,
+        byte[] nonce,
+        int dekVersion,
+        CancellationToken ct)
+    {
+        if (ciphertext is null) throw new ArgumentNullException(nameof(ciphertext));
+        if (nonce is null) throw new ArgumentNullException(nameof(nonce));
+        if (ciphertext.Length < TagByteSize)
+        {
+            throw new CryptographicException(
+                $"Ciphertext is too short ({ciphertext.Length} bytes) — must be at least {TagByteSize} bytes for the AEAD tag.");
+        }
+
+        var (dek, currentDekVersion) = await EnsureWorkspaceDekAsync(workspaceId, ct);
+        try
+        {
+            if (dekVersion != currentDekVersion)
+            {
+                throw new CryptographicException(
+                    $"DEK version mismatch for workspace {workspaceId}: ciphertext was produced under v{dekVersion} but the live DEK is v{currentDekVersion}.");
+            }
+
+            var payloadLen = ciphertext.Length - TagByteSize;
+            var payload = new ReadOnlySpan<byte>(ciphertext, 0, payloadLen);
+            var tag = new ReadOnlySpan<byte>(ciphertext, payloadLen, TagByteSize);
+
+            var plaintextBytes = new byte[payloadLen];
+            try
+            {
+                using var gcm = new AesGcm(dek, TagByteSize);
+                gcm.Decrypt(nonce, payload, tag, plaintextBytes);
+                return Encoding.UTF8.GetString(plaintextBytes);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(plaintextBytes);
+            }
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(dek);
+        }
+    }
+
     /// <summary>
     /// Look up (or lazily create) the project's <see cref="ProjectKeyMaterial"/>
     /// row, unwrap the DEK, and hand back the plaintext key + its version.
@@ -230,6 +304,52 @@ public sealed class SecretEncryptionService
         }
 
         // Existing or just-lost-the-race row.
+        var unwrapped = UnwrapDek(row!.WrappedDek, master, row.MasterKeyVersion);
+        return (unwrapped, row.MasterKeyVersion);
+    }
+
+    private async Task<(byte[] Dek, int DekVersion)> EnsureWorkspaceDekAsync(Guid workspaceId, CancellationToken ct)
+    {
+        var (master, masterVersion) = LoadOrSeedMasterKey();
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var row = await db.WorkspaceKeyMaterials
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.WorkspaceId == workspaceId, ct);
+
+        if (row is null)
+        {
+            var dek = RandomNumberGenerator.GetBytes(KeyByteSize);
+            var wrapped = WrapDek(dek, master, masterVersion);
+            var entity = new WorkspaceKeyMaterial
+            {
+                Id = Guid.NewGuid(),
+                WorkspaceId = workspaceId,
+                WrappedDek = wrapped,
+                MasterKeyVersion = masterVersion,
+            };
+            db.WorkspaceKeyMaterials.Add(entity);
+
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                return (dek, entity.MasterKeyVersion);
+            }
+            catch (DbUpdateException)
+            {
+                CryptographicOperations.ZeroMemory(dek);
+                db.Entry(entity).State = EntityState.Detached;
+
+                row = await db.WorkspaceKeyMaterials
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.WorkspaceId == workspaceId, ct)
+                    ?? throw new InvalidOperationException(
+                        $"DbUpdateException on WorkspaceKeyMaterial insert for workspace {workspaceId} but no winning row found on re-read.");
+            }
+        }
+
         var unwrapped = UnwrapDek(row!.WrappedDek, master, row.MasterKeyVersion);
         return (unwrapped, row.MasterKeyVersion);
     }

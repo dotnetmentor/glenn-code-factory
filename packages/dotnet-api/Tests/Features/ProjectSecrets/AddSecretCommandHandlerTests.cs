@@ -75,6 +75,26 @@ public class AddSecretCommandHandlerTests
             Times.Once);
     }
 
+    [Fact]
+    public async Task Dotnet_config_style_key_is_accepted()
+    {
+        var (encryption, _) = SecretsTestHarness.Build(_dbName);
+        await using var ctx = SecretsTestHarness.OpenDb(_dbName);
+        var handler = new AddSecretCommandHandler(
+            ctx, encryption, Mock.Of<IMediator>(),
+            NullLogger<AddSecretCommandHandler>.Instance);
+
+        var result = await handler.Handle(
+            new AddSecretCommand(
+                Guid.NewGuid(),
+                "Jwt__Key",
+                new string('x', 32),
+                "user-1"),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData("lower_case")]      // must start with uppercase
     [InlineData("1STARTS_WITH_DIGIT")]

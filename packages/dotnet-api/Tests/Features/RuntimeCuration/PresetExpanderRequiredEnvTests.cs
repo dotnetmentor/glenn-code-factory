@@ -115,6 +115,44 @@ public class PresetExpanderRequiredEnvTests : HandlerTestBase
     }
 
     [Fact]
+    public async Task Expand_preserves_required_false_on_adhoc_vars_through_json_roundtrip()
+    {
+        await SeedPresetAsync("bare", requiredEnvJson: null);
+
+        var spec = new RuntimeSpecV3
+        {
+            Version = 3,
+            Services = new List<ServiceInstance>
+            {
+                ServiceWith("bare", "svc", new List<RequiredEnvVar>
+                {
+                    new() { Key = "Jwt__Key", Secret = true },
+                    new() { Key = "OpenRouter__ApiKey", Secret = true, Required = false },
+                }),
+            },
+        };
+
+        var result = await NewExpander().ExpandAsync(spec);
+
+        Assert.True(result.IsSuccess, result.Error);
+        var service = Assert.Single(result.Value.Services!);
+        var openRouter = service.RequiredEnv!.Single(e => e.Key == "OpenRouter__ApiKey");
+        Assert.False(openRouter.Required);
+        Assert.True(service.RequiredEnv!.Single(e => e.Key == "Jwt__Key").IsRequired);
+
+        var json = result.Value.ToJson();
+        Assert.Contains("\"required\":false", json);
+        Assert.DoesNotContain("isRequired", json);
+
+        var parsed = RuntimeSpecV2.TryParse(json);
+        Assert.True(parsed.IsSuccess);
+        var roundtripped = parsed.Value.Services!.Single()
+            .RequiredEnv!.Single(e => e.Key == "OpenRouter__ApiKey");
+        Assert.False(roundtripped.Required);
+        Assert.False(roundtripped.IsRequired);
+    }
+
+    [Fact]
     public async Task Expand_leaves_required_env_null_when_nothing_declared()
     {
         await SeedPresetAsync("bare", requiredEnvJson: null);

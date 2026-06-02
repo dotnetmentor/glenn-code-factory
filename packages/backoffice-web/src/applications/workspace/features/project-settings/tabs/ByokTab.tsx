@@ -25,12 +25,6 @@ interface ByokTabProps {
   projectId: string
 }
 
-/**
- * BYOK (Bring-Your-Own-Key) settings tab for a project.
- *
- * Cursor-only: per-project Cursor SDK API key. Values are encrypted at rest
- * and never sent back to the browser.
- */
 export function ByokTab({ projectId }: ByokTabProps) {
   const { showSuccess, showError } = useNotification()
   const [pending, setPending] = useState(false)
@@ -59,6 +53,13 @@ export function ByokTab({ projectId }: ByokTabProps) {
     }
   }
 
+  const projectOverrideAllowed = status?.allowProjectCursorApiKeyOverride !== false
+  const usingWorkspaceDefault =
+    status &&
+    !status.hasCursorApiKey &&
+    status.hasWorkspaceCursorApiKey &&
+    status.hasEffectiveCursorApiKey
+
   return (
     <Stack spacing={3}>
       <Box>
@@ -75,9 +76,9 @@ export function ByokTab({ projectId }: ByokTabProps) {
           Credentials
         </Typography>
         <Typography sx={bodySx}>
-          Per-project Cursor agent credentials. Values are encrypted at rest and
-          never sent back to the browser — once saved, you can only replace or
-          clear them.
+          Optional per-project Cursor key. When unset, this project uses the
+          workspace default from workspace settings. Values are encrypted at rest
+          and never sent back to the browser.
         </Typography>
       </Box>
 
@@ -99,10 +100,23 @@ export function ByokTab({ projectId }: ByokTabProps) {
         </Alert>
       )}
 
-      {!isLoadingStatus && isOwner === true && status && (
+      {!isLoadingStatus && isOwner === true && status && !projectOverrideAllowed && (
+        <Alert severity="info" variant="quiet">
+          This workspace uses a shared Cursor key only. Per-project overrides are
+          disabled — configure the key under workspace settings → Credentials.
+        </Alert>
+      )}
+
+      {!isLoadingStatus && isOwner === true && status && usingWorkspaceDefault && (
+        <Alert severity="success" variant="quiet">
+          Using the workspace Cursor API key (no project override).
+        </Alert>
+      )}
+
+      {!isLoadingStatus && isOwner === true && status && projectOverrideAllowed && (
         <CredentialRow
-          label="Cursor API key"
-          helper="Cursor SDK API key used for agent turns on this project. Required for any Cursor-routed turns to authenticate. Falls back to the host CURSOR_API_KEY env var when left unset."
+          label="Cursor API key (project override)"
+          helper="Overrides the workspace key for this project only. Clear to inherit the workspace default again."
           isConfigured={status.hasCursorApiKey}
           isUpdating={isUpdating}
           isPending={pending}

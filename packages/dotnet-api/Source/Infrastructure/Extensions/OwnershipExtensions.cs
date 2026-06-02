@@ -313,9 +313,26 @@ public static class OwnershipExtensions
         CancellationToken ct)
     {
         return await db.Conversations
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(c => c.Id == conversationId)
             .Select(c => (Guid?)c.ProjectId)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>
+    /// Returns the parent project's id for an attachment, or null when the row is missing.
+    /// </summary>
+    public static async Task<Guid?> FindProjectIdForAttachmentAsync(
+        this ApplicationDbContext db,
+        Guid attachmentId,
+        CancellationToken ct)
+    {
+        return await (
+            from a in db.Attachments.AsNoTracking()
+            join c in db.Conversations.IgnoreQueryFilters() on a.ConversationId equals c.Id
+            where a.Id == attachmentId
+            select (Guid?)c.ProjectId)
             .FirstOrDefaultAsync(ct);
     }
 

@@ -3,8 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Source.Features.Attachments.Commands;
 using Source.Features.Attachments.Queries;
-using Source.Infrastructure.AuthorizationExtensions;
-using Source.Infrastructure.AuthorizationModels;
+using Source.Infrastructure;
+using Source.Infrastructure.Extensions;
 using Source.Shared.Controllers;
 
 namespace Source.Features.Attachments.Controllers;
@@ -30,8 +30,10 @@ namespace Source.Features.Attachments.Controllers;
 /// file copy) is wired by a follow-up card. This controller persists the
 /// upload-completion handshake only.</para>
 ///
-/// <para><b>Auth.</b> JWT plus project access via the parent conversation's
-/// project (SuperAdmin, owner, or workspace member).</para>
+/// <para><b>Auth.</b> JWT plus per-project access via
+/// <see cref="OwnershipExtensions.CallerCanAccessProjectAsync"/> on the parent
+/// conversation's project (SuperAdmin, owner, or workspace member). Missing
+/// rows and denied access both surface as <c>404</c>.</para>
 /// </summary>
 [ApiController]
 [Authorize]
@@ -39,9 +41,15 @@ namespace Source.Features.Attachments.Controllers;
 [Route("api/attachments")]
 public class AttachmentsController : BaseApiController
 {
-    public AttachmentsController(IMediator mediator, ILogger<AttachmentsController> logger)
+    private readonly ApplicationDbContext _db;
+
+    public AttachmentsController(
+        IMediator mediator,
+        ILogger<AttachmentsController> logger,
+        ApplicationDbContext db)
         : base(mediator, logger)
     {
+        _db = db;
     }
 
     /// <summary>
@@ -62,6 +70,7 @@ public class AttachmentsController : BaseApiController
     [ProducesResponseType(typeof(PresignAttachmentResponse), 200)]
     [ProducesResponseType(400)]
     [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
     public async Task<ActionResult<PresignAttachmentResponse>> Presign(
         [FromBody] PresignAttachmentRequest body,
         CancellationToken ct)
@@ -71,19 +80,17 @@ public class AttachmentsController : BaseApiController
             return BadRequest(new { error = "Request body is required" });
         }
 
-        var userId = GetCurrentUserId();
-        if (string.IsNullOrEmpty(userId))
+        var projectId = await _db.FindProjectIdForConversationAsync(body.ConversationId, ct);
+        if (projectId is null || !await _db.CallerCanAccessProjectAsync(User, projectId.Value, ct))
         {
-            return Unauthorized();
+            return NotFound();
         }
 
         var command = new PresignAttachmentCommand(
             body.ConversationId,
             body.FileName,
             body.ContentType,
-            body.SizeBytes,
-            userId,
-            User.IsInRole(RoleConstants.SuperAdmin));
+            body.SizeBytes);
 
         var result = await Mediator.Send(command, ct);
         return HandleResult(result);
@@ -103,17 +110,13 @@ public class AttachmentsController : BaseApiController
         Guid id,
         CancellationToken ct)
     {
-        var userId = GetCurrentUserId();
-        if (string.IsNullOrEmpty(userId))
+        var projectId = await _db.FindProjectIdForAttachmentAsync(id, ct);
+        if (projectId is null || !await _db.CallerCanAccessProjectAsync(User, projectId.Value, ct))
         {
-            return Unauthorized();
+            return NotFound();
         }
 
-        var command = new CompleteAttachmentCommand(
-            id,
-            userId,
-            User.IsInRole(RoleConstants.SuperAdmin));
-        var result = await Mediator.Send(command, ct);
+        var result = await Mediator.Send(new CompleteAttachmentCommand(id), ct);
         return HandleResultWithNotFound(result);
     }
 
@@ -130,14 +133,13 @@ public class AttachmentsController : BaseApiController
         Guid id,
         CancellationToken ct)
     {
-        var userId = GetCurrentUserId();
-        if (string.IsNullOrEmpty(userId))
+        var projectId = await _db.FindProjectIdForAttachmentAsync(id, ct);
+        if (projectId is null || !await _db.CallerCanAccessProjectAsync(User, projectId.Value, ct))
         {
-            return Unauthorized();
+            return NotFound();
         }
 
-        var query = new GetAttachmentQuery(id, userId, User.IsInRole(RoleConstants.SuperAdmin));
-        var result = await Mediator.Send(query, ct);
+        var result = await Mediator.Send(new GetAttachmentQuery(id), ct);
         return HandleResultWithNotFound(result);
     }
 }

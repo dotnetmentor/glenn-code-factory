@@ -9,7 +9,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import Ajv from 'ajv'
 import type { Logger } from 'pino'
 
@@ -17,7 +17,11 @@ import { DaemonConfig } from '../config/DaemonConfig.js'
 import type { SignalRClient } from '../signalr/SignalRClient.js'
 import type { CustomTool, ToolContext } from '../turn/types.js'
 
-import { buildCustomTools } from './CustomTools.js'
+import {
+  buildCustomTools,
+  readPreviewEnvFromProcess,
+  type PreviewEnvSnapshot,
+} from './CustomTools.js'
 import type { ToolDescriptionResponse } from './fetchToolDescription.js'
 
 // Stub propose_runtime_spec description + JSON schema. Real values come from
@@ -822,18 +826,106 @@ describe('request_rebootstrap', () => {
 })
 
 // ============================================================================
+// get_preview_url
+// ============================================================================
+
+describe('get_preview_url', () => {
+  const ctx = makeCtx({ signalr: makeSignalrStub().stub, config: makeConfig() })
+
+  function toolsWithPreviewEnv(getPreviewEnv: () => PreviewEnvSnapshot): CustomTool[] {
+    return buildCustomTools({
+      proposeRuntimeSpec: STUB_PROPOSE_RUNTIME_SPEC,
+      config: makeConfig(),
+      logger: makeLogger(),
+      getPreviewEnv,
+    })
+  }
+
+  it('returns previewUrl when hostname is set', async () => {
+    const tool = findTool(
+      toolsWithPreviewEnv(() => ({ hostname: 'preview-abc.example.dev', previewPort: '5173' })),
+      'get_preview_url',
+    )
+    const result = (await tool.run({}, ctx)) as {
+      ok: boolean
+      available: boolean
+      previewUrl: string
+      hostname: string
+      previewPort: string
+    }
+    expect(result).toEqual({
+      ok: true,
+      available: true,
+      previewUrl: 'https://preview-abc.example.dev',
+      hostname: 'preview-abc.example.dev',
+      previewPort: '5173',
+    })
+  })
+
+  it('defaults previewPort to 5173 when unset', async () => {
+    const tool = findTool(
+      toolsWithPreviewEnv(() => ({ hostname: 'preview-abc.example.dev' })),
+      'get_preview_url',
+    )
+    const result = (await tool.run({}, ctx)) as { previewPort: string }
+    expect(result.previewPort).toBe('5173')
+  })
+
+  it('returns available:false when hostname is missing', async () => {
+    const tool = findTool(toolsWithPreviewEnv(() => ({})), 'get_preview_url')
+    const result = (await tool.run({}, ctx)) as { ok: boolean; available: boolean; message: string }
+    expect(result.ok).toBe(true)
+    expect(result.available).toBe(false)
+    expect(result.message).toContain('PREVIEW_HOSTNAME')
+  })
+
+  it('returns available:false when hostname is blank', async () => {
+    const tool = findTool(toolsWithPreviewEnv(() => ({ hostname: '   ' })), 'get_preview_url')
+    const result = (await tool.run({}, ctx)) as { available: boolean }
+    expect(result.available).toBe(false)
+  })
+})
+
+describe('readPreviewEnvFromProcess', () => {
+  const saved = { hostname: process.env['PREVIEW_HOSTNAME'], port: process.env['PREVIEW_PORT'] }
+
+  afterEach(() => {
+    if (saved.hostname === undefined) delete process.env['PREVIEW_HOSTNAME']
+    else process.env['PREVIEW_HOSTNAME'] = saved.hostname
+    if (saved.port === undefined) delete process.env['PREVIEW_PORT']
+    else process.env['PREVIEW_PORT'] = saved.port
+  })
+
+  it('reads trimmed PREVIEW_HOSTNAME and PREVIEW_PORT', () => {
+    process.env['PREVIEW_HOSTNAME'] = '  host.example.dev  '
+    process.env['PREVIEW_PORT'] = '3000'
+    expect(readPreviewEnvFromProcess()).toEqual({
+      hostname: 'host.example.dev',
+      previewPort: '3000',
+    })
+  })
+
+  it('omits empty env vars', () => {
+    delete process.env['PREVIEW_HOSTNAME']
+    delete process.env['PREVIEW_PORT']
+    expect(readPreviewEnvFromProcess()).toEqual({})
+  })
+})
+
+// ============================================================================
 // Cross-tool invariants
 // ============================================================================
 
 describe('buildCustomTools', () => {
-  it('returns array of length 6 with the six known names', () => {
+  it('returns array of length 7 with the seven known names', () => {
     const config = makeConfig()
     const tools = buildCustomTools({ proposeRuntimeSpec: STUB_PROPOSE_RUNTIME_SPEC, config, logger: makeLogger() })
-    expect(tools).toHaveLength(6)
+    expect(tools).toHaveLength(7)
     const names = tools.map((t) => t.name).sort()
     expect(names).toEqual([
       'dry_run_install',
       'get_boot_issues',
+      'get_preview_url',
       'get_runtime_spec',
       'propose_runtime_spec',
       'request_rebootstrap',

@@ -18,4 +18,7 @@ public sealed record UpdateProjectByokCommand(
 
 public sealed record UpdateProjectByokResponse(
     Guid ProjectId,
-    bool HasCursorApiKey);
+    bool HasCursorApiKey,
+    bool HasWorkspaceCursorApiKey,
+    bool AllowProjectCursorApiKeyOverride,
+    bool HasEffectiveCursorApiKey);

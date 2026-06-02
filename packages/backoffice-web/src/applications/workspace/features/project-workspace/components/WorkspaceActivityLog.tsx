@@ -13,6 +13,7 @@ import {
   useWorkspaceActivity,
   type WorkspaceActivityEntry,
 } from '../hooks/useWorkspaceActivityStore'
+import { branchWorkspaceHref } from '../hooks/branchConversationMemory'
 
 import { chromeTokens, semanticTokens, surfaceTokens, workspaceAccent, workspaceFontFamily } from '../../../shared/designTokens'
 
@@ -206,7 +207,12 @@ export function WorkspaceActivityLog({ nowMs }: WorkspaceActivityLogProps) {
     markRead(entry.id)
     if (slug && entry.projectId && entry.branchId) {
       navigate(
-        `/w/${slug}/projects/${entry.projectId}/branches/${entry.branchId}`,
+        branchWorkspaceHref(
+          slug,
+          entry.projectId,
+          entry.branchId,
+          entry.conversationId,
+        ),
       )
     }
   }

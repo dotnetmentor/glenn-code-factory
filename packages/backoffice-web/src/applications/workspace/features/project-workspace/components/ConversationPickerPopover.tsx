@@ -25,6 +25,7 @@ import {
   type ConversationSummary,
 } from '../../../../../api/queries-commands'
 import { useNotification } from '../../../../shared/contexts/NotificationContext'
+import { clearLastBranchConversationId } from '../hooks/branchConversationMemory'
 
 import { chromeTokens, semanticTokens, surfaceTokens } from '../../../shared/designTokens'
 
@@ -190,6 +191,7 @@ export function ConversationPickerPopover({
             ),
           })
           if (conversationId === activeConversationId) {
+            clearLastBranchConversationId(branchId)
             setSearchParams(
               (prev) => {
                 const next = new URLSearchParams(prev)
@@ -220,6 +222,7 @@ export function ConversationPickerPopover({
   }
 
   const onNewConversation = () => {
+    clearLastBranchConversationId(branchId)
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)

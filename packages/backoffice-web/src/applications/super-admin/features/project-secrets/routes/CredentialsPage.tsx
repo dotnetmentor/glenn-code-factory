@@ -182,10 +182,17 @@ export function CredentialsPage() {
           </Alert>
         )}
 
-        {!isLoadingStatus && isOwner === true && status && (
+        {!isLoadingStatus && isOwner === true && status && !status.allowProjectCursorApiKeyOverride && (
+          <Alert severity="info">
+            Per-project Cursor keys are disabled for this workspace. Use workspace
+            settings → Credentials for the shared key.
+          </Alert>
+        )}
+
+        {!isLoadingStatus && isOwner === true && status && status.allowProjectCursorApiKeyOverride && (
           <CredentialRow
-            label="Cursor API key"
-            helper="Cursor SDK API key used for agent turns on this project. Required for any Cursor-routed turns to authenticate."
+            label="Cursor API key (project override)"
+            helper="Overrides the workspace default for this project. Clear to inherit the workspace key again."
             isConfigured={status.hasCursorApiKey}
             isUpdating={isUpdating}
             isPending={pending}

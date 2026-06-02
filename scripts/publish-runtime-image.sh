@@ -20,16 +20,14 @@
 #   scripts/publish-runtime-image.sh --skip-smoketest      # skip in-container probe
 #   scripts/publish-runtime-image.sh --enforce-size-budget # gate on .image-size.last
 #
-# Required env (when pushing):
-#   FLY_API_TOKEN     Fly token used as the docker password against registry.fly.io.
-#                     If unset, the script assumes you've already done `flyctl auth
-#                     docker` (or `docker login` to a non-Fly registry).
+# Required env (when pushing to registry.fly.io):
+#   SystemSettings.Fly:ApiToken in Postgres + .env SystemSettings__EncryptionKey
+#   (read automatically — no manual FLY_API_TOKEN)
 #
 # Optional env:
 #   REGISTRY                Default: registry.fly.io
 #   IMAGE_NAME              Default: glenn-runtime-base
-#   REGISTRY_USERNAME       For non-Fly registries; falls back to "x" when using
-#                           FLY_API_TOKEN against registry.fly.io.
+#   REGISTRY_USERNAME       For non-Fly registries only.
 #   REGISTRY_TOKEN          Password/token for non-Fly registries.
 #   PLATFORM                Default: linux/amd64
 #   GITHUB_OUTPUT           If set, the script appends tag/digest/size_mb to it
@@ -45,6 +43,8 @@ PLATFORM="${PLATFORM:-linux/amd64}"
 SIZE_BUDGET_FILE=".image-size.last"
 SIZE_GROWTH_THRESHOLD_PCT="${SIZE_GROWTH_THRESHOLD_PCT:-10}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/platform-auth.sh
+source "$REPO_ROOT/scripts/lib/platform-auth.sh"
 
 # ---------- Flags -------------------------------------------------------------------
 DO_PUSH=true
@@ -72,10 +72,8 @@ Usage:
   scripts/publish-runtime-image.sh --skip-smoketest      # skip in-container probe
   scripts/publish-runtime-image.sh --enforce-size-budget # gate on .image-size.last (CI default)
 
-Required env (when pushing):
-  FLY_API_TOKEN     Fly token used as docker password against registry.fly.io.
-                    If unset, assumes you've already done `flyctl auth docker` (or
-                    `docker login` to a non-Fly registry).
+Required (registry.fly.io):
+  Fly:ApiToken in System Settings + SystemSettings__EncryptionKey in .env
 
 Optional env:
   REGISTRY                 Default: registry.fly.io
@@ -117,15 +115,17 @@ echo
 
 # ---------- Registry login (only if pushing) ----------------------------------------
 if $DO_PUSH; then
-    if [[ -n "${FLY_API_TOKEN:-}" && "$REGISTRY" == "registry.fly.io" ]]; then
-        echo "🔑 Logging into registry.fly.io with FLY_API_TOKEN"
+    if [[ "$REGISTRY" == "registry.fly.io" ]]; then
+        echo "🔑 Logging into registry.fly.io with Fly:ApiToken from SystemSettings..."
+        FLY_API_TOKEN="$(platform_auth_fly_token)"
         echo "$FLY_API_TOKEN" | docker login registry.fly.io -u x --password-stdin
     elif [[ -n "${REGISTRY_USERNAME:-}" && -n "${REGISTRY_TOKEN:-}" ]]; then
         echo "🔑 Logging into $REGISTRY with REGISTRY_USERNAME/REGISTRY_TOKEN"
         echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
     else
-        echo "ℹ️  No FLY_API_TOKEN or REGISTRY_USERNAME/REGISTRY_TOKEN provided."
-        echo "   Assuming an existing docker login session for $REGISTRY."
+        echo "ℹ️  No REGISTRY_USERNAME/REGISTRY_TOKEN provided."
+        echo "   For registry.fly.io, set Fly:ApiToken in System Settings."
+        echo "   Otherwise assume an existing docker login session for $REGISTRY."
     fi
 fi
 

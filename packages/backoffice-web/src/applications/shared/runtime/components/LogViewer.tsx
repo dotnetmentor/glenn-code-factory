@@ -8,6 +8,7 @@ import {
 import {
   TerminalCursor,
   TerminalLine,
+  terminalDisconnectedHintSx,
   terminalEmptyCaptionSx,
   terminalSurfaceSx,
 } from './terminalLine'
@@ -29,6 +30,11 @@ export interface LogViewerProps {
   paused: boolean
   /** Name of the service being tailed — surfaced in the empty-state caption. */
   serviceName: string | undefined
+  /**
+   * When set and the buffer is empty, shown above the waiting caption — used
+   * when the runtime daemon is not on RuntimeHub yet.
+   */
+  disconnectedHint?: string | null
 }
 
 /** Tolerance (in pixels) for "close enough to the bottom" auto-scroll detection. */
@@ -46,7 +52,12 @@ const SCROLL_BOTTOM_TOLERANCE_PX = 24
  * app-wide dark mode lands — the dark palette lives entirely in the
  * {@code --ws-terminal-*} token layer, not inline here.</p>
  */
-export function LogViewer({ lines, paused, serviceName }: LogViewerProps) {
+export function LogViewer({
+  lines,
+  paused,
+  serviceName,
+  disconnectedHint,
+}: LogViewerProps) {
   const viewerRef = useRef<HTMLDivElement | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
 
@@ -65,27 +76,58 @@ export function LogViewer({ lines, paused, serviceName }: LogViewerProps) {
   }, [lines, autoScroll])
 
   return (
-    <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
+    <Box
+      sx={{
+        position: 'relative',
+        height: '100%',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
       <Box
         ref={viewerRef}
         onScroll={handleScroll}
         sx={{
-          position: 'absolute',
-          inset: 0,
+          flex: 1,
+          minHeight: 0,
           overflowY: 'auto',
+          overflowX: 'hidden',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
           px: 2,
           py: 1.25,
+          boxSizing: 'border-box',
           ...terminalSurfaceSx,
         }}
       >
         {lines.length === 0 ? (
-          <Typography variant="caption" sx={terminalEmptyCaptionSx}>
-            {paused
-              ? 'Paused. New lines are being dropped until you resume.'
-              : `Waiting for ${serviceName ?? 'service'} to emit log lines…`}
-          </Typography>
+          <Box
+            sx={{
+              minHeight: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              p: 2,
+              boxSizing: 'border-box',
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={
+                disconnectedHint && !paused
+                  ? terminalDisconnectedHintSx
+                  : { ...terminalEmptyCaptionSx, textAlign: 'center' }
+              }
+            >
+              {paused
+                ? 'Paused. New lines are being dropped until you resume.'
+                : disconnectedHint && !paused
+                  ? disconnectedHint
+                  : `Waiting for ${serviceName ?? 'service'} to emit log lines…`}
+            </Typography>
+          </Box>
         ) : (
           <>
             {lines.map((l) => (

@@ -65,7 +65,8 @@ public class RuntimeHubRuntimeSpecDeltaAppliedTests : IDisposable
             new HealthSnapshotBuffer(),
             new ServiceDownDetector(),
             // SecretEncryptionService + IGithubAppTokenService + IAgentPermissionsResolver
-            // + ISystemSettingsService unused on this path — null! placeholders.
+            // + ISystemSettingsService + IAgentSecretsResolver unused on this path — null! placeholders.
+            null!,
             null!,
             null!,
             null!,

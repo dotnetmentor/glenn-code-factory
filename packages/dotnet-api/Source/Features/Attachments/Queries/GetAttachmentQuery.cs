@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Source.Features.Attachments.Commands;
 using Source.Infrastructure;
-using Source.Infrastructure.Extensions;
 using Source.Infrastructure.Services.FileStorage;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
@@ -14,10 +13,7 @@ namespace Source.Features.Attachments.Queries;
 /// attachment chips call when the user clicks them — the URL is regenerated
 /// on every read so links don't go stale on long-lived sessions.
 /// </summary>
-public record GetAttachmentQuery(
-    Guid AttachmentId,
-    string CallerUserId,
-    bool CallerIsSuperAdmin) : IQuery<Result<AttachmentDetailResponse>>;
+public record GetAttachmentQuery(Guid AttachmentId) : IQuery<Result<AttachmentDetailResponse>>;
 
 public class GetAttachmentQueryHandler : IQueryHandler<GetAttachmentQuery, Result<AttachmentDetailResponse>>
 {
@@ -43,19 +39,9 @@ public class GetAttachmentQueryHandler : IQueryHandler<GetAttachmentQuery, Resul
     {
         var attachment = await _db.Attachments
             .AsNoTracking()
-            .Include(a => a.Conversation)
             .FirstOrDefaultAsync(a => a.Id == request.AttachmentId, cancellationToken);
 
         if (attachment is null)
-        {
-            return Result.Failure<AttachmentDetailResponse>("Attachment not found");
-        }
-
-        if (!await _db.UserCanAccessProjectAsync(
-                request.CallerUserId,
-                request.CallerIsSuperAdmin,
-                attachment.Conversation.ProjectId,
-                cancellationToken))
         {
             return Result.Failure<AttachmentDetailResponse>("Attachment not found");
         }

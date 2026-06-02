@@ -12,6 +12,7 @@ using Source.Features.Projects.Models;
 using Source.Features.RuntimeImages.Models;
 using Source.Features.RuntimeLifecycle.Configuration;
 using Source.Features.RuntimeLifecycle.Models;
+using Source.Features.RuntimeLifecycle.Provisioning;
 using Source.Features.RuntimeTokens.Services;
 using Source.Features.SystemSettings.Services;
 using Source.Infrastructure;
@@ -288,15 +289,13 @@ public class RuntimeProvisionerJob
                 runtimeId, flyEx.StatusCode, flyEx.ErrorCode);
 
             var reasonCode = flyEx.ErrorCode ?? flyEx.StatusCode.ToString();
-            var bodySnippet = flyEx.Body is null
-                ? null
-                : flyEx.Body[..Math.Min(flyEx.Body.Length, 1000)];
+            var userMessage = RuntimeFlyProvisioning.FormatUserMessage(flyEx);
 
             var failResult = runtime.TransitionTo(
                 RuntimeState.Failed,
                 $"provisioner:fly_error:{reasonCode}",
                 "system:provisioner",
-                bodySnippet);
+                userMessage);
 
             if (failResult.IsFailure)
             {
@@ -503,15 +502,13 @@ public class RuntimeProvisionerJob
                 // is on a fresh save outside the failed Fly call, so the audit row
                 // lands cleanly.
                 var reasonCode = flyEx.ErrorCode ?? flyEx.StatusCode.ToString();
-                var bodySnippet = flyEx.Body is null
-                    ? null
-                    : flyEx.Body[..Math.Min(flyEx.Body.Length, 1000)];
+                var userMessage = RuntimeFlyProvisioning.FormatUserMessage(flyEx);
 
                 var failResult = runtime.TransitionTo(
                     RuntimeState.Failed,
                     $"provisioner:fly_error:{reasonCode}",
                     "system:provisioner",
-                    bodySnippet);
+                    userMessage);
 
                 if (failResult.IsFailure)
                 {
@@ -628,9 +625,7 @@ public class RuntimeProvisionerJob
         if (string.IsNullOrWhiteSpace(runtime.FlyVolumeId))
         {
             var volumeReq = new CreateVolumeRequest(
-                // Fly volume names: alphanumeric + underscores, max 30 chars.
-                // Guid "N" format = 32 hex chars; prefix "vol_" + 26 chars = 30 total.
-                Name: $"vol_{runtime.Id:N}".Substring(0, 30),
+                Name: RuntimeFlyProvisioning.BuildVolumeName(runtime.Id),
                 Region: runtime.Region,
                 SizeGb: runtime.VolumeSizeGb,
                 Encrypted: true);
@@ -754,6 +749,29 @@ public class RuntimeProvisionerJob
             .FirstOrDefaultAsync(ct) ?? Project.DefaultPreviewPort;
 
         // ---- 2. Machine ----
+        if (!string.IsNullOrWhiteSpace(runtime.FlyMachineId))
+        {
+            _logger.LogInformation(
+                "RuntimeProvisionerJob: runtime {RuntimeId} already has FlyMachineId {MachineId} — resuming Pending → Booting.",
+                runtime.Id, runtime.FlyMachineId);
+
+            var resumeTransition = runtime.TransitionTo(
+                RuntimeState.Booting,
+                "provisioner:resumed_existing_machine",
+                "system:provisioner");
+
+            if (resumeTransition.IsFailure)
+            {
+                _logger.LogError(
+                    "RuntimeProvisionerJob: Pending -> Booting resume rejected for runtime {RuntimeId}: {Error}",
+                    runtime.Id, resumeTransition.Error);
+                return;
+            }
+
+            await _db.SaveChangesAsync(ct);
+            return;
+        }
+
         var env = new Dictionary<string, string>
         {
             ["RUNTIME_ID"] = runtime.Id.ToString(),
@@ -835,9 +853,7 @@ public class RuntimeProvisionerJob
         }
 
         var machineReq = new CreateMachineRequest(
-            // Fly machine names: lowercase alphanumeric + underscores, max 30 chars.
-            // Guid "N" format = 32 hex chars; prefix "rt_" + 27 chars = 30 total.
-            Name: $"rt_{runtime.Id:N}".Substring(0, 30),
+            Name: RuntimeFlyProvisioning.BuildMachineName(runtime.Id),
             Region: runtime.Region,
             Config: new MachineConfig(
                 Image: $"{image.Registry}:{image.Tag}",
@@ -858,7 +874,8 @@ public class RuntimeProvisionerJob
                     new(Volume: volumeId, Path: "/data"),
                 }));
 
-        var machine = await _fly.CreateMachineAsync(machineReq, runtimeId: runtime.Id, ct: ct);
+        var machine = await RuntimeFlyProvisioning.CreateOrAdoptMachineAsync(
+            _fly, _db, runtime, machineReq, ct);
         runtime.FlyMachineId = machine.Id;
         runtime.ImageDigest = image.Digest;
 
@@ -870,10 +887,9 @@ public class RuntimeProvisionerJob
 
         if (transitionResult.IsFailure)
         {
-            // Defensive: Pending → Booting is legal in the current graph. If this fires
-            // someone broke the state machine. Log and skip the save so the operator
-            // can see the Fly resources were created but the row didn't move forward
-            // (manual cleanup needed).
+            // Persist the Fly ids so the next tick can resume instead of
+            // re-creating a machine with the same deterministic name.
+            await _db.SaveChangesAsync(ct);
             _logger.LogError(
                 "RuntimeProvisionerJob: Pending -> Booting transition rejected for runtime {RuntimeId}: {Error}",
                 runtime.Id, transitionResult.Error);

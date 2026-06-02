@@ -3,18 +3,26 @@ set -euo pipefail
 
 API="${API:-http://localhost:5338}"
 CHANNEL="${CHANNEL:-stable}"
-JWT_FILE="${JWT_FILE:-/tmp/jwt.txt}"
-
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DAEMON_DIR="$ROOT/packages/daemon"
 STAGE="$ROOT/.daemon-publish-stage"
 TARBALL="$ROOT/.daemon-bundle.tar.gz"
+# shellcheck source=lib/platform-auth.sh
+source "$ROOT/scripts/lib/platform-auth.sh"
 
 log() { printf '\033[36m[publish-daemon]\033[0m %s\n' "$*"; }
 fail() { printf '\033[31m[publish-daemon FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
 
-[[ -f "$JWT_FILE" ]] || fail "JWT file $JWT_FILE not found. Mint one with /tmp/mint-jwt.mjs"
-JWT="$(cat "$JWT_FILE")"
+file_size_bytes() {
+  if stat -c%s "$1" >/dev/null 2>&1; then
+    stat -c%s "$1"
+  else
+    stat -f%z "$1"
+  fi
+}
+
+log "minting SuperAdmin JWT from .env + bootstrap user..."
+JWT="$(platform_auth_jwt)" || fail "could not mint JWT — ensure .env has Jwt__Key + Bootstrap__SuperAdminEmail and bootstrap SuperAdmin exists"
 
 # 1. Build daemon
 log "building daemon (esbuild)..."
@@ -66,7 +74,7 @@ if [[ -d node_modules/sqlite3 ]]; then
     || fail "prebuild-install failed for sqlite3 (linux-x64 napi). The @cursor/sdk depends on this binding."
   SQLITE_BINDING="node_modules/sqlite3/build/Release/node_sqlite3.node"
   [[ -f "$SQLITE_BINDING" ]] || fail "sqlite3 native binding missing at $SQLITE_BINDING after prebuild-install"
-  log "  sqlite3 native binding present at $SQLITE_BINDING ($(stat -c%s "$SQLITE_BINDING") bytes)"
+  log "  sqlite3 native binding present at $SQLITE_BINDING ($(file_size_bytes "$SQLITE_BINDING") bytes)"
 else
   log "  sqlite3 not in node_modules — skipping native binding step"
 fi
@@ -85,8 +93,12 @@ rm -rf "$STAGE/node_modules-temp"
 log "creating tarball..."
 rm -f "$TARBALL"
 tar -czf "$TARBALL" -C "$STAGE" daemon.js node_modules
-SHA=$(sha256sum "$TARBALL" | awk '{print $1}')
-SIZE=$(stat -c%s "$TARBALL")
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA=$(sha256sum "$TARBALL" | awk '{print $1}')
+else
+  SHA=$(shasum -a 256 "$TARBALL" | awk '{print $1}')
+fi
+SIZE=$(file_size_bytes "$TARBALL")
 log "bundle: $TARBALL"
 log "  size: $SIZE bytes"
 log "  sha:  $SHA"

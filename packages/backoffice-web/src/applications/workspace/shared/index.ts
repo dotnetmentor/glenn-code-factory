@@ -68,6 +68,10 @@ export {
   GithubReauthorizeBanner,
   type GithubReauthorizeBannerProps,
 } from './components/GithubReauthorizeBanner'
+export { ManageGitHubAccessHint } from './components/ManageGitHubAccessHint'
+export { PoolEmptyErrorAlert } from './components/PoolEmptyErrorAlert'
+export { buildGithubInstallationManageUrl } from './githubInstallationManageUrl'
+export { isPoolEmptyError, SUBDOMAINS_ADMIN_PATH } from './poolEmptyError'
 
 // Phase 1 primitives — small, reusable building blocks (RuntimePill,
 // SegmentedTabs, StatusDot, FlatSwitch, KbdChip, InlineCode). Live

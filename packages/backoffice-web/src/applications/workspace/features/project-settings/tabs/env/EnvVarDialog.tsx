@@ -17,6 +17,10 @@ import {
   surfaceTokens,
   workspaceFontFamily,
 } from '../../../../shared/designTokens'
+import { ENV_KEY_PATTERN, invalidEnvKeyMessage } from './envVarKey'
+import { humaniseEnvVarApiError } from './envVarApiError'
+
+export { ENV_KEY_PATTERN } from './envVarKey'
 
 const tokens = {
   canvas: surfaceTokens.canvasBg,
@@ -28,9 +32,6 @@ const tokens = {
   danger: semanticTokens.danger,
   rowHover: chromeTokens.rowHover,
 } as const
-
-/** POSIX-ish env key shape — uppercase, digits and underscores, leading letter. */
-export const ENV_KEY_PATTERN = /^[A-Z][A-Z0-9_]*$/
 
 export interface EnvVarDialogValues {
   /** Existing key when editing; the dialog locks the key field in that mode. */
@@ -96,15 +97,15 @@ export function EnvVarDialog({
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
     if (!keyValid) {
-      setKeyError('Use UPPER_SNAKE_CASE: start with a letter, then letters, digits or underscores.')
+      setKeyError(invalidEnvKeyMessage(trimmedKey))
       return
     }
     if (trimmedValue.length === 0) return
     setSubmitError(null)
     try {
       await onSubmit({ key: trimmedKey, value: trimmedValue, isSecret })
-    } catch {
-      setSubmitError("Couldn't save the variable. Please try again.")
+    } catch (err) {
+      setSubmitError(humaniseEnvVarApiError(err, trimmedKey))
     }
   }
 

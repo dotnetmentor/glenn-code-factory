@@ -180,6 +180,21 @@ export class SupervisordController {
     this.#logger.info({ service: spec.name }, 'supervisord service started')
   }
 
+  /**
+   * Restart a supervisord program. Used after setup mutates `node_modules` so
+   * Vite rebuilds its dep cache. Best-effort — callers treat non-zero exit as
+   * non-fatal when the program was never registered.
+   */
+  async restartService(name: string, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted === true) {
+      throw new Error(`supervisord restartService aborted before start: ${name}`)
+    }
+    await this.#executor.run('supervisorctl', ['restart', name], {
+      allowNonZero: true,
+    })
+    this.#logger.info({ service: name }, 'supervisord service restarted')
+  }
+
   async #readIfExists(path: string): Promise<string | undefined> {
     try {
       await this.#fs.access(path)
@@ -334,9 +349,15 @@ export class SupervisordController {
    * Safe to call with an empty `desired` — that's the "spec has zero
    * services" case and means "remove everything".
    */
-  async reconcileServices(desired: ReadonlySet<string>): Promise<string[]> {
+  async reconcileServices(
+    desired: ReadonlySet<string>,
+    options?: { preserve?: ReadonlySet<string> },
+  ): Promise<string[]> {
     const configured = await this.listConfiguredServiceNames()
-    const orphans = configured.filter((name) => !desired.has(name))
+    const preserve = options?.preserve
+    const orphans = configured.filter(
+      (name) => !desired.has(name) && !(preserve?.has(name) ?? false),
+    )
     if (orphans.length === 0) {
       this.#logger.debug(
         { configured: configured.length, desired: desired.size },
@@ -374,9 +395,9 @@ export class SupervisordController {
  *     redirect_stderr=true
  *     environment=<KEY1=val1,KEY2="value with spaces">  (omitted if no env)
  *
- * Env-value quoting follows supervisord's docs: values containing characters
- * outside `[A-Za-z0-9_./@:+-]` are wrapped in double quotes, with embedded
- * `"` and `\` backslash-escaped.
+ * Env-value quoting: supervisord's `environment=` parser breaks on mixed
+ * quoted/unquoted pairs when values contain `:`, `/`, `@`, etc. Quote every
+ * value so preset toolchain paths and merged secrets compose reliably.
  */
 export function renderServiceBlock(spec: ServiceSpec): string {
   // Guard against BOTH undefined and null — same wire-payload caveat as `env`
@@ -413,17 +434,9 @@ export function renderServiceBlock(spec: ServiceSpec): string {
 
 /**
  * Format an env map as a supervisord `environment=` value:
- * `KEY1=val1,KEY2="value with spaces"`.
- *
- * Quoting rule (per supervisord docs): if the value contains anything outside
- * the "safe" character class `[A-Za-z0-9_./@:+-]` it gets wrapped in double
- * quotes; embedded `"` and `\` are backslash-escaped. Keys are emitted as-is
- * (supervisord keys are required to be plain identifiers; the caller's V2
- * validation layer is responsible for shape enforcement).
- *
- * Iteration order matches the runtime's property-insertion order — stable in
- * V8 / Node for string keys, which keeps the rendered conf deterministic
- * (important for the idempotency check).
+ * `KEY1="val1",KEY2="val2"`. Every value is double-quoted; embedded `"` and
+ * `\` are backslash-escaped. Percent signs are doubled for supervisord's
+ * `%(ENV_X)s` interpolation pass.
  */
 function formatEnvironment(env: Record<string, string>): string {
   const parts: string[] = []
@@ -433,10 +446,10 @@ function formatEnvironment(env: Record<string, string>): string {
   return parts.join(',')
 }
 
-const SAFE_ENV_VALUE_RE = /^[A-Za-z0-9_./@:+-]*$/
-
 function quoteEnvValue(value: string): string {
-  if (SAFE_ENV_VALUE_RE.test(value)) return value
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/%/g, '%%')
   return `"${escaped}"`
 }

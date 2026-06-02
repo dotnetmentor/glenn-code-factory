@@ -174,3 +174,12 @@ export const terminalEmptyCaptionSx = {
   color: workspaceTerminal.textDim,
   fontFamily: workspaceFontFamily.mono,
 } as const
+
+/** Muted disconnected hint — same voice as {@link terminalEmptyCaptionSx}, centered. */
+export const terminalDisconnectedHintSx = {
+  ...terminalEmptyCaptionSx,
+  textAlign: 'center',
+  maxWidth: 400,
+  mx: 'auto',
+  lineHeight: 1.5,
+} as const

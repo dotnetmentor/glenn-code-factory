@@ -29,6 +29,7 @@ using Source.Features.ProjectSecrets.Services;
 using Source.Features.RuntimeTokens.Models;
 using Source.Features.SignalR.Contracts;
 using Source.Features.SignalR.Events;
+using Source.Features.SignalR.Services;
 using Source.Features.SystemSettings.Services;
 using Source.Infrastructure;
 using Source.Infrastructure.Extensions;
@@ -65,6 +66,7 @@ public class RuntimeHub : Hub<IRuntimeClient>, IRuntimeHub
     private readonly IGithubAppTokenService _githubAppTokens;
     private readonly IAgentPermissionsResolver _agentPermissionsResolver;
     private readonly ISystemSettingsService _systemSettings;
+    private readonly IAgentSecretsResolver _agentSecrets;
     private readonly IClock _clock;
     private readonly ILogger<RuntimeHub> _logger;
 
@@ -79,6 +81,7 @@ public class RuntimeHub : Hub<IRuntimeClient>, IRuntimeHub
         IGithubAppTokenService githubAppTokens,
         IAgentPermissionsResolver agentPermissionsResolver,
         ISystemSettingsService systemSettings,
+        IAgentSecretsResolver agentSecrets,
         IClock clock,
         ILogger<RuntimeHub> logger)
     {
@@ -92,6 +95,7 @@ public class RuntimeHub : Hub<IRuntimeClient>, IRuntimeHub
         _githubAppTokens = githubAppTokens;
         _agentPermissionsResolver = agentPermissionsResolver;
         _systemSettings = systemSettings;
+        _agentSecrets = agentSecrets;
         _clock = clock;
         _logger = logger;
     }
@@ -470,18 +474,9 @@ public class RuntimeHub : Hub<IRuntimeClient>, IRuntimeHub
             projectId = resolved.Value;
         }
 
-        var project = await _db.Projects
-            .AsNoTracking()
-            .Where(p => p.Id == projectId)
-            .Select(p => new { p.EncryptedCursorApiKey })
-            .FirstOrDefaultAsync();
-
-        var cursorEnvelope = project?.EncryptedCursorApiKey;
-
-        var cursorKey = await ResolveSecretAsync(
-            envelope: cursorEnvelope,
-            projectId: projectId,
-            envVarName: "CURSOR_API_KEY");
+        var cursorKey = await _agentSecrets.ResolveCursorApiKeyAsync(
+            projectId,
+            Context.ConnectionAborted);
 
         _logger.LogInformation(
             "RuntimeHub.GetSecrets: project {ProjectId} runtime {RuntimeId} issued secrets (hasCursor={HasCursor}).",

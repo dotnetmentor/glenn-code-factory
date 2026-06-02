@@ -350,6 +350,26 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -1016,94 +1036,6 @@
         "responses": {
           "200": {
             "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/Auth/create-super-admin": {
-      "post": {
-        "tags": [
-          "Authentication"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateSuperAdminRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateSuperAdminRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateSuperAdminRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateSuperAdminResponse"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateSuperAdminResponse"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateSuperAdminResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
           }
         }
       }
@@ -3426,6 +3358,48 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/files/daemon-bundles/{fileName}": {
+      "get": {
+        "tags": [
+          "DaemonVersions"
+        ],
+        "parameters": [
+          {
+            "name": "fileName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "text/plain": {
                 "schema": {
@@ -21585,6 +21559,124 @@
         }
       }
     },
+    "/api/workspaces/{slug}/byok": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceByokRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceByokRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceByokRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateWorkspaceByokResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateWorkspaceByokResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateWorkspaceByokResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{slug}/projects": {
       "get": {
         "tags": [
@@ -24937,48 +25029,6 @@
         "type": "object",
         "properties": {
           "title": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "CreateSuperAdminRequest": {
-        "required": [
-          "email"
-        ],
-        "type": "object",
-        "properties": {
-          "email": {
-            "minLength": 1,
-            "type": "string",
-            "format": "email"
-          },
-          "firstName": {
-            "type": "string",
-            "nullable": true
-          },
-          "lastName": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "CreateSuperAdminResponse": {
-        "required": [
-          "email",
-          "message",
-          "userId"
-        ],
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string"
-          },
-          "email": {
-            "type": "string"
-          },
-          "message": {
             "type": "string"
           }
         },
@@ -32557,7 +32607,10 @@
       },
       "UpdateProjectByokResponse": {
         "required": [
+          "allowProjectCursorApiKeyOverride",
           "hasCursorApiKey",
+          "hasEffectiveCursorApiKey",
+          "hasWorkspaceCursorApiKey",
           "projectId"
         ],
         "type": "object",
@@ -32567,6 +32620,15 @@
             "format": "uuid"
           },
           "hasCursorApiKey": {
+            "type": "boolean"
+          },
+          "hasWorkspaceCursorApiKey": {
+            "type": "boolean"
+          },
+          "allowProjectCursorApiKeyOverride": {
+            "type": "boolean"
+          },
+          "hasEffectiveCursorApiKey": {
             "type": "boolean"
           }
         },
@@ -32890,6 +32952,51 @@
             "items": {
               "type": "string"
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateWorkspaceByokRequest": {
+        "required": [
+          "setAllowProjectCursorApiKeyOverride",
+          "setCursorApiKey"
+        ],
+        "type": "object",
+        "properties": {
+          "setCursorApiKey": {
+            "type": "boolean"
+          },
+          "cursorApiKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "setAllowProjectCursorApiKeyOverride": {
+            "type": "boolean"
+          },
+          "allowProjectCursorApiKeyOverride": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateWorkspaceByokResponse": {
+        "required": [
+          "allowProjectCursorApiKeyOverride",
+          "hasCursorApiKey",
+          "workspaceId"
+        ],
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hasCursorApiKey": {
+            "type": "boolean"
+          },
+          "allowProjectCursorApiKeyOverride": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -33362,6 +33469,7 @@
       },
       "Workspace": {
         "required": [
+          "allowProjectCursorApiKeyOverride",
           "createdAt",
           "domainEvents",
           "id",
@@ -33418,6 +33526,13 @@
           "deletedBy": {
             "type": "string",
             "nullable": true
+          },
+          "encryptedCursorApiKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "allowProjectCursorApiKeyOverride": {
+            "type": "boolean"
           },
           "memberships": {
             "type": "array",
@@ -33759,6 +33874,7 @@
       },
       "WorkspaceSnapshot": {
         "required": [
+          "allowProjectCursorApiKeyOverride",
           "id",
           "name",
           "ownerId",
@@ -33778,6 +33894,13 @@
           },
           "ownerId": {
             "type": "string"
+          },
+          "cursorApiKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "allowProjectCursorApiKeyOverride": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false

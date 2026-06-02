@@ -8,8 +8,9 @@ namespace Source.Features.ProjectSecrets.Commands;
 /// failure-code strings are typo-proof for the controller / Orval mapping.
 ///
 /// <list type="bullet">
-///   <item><b>Key format:</b> <c>^[A-Z][A-Z0-9_]*$</c> — POSIX-portable env-var
-///         names. Length 1..200 to mirror the column limit on
+///   <item><b>Key format:</b> <c>^[A-Za-z][A-Za-z0-9_]*$</c> — letters, digits,
+///         and underscores (supports .NET-style keys like <c>Jwt__Key</c>).
+///         Length 1..200 to mirror the column limit on
 ///         <see cref="Models.ProjectSecret.Key"/>.</item>
 ///   <item><b>Plaintext:</b> rejects any value containing <c>'\n'</c>. The
 ///         daemon's bootstrap path emits a plain <c>KEY=VALUE</c> env file with
@@ -24,7 +25,7 @@ internal static partial class SecretValidation
     public const string ErrorInvalidKeyFormat = "invalid_key_format";
     public const string ErrorInvalidPlaintext = "invalid_plaintext";
 
-    [GeneratedRegex(@"^[A-Z][A-Z0-9_]*$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^[A-Za-z][A-Za-z0-9_]*$", RegexOptions.CultureInvariant)]
     private static partial Regex KeyRegex();
 
     /// <summary>

@@ -21,6 +21,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import {
   useGetApiProjectsProjectIdRuntimeSpec,
   useGetApiProjectsProjectIdBranchesBranchIdRuntimeStatus,
+  type RuntimeStatusResponse,
 } from '@/api/queries-commands'
 import { useAgentHub } from '@/lib/signalr'
 import type { ServiceLogLineNotification } from '@/generated/signalr/Source.Features.SignalR.Contracts'
@@ -40,6 +41,10 @@ import { SysstatsView } from './SysstatsView'
 import { DaemonLogsView } from './DaemonLogsView'
 import { RuntimeTab } from './RuntimeTab'
 import {
+  DAEMON_LOGS_UNAVAILABLE_MESSAGE,
+  isDaemonHubLikelyUnreachable,
+} from '../runtimeDaemonConnectivity'
+import {
   useRuntimeDebugPanel,
   type RuntimeDebugPanelView,
 } from '../context/RuntimeDebugPanelContext'
@@ -48,10 +53,22 @@ import { ApplicationRoles } from '@/applications/shared/constants/roles'
 
 /** In-memory ring buffer cap. */
 const LOG_BUFFER_CAP = 1000
-/** Default + min + max heights for the resizable panel. */
-const DEFAULT_HEIGHT = 280
+/** Min + max heights for the resizable panel. */
 const MIN_HEIGHT = 160
 const MAX_HEIGHT = 600
+/** Fallback when viewport height is unavailable (SSR). */
+const SSR_DEFAULT_HEIGHT = 400
+
+function resolveInitialPanelHeight(): number {
+  if (typeof window === 'undefined') return SSR_DEFAULT_HEIGHT
+  const stored = window.localStorage.getItem(HEIGHT_STORAGE_KEY)
+  const parsed = stored ? Number.parseInt(stored, 10) : NaN
+  if (Number.isFinite(parsed)) {
+    return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, parsed))
+  }
+  const halfViewport = Math.round(window.innerHeight * 0.5)
+  return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, halfViewport))
+}
 /** Match the panel's CSS transition so post-close unmount runs after the animation. */
 const ANIMATION_DURATION_MS = 200
 /** Fade duration when swapping between the three views — gentle enough to feel calm. */
@@ -119,13 +136,7 @@ export function RuntimeLogsPanel({
   }, [open])
 
   // ── Resizable height (persisted) ────────────────────────────────────────
-  const [height, setHeight] = useState<number>(() => {
-    if (typeof window === 'undefined') return DEFAULT_HEIGHT
-    const stored = window.localStorage.getItem(HEIGHT_STORAGE_KEY)
-    const parsed = stored ? Number.parseInt(stored, 10) : NaN
-    if (!Number.isFinite(parsed)) return DEFAULT_HEIGHT
-    return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, parsed))
-  })
+  const [height, setHeight] = useState<number>(resolveInitialPanelHeight)
 
   const dragStateRef = useRef<{ startY: number; startHeight: number } | null>(null)
 
@@ -382,11 +393,10 @@ function RuntimeDebugPanelBody({
     }
   }, [serviceNames, selectedService])
 
-  // Logs view sub-tab: Service logs (always visible) vs Daemon (super-admin
-  // only). Default to Service logs every time the panel mounts — daemon
-  // logs are a deliberate deep-dive, not a default surface.
+  // Logs view sub-tab: Service logs vs Daemon (super-admin only). Default to
+  // Daemon for super-admins so boot/debug sessions surface agent stdout first.
   type LogsSubTab = 'service' | 'daemon'
-  const [logsSubTab, setLogsSubTab] = useState<LogsSubTab>('service')
+  const [logsSubTab, setLogsSubTab] = useState<LogsSubTab>('daemon')
   useEffect(() => {
     // If the user lost super-admin and the persisted sub-tab is 'daemon',
     // snap back to 'service' so they don't see an empty/forbidden surface.
@@ -486,10 +496,14 @@ function RuntimeDebugPanelBody({
     (serviceName: string) => {
       setSelectedService(serviceName)
       setLines([])
+      setLogsSubTab('service')
       debugPanel.setActiveView('logs', serviceName)
     },
     [debugPanel],
   )
+
+  const daemonDisconnected =
+    isDaemonHubLikelyUnreachable(statusQuery.data) && !!runtimeId
 
   return (
     <Box
@@ -522,11 +536,13 @@ function RuntimeDebugPanelBody({
         onClose={onClose}
         isSuperAdmin={isSuperAdmin}
         logsControls={{
+          logsSubTab,
           serviceNames,
           selectedService,
           lineCount: lines.length,
           onServiceChange: handleServiceChange,
           hasSupervisordSnapshot,
+          daemonDisconnected,
           paused,
           onTogglePause: togglePause,
           onClear: handleClear,
@@ -549,6 +565,8 @@ function RuntimeDebugPanelBody({
             selectedService={selectedService}
             connection={connection}
             runtimeId={runtimeId}
+            runtimeStatus={statusQuery.data}
+            daemonDisconnected={daemonDisconnected}
           />
         </ViewLayer>
         <ViewLayer active={activeView === 'services'}>
@@ -724,6 +742,8 @@ interface LogsViewBodyProps {
   selectedService: string | undefined
   connection: ReturnType<typeof useAgentHub>['connection']
   runtimeId: string | undefined
+  runtimeStatus?: RuntimeStatusResponse
+  daemonDisconnected: boolean
 }
 
 /**
@@ -742,6 +762,8 @@ function LogsViewBody({
   selectedService,
   connection,
   runtimeId,
+  runtimeStatus,
+  daemonDisconnected,
 }: LogsViewBodyProps) {
   return (
     <Box
@@ -792,16 +814,42 @@ function LogsViewBody({
           <Tab value="daemon" label="Daemon logs" />
         </Tabs>
       )}
-      <Box sx={{ flex: 1, minHeight: 0, position: 'relative' }}>
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
         {subTab === 'service' || !isSuperAdmin ? (
           <LogViewer
             lines={lines}
             paused={paused}
             serviceName={selectedService}
+            disconnectedHint={
+              daemonDisconnected ? DAEMON_LOGS_UNAVAILABLE_MESSAGE : null
+            }
           />
         ) : (
-          <Box sx={{ position: 'absolute', inset: 0, p: 1.5 }}>
-            <DaemonLogsView connection={connection} runtimeId={runtimeId} />
+          <Box
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              px: 1.5,
+              py: 1,
+              boxSizing: 'border-box',
+            }}
+          >
+            <DaemonLogsView
+              connection={connection}
+              runtimeId={runtimeId}
+              runtimeStatus={runtimeStatus}
+            />
           </Box>
         )}
       </Box>
@@ -845,6 +893,7 @@ interface PanelHeaderProps {
   onClose: () => void
   isSuperAdmin: boolean
   logsControls: {
+    logsSubTab: 'service' | 'daemon'
     serviceNames: string[]
     selectedService: string | undefined
     lineCount: number
@@ -856,6 +905,7 @@ interface PanelHeaderProps {
      * empty).
      */
     hasSupervisordSnapshot: boolean
+    daemonDisconnected: boolean
     paused: boolean
     onTogglePause: () => void
     onClear: () => void
@@ -897,15 +947,19 @@ function PanelHeader({
       />
 
       <Box sx={{ ml: 0.5, flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 1.25 }}>
-        {activeView === 'logs' && (
-          <LogsControls
-            serviceNames={logsControls.serviceNames}
-            selectedService={logsControls.selectedService}
-            lineCount={logsControls.lineCount}
-            onServiceChange={logsControls.onServiceChange}
-            hasSupervisordSnapshot={logsControls.hasSupervisordSnapshot}
-          />
-        )}
+        {activeView === 'logs' &&
+          (logsControls.logsSubTab === 'daemon' ? (
+            <DaemonLogsHeaderCaption />
+          ) : (
+            <LogsControls
+              serviceNames={logsControls.serviceNames}
+              selectedService={logsControls.selectedService}
+              lineCount={logsControls.lineCount}
+              onServiceChange={logsControls.onServiceChange}
+              hasSupervisordSnapshot={logsControls.hasSupervisordSnapshot}
+              daemonDisconnected={logsControls.daemonDisconnected}
+            />
+          ))}
         {activeView === 'services' && <ServicesControls />}
         {activeView === 'timeline' && <TimelineControls />}
         {activeView === 'fly' && <FlyControls />}
@@ -1062,12 +1116,29 @@ function SegmentedSwitcher({ activeView, onChange, isSuperAdmin }: SegmentedSwit
   )
 }
 
+function DaemonLogsHeaderCaption() {
+  return (
+    <Typography
+      variant="caption"
+      sx={{
+        color: workspaceText.muted,
+        fontSize: '0.75rem',
+        letterSpacing: '-0.005em',
+        fontFamily: workspaceFontFamily.mono,
+      }}
+    >
+      Daemon stdout / stderr
+    </Typography>
+  )
+}
+
 interface LogsControlsProps {
   serviceNames: string[]
   selectedService: string | undefined
   lineCount: number
   onServiceChange: (e: SelectChangeEvent<string>) => void
   hasSupervisordSnapshot: boolean
+  daemonDisconnected: boolean
 }
 
 function LogsControls({
@@ -1076,6 +1147,7 @@ function LogsControls({
   lineCount,
   onServiceChange,
   hasSupervisordSnapshot,
+  daemonDisconnected,
 }: LogsControlsProps) {
   return (
     <>
@@ -1139,8 +1211,10 @@ function LogsControls({
           </>
         ) : hasSupervisordSnapshot ? (
           'No service selected'
+        ) : daemonDisconnected ? (
+          'Daemon not connected'
         ) : (
-          'Awaiting daemon connection'
+          'Awaiting supervisord snapshot'
         )}
       </Typography>
     </>

@@ -15,20 +15,19 @@ interface UseProjectByokProps {
   onError?: (message: string) => void
 }
 
-type ByokStatus = {
+export type ProjectByokStatus = {
   hasCursorApiKey: boolean
+  hasWorkspaceCursorApiKey: boolean
+  allowProjectCursorApiKeyOverride: boolean
+  hasEffectiveCursorApiKey: boolean
 } | null
 
 /**
  * Wrapper around the generated Orval mutation for project BYOK credentials.
- *
- * Cursor-only: the backend never exposes the actual token (write-only). The
- * only way to learn whether a credential is configured is the `hasCursorApiKey`
- * flag in the `UpdateProjectByokResponse`.
  */
 export function useProjectByok({ projectId, onSuccess, onError }: UseProjectByokProps) {
   const queryClient = useQueryClient()
-  const [status, setStatus] = useState<ByokStatus>(null)
+  const [status, setStatus] = useState<ProjectByokStatus>(null)
   const [isOwner, setIsOwner] = useState<boolean | null>(null)
   const [isLoadingStatus, setIsLoadingStatus] = useState(true)
   const suppressErrorToastRef = useRef(false)
@@ -64,6 +63,9 @@ export function useProjectByok({ projectId, onSuccess, onError }: UseProjectByok
         if (cancelled) return
         setStatus({
           hasCursorApiKey: response.hasCursorApiKey,
+          hasWorkspaceCursorApiKey: response.hasWorkspaceCursorApiKey,
+          allowProjectCursorApiKeyOverride: response.allowProjectCursorApiKeyOverride,
+          hasEffectiveCursorApiKey: response.hasEffectiveCursorApiKey,
         })
         setIsOwner(true)
         setIsLoadingStatus(false)
@@ -92,6 +94,9 @@ export function useProjectByok({ projectId, onSuccess, onError }: UseProjectByok
   const applyResponse = (response: UpdateProjectByokResponse) => {
     setStatus({
       hasCursorApiKey: response.hasCursorApiKey,
+      hasWorkspaceCursorApiKey: response.hasWorkspaceCursorApiKey,
+      allowProjectCursorApiKeyOverride: response.allowProjectCursorApiKeyOverride,
+      hasEffectiveCursorApiKey: response.hasEffectiveCursorApiKey,
     })
     invalidateProject()
   }

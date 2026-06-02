@@ -9,8 +9,7 @@
 #
 # What it does:
 #   1. Installs flyctl into ~/.fly/bin if missing.
-#   2. Logs the Fly token from $FLY_API_TOKEN (or pulls it from the
-#      SystemSettings.Fly:ApiToken row if you pass --use-db-token).
+#   2. Reads and decrypts Fly:ApiToken from SystemSettings (via .env encryption key).
 #   3. Streams the repo as a build context to Fly's remote builder.
 #   4. The builder builds Dockerfile.runtime-base and pushes it to
 #      registry.fly.io/glenn-runtime-base:<TAG>. Pass --also-latest to
@@ -31,16 +30,16 @@
 #   scripts/publish-runtime-image-remote.sh
 #   scripts/publish-runtime-image-remote.sh --also-latest     # also push :latest (slow — rebuilds)
 #   scripts/publish-runtime-image-remote.sh --no-activate     # build+push only
-#   scripts/publish-runtime-image-remote.sh --use-db-token    # pull token from DB
 #   scripts/publish-runtime-image-remote.sh --tag 2026.05.11-deadbee
 #
-# Required env (default behaviour):
-#   FLY_API_TOKEN     Token used for both Fly API calls and registry.fly.io
-#                     auth. Skip with --use-db-token.
+# Required (local):
+#   .env with SystemSettings__EncryptionKey, Jwt__Key, Bootstrap__SuperAdminEmail
+#   SystemSettings.Fly:ApiToken populated in Postgres (Super Admin → System Settings)
+#   API running at $API (default http://localhost:5338)
 #
 # Optional env:
 #   API               Default: http://localhost:5338
-#   JWT_FILE          Default: /tmp/jwt.txt (for the API register/activate step)
+#   PG_URL            Default: postgresql://postgres@localhost:43594/app
 #   APP               Default: glenn-runtime-base (Fly app that owns the
 #                     `registry.fly.io/<app>` namespace; must already exist).
 #   IMAGE_NAME        Default: glenn-runtime-base
@@ -51,7 +50,6 @@
 #   PUSH_REGISTRY_HOST  Default: registry.fly.io  — host used for docker login
 #                     and the flyctl push target. Just the host, no image name.
 #   DOCKERFILE        Default: Dockerfile.runtime-base
-#   PG_URL            Used only with --use-db-token to read SystemSettings.
 #
 # Outputs:
 #   - Build log: /tmp/fly-runtime-build.log
@@ -78,19 +76,19 @@ PUSH_REGISTRY_HOST="${PUSH_REGISTRY_HOST:-registry.fly.io}"
 APP="${APP:-glenn-runtime-base}"
 DOCKERFILE="${DOCKERFILE:-Dockerfile.runtime-base}"
 API="${API:-http://localhost:5338}"
-JWT_FILE="${JWT_FILE:-/tmp/jwt.txt}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/platform-auth.sh
+source "$REPO_ROOT/scripts/lib/platform-auth.sh"
 
 DO_LATEST=false        # API uses sha-pinned refs; :latest is opt-in for humans
 DO_ACTIVATE=true
-USE_DB_TOKEN=false
 TAG_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --also-latest)   DO_LATEST=true ;;
         --no-activate)   DO_ACTIVATE=false ;;
-        --use-db-token)  USE_DB_TOKEN=true ;;
+        --use-db-token)  log "⚠️  --use-db-token is deprecated (DB is now the only token source)" ;;
         --tag)           TAG_OVERRIDE="$2"; shift ;;
         -h|--help)
             # Print the leading comment block (skip shebang, until first non-#-line)
@@ -154,15 +152,10 @@ fi
 
 log "flyctl: $(flyctl version | head -1)"
 
-# ---------- 2. Token source --------------------------------------------------------
-if $USE_DB_TOKEN; then
-    [[ -n "${PG_URL:-}" ]] || PG_URL="postgresql://postgres:postgres@localhost:43594/postgres"
-    log "pulling Fly:ApiToken from SystemSettings..."
-    FLY_API_TOKEN="$(psql "$PG_URL" -tA -c "SELECT \"Value\" FROM \"SystemSettings\" WHERE \"Key\"='Fly:ApiToken' LIMIT 1;")"
-    [[ -n "$FLY_API_TOKEN" ]] || fail "SystemSettings.Fly:ApiToken is empty"
-    export FLY_API_TOKEN
-fi
-[[ -n "${FLY_API_TOKEN:-}" ]] || fail "FLY_API_TOKEN not set (pass it or use --use-db-token)"
+# ---------- 2. Token source (SystemSettings only) ----------------------------------
+log "reading Fly:ApiToken from SystemSettings (decrypted via .env key)..."
+FLY_API_TOKEN="$(platform_auth_fly_token)" || fail "could not read Fly:ApiToken — set it in Super Admin → System Settings and ensure .env has SystemSettings__EncryptionKey"
+export FLY_API_TOKEN
 
 # Verify token works
 flyctl auth whoami >/dev/null 2>&1 || fail "FLY_API_TOKEN is not accepted by Fly"
@@ -241,8 +234,8 @@ fi
 
 # ---------- 8. Register + Activate via API ----------------------------------------
 if $DO_ACTIVATE; then
-    [[ -f "$JWT_FILE" ]] || fail "JWT file $JWT_FILE not found (mint one or pass --no-activate)"
-    JWT="$(cat "$JWT_FILE")"
+    log "minting SuperAdmin JWT from .env + bootstrap user..."
+    JWT="$(platform_auth_jwt)" || fail "could not mint JWT — ensure API has bootstrapped SuperAdmin and .env has Jwt__Key + Bootstrap__SuperAdminEmail"
 
     log "registering in RuntimeImages..."
     REG_BODY="$(python3 -c "

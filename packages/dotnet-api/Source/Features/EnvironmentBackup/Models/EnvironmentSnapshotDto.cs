@@ -98,6 +98,11 @@ public sealed class WorkspaceSnapshot
     public string Slug { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string OwnerId { get; set; } = string.Empty;
+
+    /// <summary>BYOK Cursor API key in clear text. Re-encrypted under the target workspace DEK on import.</summary>
+    public string? CursorApiKey { get; set; }
+
+    public bool AllowProjectCursorApiKeyOverride { get; set; } = true;
 }
 
 public sealed class WorkspaceMembershipSnapshot

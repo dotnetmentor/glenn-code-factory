@@ -388,7 +388,7 @@ public record ServiceSpec
 public record RequiredEnvVar
 {
     /// <summary>
-    /// The env var name, e.g. <c>OPENROUTER_API_KEY</c>. Convention is
+    /// The env var name, e.g. <c>STRIPE_API_KEY</c>. Convention is
     /// <c>^[A-Z][A-Z0-9_]*$</c> (uppercase, underscores) — the standard shell
     /// env var shape. Not templated by the expander; the key is literal.
     /// </summary>
@@ -397,7 +397,7 @@ public record RequiredEnvVar
 
     /// <summary>
     /// Optional human-readable explanation rendered next to the field in the
-    /// secrets editor (e.g. "API key for the OpenRouter LLM gateway"). May
+    /// secrets editor (e.g. "API key for a third-party payment provider"). May
     /// contain <c>{{handlebars}}</c> placeholders — the expander renders these
     /// against the same template bag used for the rest of the preset.
     /// </summary>
@@ -412,6 +412,18 @@ public record RequiredEnvVar
     /// </summary>
     [JsonPropertyName("secret")]
     public bool? Secret { get; init; }
+
+    /// <summary>
+    /// When <c>true</c> (default), the service will not start until this key
+    /// is set. When <c>false</c>, the var is listed in the Environment tab as
+    /// a suggestion but does not block bootstrap.
+    /// </summary>
+    [JsonPropertyName("required")]
+    public bool? Required { get; init; }
+
+    /// <summary>True when <see cref="Required"/> is null or explicitly true.</summary>
+    [JsonIgnore]
+    public bool IsRequired => Required != false;
 }
 
 /// <summary>

@@ -235,9 +235,13 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     /// looped forever without ever reaching Online-degraded. This column lets the
     /// watchdog measure <i>silence</i> (no bootstrap activity) instead of total
     /// time-in-state: as long as events keep flowing the runtime is provably
-    /// alive. <c>null</c> until the first mid-boot event lands, at which point the
-    /// coalesce <c>(LastBootstrapActivityAt ?? UpdatedAt)</c> falls back to the
-    /// state-change time. Deliberately NOT bumped via the audit pipeline (no
+    /// alive. Cleared when a fresh boot cycle starts (<see cref="RuntimeState.Pending"/>,
+    /// <see cref="RuntimeState.Booting"/>, <see cref="RuntimeState.Waking"/>) so a
+    /// stale timestamp from a prior successful boot cannot make
+    /// <see cref="HeartbeatWatcherJob"/> instant-timeout a respawn. Until the first
+    /// mid-boot event lands, the watchdog coalesce
+    /// <c>(LastBootstrapActivityAt ?? UpdatedAt)</c> falls back to the state-change
+    /// time. Deliberately NOT bumped via the audit pipeline (no
     /// <see cref="UpdatedAt"/> change) so the activity signal stays orthogonal to
     /// the row's audit timestamp.
     /// </summary>
@@ -321,6 +325,11 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     ///         disconnect window. Without this, e.g. <see cref="HeartbeatWatcherJob"/> instantly
     ///         flags a Suspended → Waking runtime as Crashed because <c>LastHeartbeatAt</c> still
     ///         holds the value from its prior Online session;</item>
+    ///   <item>clears <see cref="LastBootstrapActivityAt"/> on entry to
+    ///         <see cref="RuntimeState.Pending"/>, <see cref="RuntimeState.Booting"/>, or
+    ///         <see cref="RuntimeState.Waking"/> — a fresh boot cycle must not inherit the
+    ///         activity timestamp from a prior Online run, or the bootstrap-silence watchdog
+    ///         can Crashed a respawn seconds after machine creation;</item>
     ///   <item>raises a <see cref="RuntimeStateChanged"/> domain event so the
     ///         <c>PersistRuntimeStateEventHandler</c> writes an audit row.</item>
     /// </list>
@@ -354,6 +363,11 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
             LastHeartbeatAt = null;
         }
 
+        if (newState is RuntimeState.Pending or RuntimeState.Booting or RuntimeState.Waking)
+        {
+            LastBootstrapActivityAt = null;
+        }
+
         RaiseDomainEvent(new RuntimeStateChanged(
             Id, ProjectId, BranchId, fromState, newState, reason, triggeredBy, metadata, StateChangedAt));
 
@@ -368,15 +382,15 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     /// user's working data survives the restart.
     ///
     /// <list type="bullet">
-    ///   <item>Only legal from <see cref="RuntimeState.Failed"/> or
-    ///         <see cref="RuntimeState.Crashed"/>. Any other source state returns a
-    ///         <see cref="Result.Failure(string)"/> without mutating anything — same
-    ///         defensive contract as <see cref="TransitionTo"/>. Both source states
-    ///         have identical recovery semantics: recreate the machine on the
-    ///         existing volume. Crashed is included so a runtime whose automated
-    ///         respawn budget hasn't yet been exhausted (or got stuck because the
-    ///         respawn job itself couldn't recover — e.g. Fly token expired) can
-    ///         still be manually nudged back to a fresh boot.</item>
+    ///   <item>Legal from any live runtime the user might want to hard-reboot:
+    ///         <see cref="RuntimeState.Online"/>, mid-boot states
+    ///         (<see cref="RuntimeState.Booting"/> /
+    ///         <see cref="RuntimeState.Bootstrapping"/> /
+    ///         <see cref="RuntimeState.Waking"/>), or failure states
+    ///         (<see cref="RuntimeState.Failed"/> /
+    ///         <see cref="RuntimeState.Crashed"/>). Any other source state
+    ///         returns a <see cref="Result.Failure(string)"/> without mutating
+    ///         anything.</item>
     ///   <item>Resets <see cref="RespawnRetries"/> to 0 — the operator is explicitly
     ///         re-arming the runtime's failure budget for the new boot attempt.</item>
     ///   <item><b>Deliberately keeps <see cref="FlyMachineId"/>.</b> The provisioner's
@@ -391,9 +405,16 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     /// </summary>
     public Result Restart(Guid userId)
     {
-        if (State != RuntimeState.Failed && State != RuntimeState.Crashed)
+        if (State is not (
+            RuntimeState.Online
+            or RuntimeState.Booting
+            or RuntimeState.Bootstrapping
+            or RuntimeState.Waking
+            or RuntimeState.Failed
+            or RuntimeState.Crashed))
         {
-            return Result.Failure($"Cannot restart runtime in state {State}; must be Failed or Crashed.");
+            return Result.Failure(
+                $"Cannot restart runtime in state {State}; must be Online, mid-boot, Failed, or Crashed.");
         }
 
         var fromState = State;
@@ -410,6 +431,7 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
         // leaving Failed has no live daemon, so stale heartbeats must not leak
         // across into the next boot's heartbeat watcher window.
         LastHeartbeatAt = null;
+        LastBootstrapActivityAt = null;
 
         RaiseDomainEvent(new RuntimeStateChanged(
             RuntimeId: Id,

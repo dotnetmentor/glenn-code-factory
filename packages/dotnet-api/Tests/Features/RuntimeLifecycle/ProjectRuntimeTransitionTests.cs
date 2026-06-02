@@ -168,4 +168,65 @@ public class ProjectRuntimeTransitionTests : HandlerTestBase
         var secondEvent = events.Single(e => e.ToState == RuntimeState.Bootstrapping);
         secondEvent.FromState.Should().Be(RuntimeState.Booting);
     }
+
+    [Fact]
+    public async Task TransitionTo_to_Booting_clears_stale_LastBootstrapActivityAt()
+    {
+        var runtime = SeedRuntime(RuntimeState.Crashed);
+        runtime.LastBootstrapActivityAt = DateTime.UtcNow.AddHours(-5);
+        await Context.SaveChangesAsync();
+
+        var result = runtime.TransitionTo(
+            RuntimeState.Booting,
+            reason: "respawn:created",
+            triggeredBy: "system:respawn");
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.LastBootstrapActivityAt.Should().BeNull(
+            "a fresh boot must not inherit bootstrap activity from a prior Online run");
+    }
+
+    [Fact]
+    public async Task TransitionTo_to_Bootstrapping_preserves_LastBootstrapActivityAt()
+    {
+        var runtime = SeedRuntime(RuntimeState.Booting);
+        var activityAt = DateTime.UtcNow.AddMinutes(-2);
+        runtime.LastBootstrapActivityAt = activityAt;
+        await Context.SaveChangesAsync();
+
+        var result = runtime.TransitionTo(
+            RuntimeState.Bootstrapping,
+            reason: "daemon:connected",
+            triggeredBy: "system:bootstrap_daemon");
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.LastBootstrapActivityAt.Should().Be(activityAt,
+            "mid-boot progress must keep the activity timestamp set by bootstrap events");
+    }
+
+    [Fact]
+    public async Task Restart_clears_stale_LastBootstrapActivityAt()
+    {
+        var runtime = SeedRuntime(RuntimeState.Failed);
+        runtime.LastBootstrapActivityAt = DateTime.UtcNow.AddHours(-5);
+        await Context.SaveChangesAsync();
+
+        var result = runtime.Restart(Guid.NewGuid());
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.State.Should().Be(RuntimeState.Pending);
+        runtime.LastBootstrapActivityAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Restart_fromOnline_succeeds()
+    {
+        var runtime = SeedRuntime(RuntimeState.Online);
+        await Context.SaveChangesAsync();
+
+        var result = runtime.Restart(Guid.NewGuid());
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.State.Should().Be(RuntimeState.Pending);
+    }
 }

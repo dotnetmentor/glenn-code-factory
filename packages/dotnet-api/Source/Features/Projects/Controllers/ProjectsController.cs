@@ -609,6 +609,11 @@ public class ProjectsController : BaseApiController
                 return NotFound();
             }
 
+            if (result.Error == UpdateProjectByokHandler.ProjectOverrideDisabled)
+            {
+                return BadRequest(new { error = result.Error });
+            }
+
             Logger.LogWarning("UpdateByok validation failed: {Error}", result.Error);
             return BadRequest(new { error = result.Error });
         }

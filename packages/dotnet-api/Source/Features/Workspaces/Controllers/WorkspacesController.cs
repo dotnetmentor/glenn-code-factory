@@ -5,7 +5,9 @@ using Microsoft.AspNetCore.Mvc;
 using Source.Features.Projects.Queries;
 using Source.Features.Projects.Queries.ListWorkspaceProjects;
 using Source.Features.Projects.Queries.ListWorkspaceRecentBranches;
+using Source.Features.Projects.Commands.UpdateProjectByok;
 using Source.Features.Workspaces.Commands;
+using Source.Features.Workspaces.Commands.UpdateWorkspaceByok;
 using Source.Features.Workspaces.Models;
 using Source.Features.Workspaces.Queries;
 using Source.Infrastructure.Workspaces;
@@ -172,6 +174,51 @@ public class WorkspacesController : BaseApiController
         return NoContent();
     }
 
+    /// <summary>
+    /// Workspace-level Cursor BYOK credentials. Admin+ required. Plaintext never echoes back.
+    /// </summary>
+    [HttpPost("{slug}/byok")]
+    [RequireWorkspaceRole(WorkspaceRole.Admin)]
+    [ProducesResponseType(typeof(UpdateWorkspaceByokResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<UpdateWorkspaceByokResponse>> UpdateByok(
+        string slug,
+        [FromBody] UpdateWorkspaceByokRequest? request)
+    {
+        if (request is null)
+        {
+            return BadRequest(new { error = "invalid_body" });
+        }
+
+        var cursor = request.SetCursorApiKey
+            ? new OptionalSecret(IsSet: true, Value: request.CursorApiKey)
+            : OptionalSecret.Unchanged();
+
+        var result = await Mediator.Send(new UpdateWorkspaceByokCommand(
+            CursorApiKey: cursor,
+            SetAllowProjectCursorApiKeyOverride: request.SetAllowProjectCursorApiKeyOverride,
+            AllowProjectCursorApiKeyOverride: request.AllowProjectCursorApiKeyOverride));
+
+        if (!result.IsSuccess)
+        {
+            if (result.Error == "forbidden")
+            {
+                return Forbid();
+            }
+
+            if (result.Error == "not_found")
+            {
+                return NotFound();
+            }
+
+            return BadRequest(new { error = result.Error });
+        }
+
+        return Ok(result.Value);
+    }
+
     // ----- Projects ------------------------------------------------------
 
     /// <summary>
@@ -266,3 +313,9 @@ public class CreateInviteRequest
     [Required]
     public required WorkspaceRole Role { get; init; }
 }
+
+public record UpdateWorkspaceByokRequest(
+    bool SetCursorApiKey = false,
+    string? CursorApiKey = null,
+    bool SetAllowProjectCursorApiKeyOverride = false,
+    bool? AllowProjectCursorApiKeyOverride = null);

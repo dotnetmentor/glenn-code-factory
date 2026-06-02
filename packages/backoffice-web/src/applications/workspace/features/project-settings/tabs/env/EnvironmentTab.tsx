@@ -8,11 +8,13 @@ import {
   Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import ContentPasteIcon from '@mui/icons-material/ContentPaste'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import {
   type BranchEnvVarItem,
   type RequiredEnvStatusItem,
+  type SuggestedEnvStatusItem,
 } from '../../../../../../api/queries-commands'
 import { useNotification } from '../../../../../shared/contexts/NotificationContext'
 import {
@@ -26,6 +28,8 @@ import { useBranchEnvVars } from './useBranchEnvVars'
 import { EnvVarRow } from './EnvVarRow'
 import { EnvVarDialog, type EnvVarDialogValues } from './EnvVarDialog'
 import { DeleteEnvVarDialog } from './DeleteEnvVarDialog'
+import { PasteEnvDialog } from './PasteEnvDialog'
+import { parseDotEnv } from './parseDotEnv'
 
 interface EnvironmentTabProps {
   projectId: string
@@ -54,6 +58,7 @@ export function EnvironmentTab({ projectId, branchId }: EnvironmentTabProps) {
   const env = useBranchEnvVars(projectId, branchId ?? '', !!branchId)
 
   const [dialog, setDialog] = useState<DialogState | null>(null)
+  const [pasteOpen, setPasteOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<BranchEnvVarItem | null>(null)
 
   const missingItems: RequiredEnvStatusItem[] = useMemo(() => {
@@ -79,6 +84,8 @@ export function EnvironmentTab({ projectId, branchId }: EnvironmentTabProps) {
 
   const hasMissing = missingItems.length > 0
   const hasAnyRequired = (env.status?.required.length ?? 0) > 0
+  const hasSuggested = (env.status?.suggested?.length ?? 0) > 0
+  const warnings = env.status?.warnings ?? []
 
   // ── Mutation runners with toasts ────────────────────────────────────────────
 
@@ -105,6 +112,36 @@ export function EnvironmentTab({ projectId, branchId }: EnvironmentTabProps) {
     }
   }
 
+  const handlePasteImport = async (text: string) => {
+    if (!branchId) return
+    const parsed = parseDotEnv(text)
+    if (parsed.entries.length === 0) {
+      throw new Error('no entries')
+    }
+
+    const secretByKey = new Map(
+      [...(env.status?.required ?? []), ...(env.status?.suggested ?? [])].map(
+        (item) => [item.key, item.secret ?? true],
+      ),
+    )
+    const branchOverrideKeys = new Set(
+      env.items.filter((item) => item.scope === 'branch').map((item) => item.key),
+    )
+    const entries = parsed.entries.map((entry) => ({
+      ...entry,
+      isSecret: secretByKey.get(entry.key) ?? true,
+    }))
+
+    await env.importVars(entries, branchOverrideKeys)
+
+    const skippedNote =
+      parsed.skipped.length > 0 ? ` (${parsed.skipped.length} lines skipped)` : ''
+    showSuccess(
+      `Imported ${entries.length} variable${entries.length === 1 ? '' : 's'}${skippedNote}`,
+    )
+    setPasteOpen(false)
+  }
+
   // ── No branch context ──────────────────────────────────────────────────────
 
   if (!branchId) {
@@ -122,15 +159,26 @@ export function EnvironmentTab({ projectId, branchId }: EnvironmentTabProps) {
     <Stack spacing={3}>
       <Header
         action={
-          <Button
-            variant="pill"
-            color="primary"
-            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-            onClick={() => setDialog({ mode: 'add' })}
-            disabled={env.isLoading}
-          >
-            Add variable
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="pillOutlined"
+              color="primary"
+              startIcon={<ContentPasteIcon sx={{ fontSize: 16 }} />}
+              onClick={() => setPasteOpen(true)}
+              disabled={env.isLoading || env.isImporting}
+            >
+              Paste .env
+            </Button>
+            <Button
+              variant="pill"
+              color="primary"
+              startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+              onClick={() => setDialog({ mode: 'add' })}
+              disabled={env.isLoading || env.isImporting}
+            >
+              Add variable
+            </Button>
+          </Stack>
         }
       />
 
@@ -149,6 +197,16 @@ export function EnvironmentTab({ projectId, branchId }: EnvironmentTabProps) {
 
       {!env.isLoading && !env.isError && (
         <>
+          {warnings.length > 0 && (
+            <Alert severity="warning" variant="quiet">
+              {warnings.map((warning) => (
+                <Typography key={warning} sx={{ fontSize: '0.8125rem' }}>
+                  {warning}
+                </Typography>
+              ))}
+            </Alert>
+          )}
+
           {/* Missing-required — prominent, only when something is actually missing */}
           {hasMissing && (
             <Box
@@ -220,6 +278,58 @@ export function EnvironmentTab({ projectId, branchId }: EnvironmentTabProps) {
                 {satisfiedRequired.length === 1 ? '' : 's'} satisfied.
               </Typography>
             </Stack>
+          )}
+
+          {hasSuggested && (
+            <Box
+              sx={{
+                border: `1px solid ${surfaceTokens.hairline}`,
+                borderRadius: 2,
+                overflow: 'hidden',
+              }}
+            >
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                sx={{
+                  px: 2,
+                  py: 1.25,
+                  backgroundColor: surfaceTokens.chromeBg,
+                  borderBottom: `1px solid ${surfaceTokens.hairline}`,
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: '0.8125rem',
+                    fontWeight: 600,
+                    color: surfaceTokens.textPrimary,
+                  }}
+                >
+                  Suggested variables ({env.status?.suggested.length ?? 0})
+                </Typography>
+              </Stack>
+              <Typography sx={{ px: 2, pt: 1.25, pb: 0.5, fontSize: '0.75rem', color: workspaceText.muted }}>
+                Declared by the runtime spec as optional — set them when you use that integration.
+                They do not block bootstrap.
+              </Typography>
+              <Stack>
+                {(env.status?.suggested ?? []).map((item, idx) => (
+                  <SuggestedEnvRow
+                    key={item.key}
+                    item={item}
+                    first={idx === 0}
+                    onSetValue={() =>
+                      setDialog({
+                        mode: 'add',
+                        lockKey: true,
+                        initial: { key: item.key, isSecret: item.secret ?? true },
+                      })
+                    }
+                  />
+                ))}
+              </Stack>
+            </Box>
           )}
 
           {/* Full list */}
@@ -298,6 +408,13 @@ export function EnvironmentTab({ projectId, branchId }: EnvironmentTabProps) {
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
       />
+
+      <PasteEnvDialog
+        open={pasteOpen}
+        isImporting={env.isImporting}
+        onClose={() => setPasteOpen(false)}
+        onImport={handlePasteImport}
+      />
     </Stack>
   )
 }
@@ -327,8 +444,12 @@ function Header({ action }: { action?: React.ReactNode }) {
         </Typography>
         <Typography sx={bodySx}>
           Branch-scoped environment variables for this runtime. Secret values are
-          encrypted at rest and masked here — reveal them on demand. Filling a
-          missing required variable restarts the affected service automatically.
+          encrypted at rest and masked here — reveal them on demand. Paste a{' '}
+          <Box component="span" sx={{ fontFamily: workspaceFontFamily.mono, fontSize: '0.875em' }}>
+            .env
+          </Box>{' '}
+          file to import many at once. Required variables block service start until
+          set; suggested variables are optional integrations from the runtime spec.
         </Typography>
       </Box>
       {action && <Box sx={{ flexShrink: 0, pt: 0.5 }}>{action}</Box>}
@@ -401,6 +522,75 @@ function MissingRequiredRow({
           Set value
         </Button>
       </Box>
+    </Box>
+  )
+}
+
+function SuggestedEnvRow({
+  item,
+  first,
+  onSetValue,
+}: {
+  item: SuggestedEnvStatusItem
+  first: boolean
+  onSetValue: () => void
+}) {
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', sm: '1fr auto' },
+        alignItems: 'center',
+        gap: 1.5,
+        px: 2,
+        py: 1.5,
+        borderTop: first ? 'none' : `1px solid ${surfaceTokens.hairline}`,
+      }}
+    >
+      <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+          <Box
+            component="span"
+            sx={{
+              fontFamily: workspaceFontFamily.mono,
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              color: surfaceTokens.textPrimary,
+            }}
+          >
+            {item.key}
+          </Box>
+          <Box
+            component="span"
+            sx={{
+              fontSize: '0.625rem',
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              color: item.satisfied ? semanticTokens.success : workspaceText.muted,
+              border: `1px solid ${item.satisfied ? semanticTokens.success : surfaceTokens.hairline}`,
+              borderRadius: 1,
+              px: 0.75,
+              py: 0.125,
+            }}
+          >
+            {item.satisfied ? 'Optional — set' : 'Optional'}
+          </Box>
+        </Stack>
+        <Typography sx={{ fontSize: '0.75rem', color: workspaceText.muted, lineHeight: 1.45 }}>
+          <Box component="span" sx={{ fontWeight: 600, color: workspaceText.primary }}>
+            {item.service}
+          </Box>
+          {item.description ? ` — ${item.description}` : ''}
+        </Typography>
+      </Stack>
+      {!item.satisfied && (
+        <Box sx={{ justifySelf: { xs: 'start', sm: 'end' } }}>
+          <Button variant="pillOutlined" color="primary" onClick={onSetValue} sx={{ minWidth: 96 }}>
+            Set value
+          </Button>
+        </Box>
+      )}
     </Box>
   )
 }

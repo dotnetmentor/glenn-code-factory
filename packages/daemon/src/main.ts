@@ -81,6 +81,8 @@ import { WritingConfigStage } from './bootstrap/stages/WritingConfigStage.js'
 import { DaemonConfig } from './config/DaemonConfig.js'
 import { DiskMonitor } from './disk/DiskMonitor.js'
 import { EnvVarManager } from './env/EnvVarManager.js'
+import { reapplyServicesForEnvKeys } from './env/reapplyServicesForEnvKeys.js'
+import { mergeServiceRuntimeEnv } from './env/serviceRuntimeEnv.js'
 import {
   DefaultRuntimeEventEmitter,
   type RuntimeEventEmitter,
@@ -119,6 +121,7 @@ import { InstallHashStore } from './runtime/InstallHashStore.js'
 import { RuntimeSpecApplier } from './runtime/RuntimeSpecApplier.js'
 import { ServiceStatusPoller } from './runtime/ServiceStatusPoller.js'
 import { SupervisordController } from './runtime/SupervisordController.js'
+import type { ServiceSpec } from './runtime/SupervisordController.js'
 import { SupervisordXmlRpcClient } from './supervisord/SupervisordXmlRpcClient.js'
 import { ProcessStatsCollector } from './sysstats/ProcessStatsCollector.js'
 import { SignalRClient } from './signalr/SignalRClient.js'
@@ -349,6 +352,7 @@ export interface MainDeps {
     logger: Logger,
     hashStore: InstallHashStore,
     emitter: RuntimeEventEmitter,
+    envVarManager: EnvVarManager,
   ) => RuntimeSpecApplier
   /**
    * Build the singleton `RuntimeEventEmitter`. Wired AFTER signalr connects so
@@ -796,8 +800,24 @@ const defaultMainDeps: MainDeps = {
       logger,
       confDir: '/data/.glenn/supervisor.d',
     }),
-  buildRuntimeSpecApplier: (signalr, supervisord, executor, logger, hashStore, emitter) =>
-    new RuntimeSpecApplier({ signalr, supervisord, executor, logger, hashStore, emitter }),
+  buildRuntimeSpecApplier: (
+    signalr,
+    supervisord,
+    executor,
+    logger,
+    hashStore,
+    emitter,
+    envVarManager,
+  ) =>
+    new RuntimeSpecApplier({
+      signalr,
+      supervisord,
+      executor,
+      logger,
+      hashStore,
+      emitter,
+      envVarManager,
+    }),
 
   // RuntimeEvent fan-out — singleton emitter (Spec runtime-spec-v2 "Event
   // taxonomy"). Hooks onto the SignalR client's connected/disconnected
@@ -1180,6 +1200,7 @@ export async function runMain(overrides: Partial<MainDeps> = {}): Promise<void> 
     logger,
     applierHashStore,
     runtimeEventEmitter,
+    envVarManager,
   )
   // The MainDeps.buildCustomTools factory differs from the inline `customTools`
   // we built in Step 5 only in its approval wiring (this one auto-approves
@@ -1275,6 +1296,18 @@ export async function runMain(overrides: Partial<MainDeps> = {}): Promise<void> 
     if (p.envVarsDelta != null && p.envVarsDelta.length > 0) {
       try {
         await envVarManager.applyDelta(p.envVarsDelta)
+        const setKeys = p.envVarsDelta
+          .filter((d) => d.value !== null)
+          .map((d) => d.key)
+        if (setKeys.length > 0) {
+          await reapplyServicesForEnvKeys(setKeys, {
+            bootstrapState,
+            envVarManager,
+            supervisord: supervisordController,
+            executor,
+            logger,
+          })
+        }
       } catch (err) {
         // Reject paths (newline in value, mkdir/rename failures, …) are
         // logged but never fail the whole UpdateConfig handler — token
@@ -1474,6 +1507,24 @@ export async function runMain(overrides: Partial<MainDeps> = {}): Promise<void> 
   // RestartService — server-initiated restart. Reuses the same in-process
   // tool path as the SDK's restart_service tool — no separate code path.
   signalr.onRestartService(async (p: RestartServicePayload) => {
+    if (bootstrapState.hasPayload()) {
+      const services = bootstrapState.payload.runtimeSpec.services ?? []
+      const raw = services.find((s) => s.name === p.serviceName)
+      if (raw !== undefined) {
+        try {
+          const merged = mergeServiceRuntimeEnv(
+            raw as ServiceSpec,
+            envVarManager.current(),
+          )
+          await supervisordController.addService(merged)
+        } catch (err) {
+          logger.warn(
+            { err, service: p.serviceName },
+            'RestartService: supervisord conf re-apply failed (continuing with restart)',
+          )
+        }
+      }
+    }
     const tool = customToolsForServerInit.find((t) => t.name === 'restart_service')
     if (tool === undefined) {
       logger.warn('RestartService received but restart_service tool not registered')

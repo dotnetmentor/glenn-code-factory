@@ -100,7 +100,6 @@ When the user needs specific functionality, use these skills from `.claude/skill
 
 | Need | Skill | Key Points |
 |------|-------|------------|
-| **AI Chat/Assistant** | `openrouter` | SSE streaming, class-based tools, minimal code |
 | **File Upload** | `file-upload` | R2 (prod) / Local (dev), switchable |
 | **AI Image Gen** | `gemini-image` | Generation + object replacement |
 | **Real-time** | `signalr` | Live collaboration, presence |
@@ -164,11 +163,6 @@ See `packages/dotnet-api/CLAUDE.md` for:
 ---
 
 ## Quick Reference
-
-**Add AI chat feature:**
-1. Read `.claude/skills/openrouter/SKILL.md`
-2. Backend: Create streaming endpoint using `StreamAsSseAsync()`
-3. Frontend: Use `useOpenRouterChat` hook
 
 **Add file upload:**
 1. Read `.claude/skills/file-upload/SKILL.md`
