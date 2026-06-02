@@ -78,7 +78,7 @@
 
 import type { Logger } from 'pino'
 
-import type { IExecutor } from './IExecutor.js'
+import { isPlatformManagedSupervisordProgram } from './platformSupervisordPrograms.js'
 import type { SignalRClient } from '../signalr/SignalRClient.js'
 import type {
   ApplyRuntimeSpecDeltaPayload,
@@ -95,10 +95,12 @@ import {
   sha256Hex,
   type InstallHashes,
 } from './InstallHashStore.js'
+import type { IExecutor } from './IExecutor.js'
 import type {
   ServiceSpec,
   SupervisordController,
 } from './SupervisordController.js'
+import { mergeServiceRuntimeEnv } from '../env/serviceRuntimeEnv.js'
 import { BOOTSTRAP_DEFAULT_PATH } from './BootstrapEnvironment.js'
 
 const DEFAULT_REPO_DIR = '/data/project/repo'
@@ -139,6 +141,8 @@ export interface RuntimeSpecApplierDeps {
   emitter?: RuntimeEventEmitter
   /** Monotonic clock for phase timings — defaults to `Date.now`. */
   now?: () => number
+  /** Runtime env snapshot — merges satisfied requiredEnv into service conf. */
+  envVarManager?: { current(): ReadonlyMap<string, string> }
 }
 
 export class RuntimeSpecApplier {
@@ -154,6 +158,7 @@ export class RuntimeSpecApplier {
   readonly #installTimeoutMs: number
   readonly #emitter: RuntimeEventEmitter | undefined
   readonly #now: () => number
+  readonly #envVarManager: { current(): ReadonlyMap<string, string> } | undefined
   // Sequential dispatch — same shape as GitModule.#chain and EnvVarManager.#chain.
   // A failed task does NOT poison follow-ups; the failure is re-surfaced on
   // the caller's promise but the chain itself is reset to a resolved promise.
@@ -172,6 +177,7 @@ export class RuntimeSpecApplier {
     this.#installTimeoutMs = deps.installTimeoutMs ?? DEFAULT_INSTALL_TIMEOUT_MS
     this.#emitter = deps.emitter
     this.#now = deps.now ?? Date.now
+    this.#envVarManager = deps.envVarManager
   }
 
   /**
@@ -200,7 +206,9 @@ export class RuntimeSpecApplier {
   ): Promise<void> {
     const delta = payload.delta
     const newOrChangedServices = delta.newOrChangedServices ?? []
-    const removedServices = delta.removedServices ?? []
+    const removedServices = (delta.removedServices ?? []).filter(
+      (name) => !isPlatformManagedSupervisordProgram(name),
+    )
 
     const deltaSummary = {
       servicesAdded: newOrChangedServices.length,
@@ -427,7 +435,12 @@ export class RuntimeSpecApplier {
           // `Partial<Record<string, string>>`; cast at boundary since
           // runtime values are non-undefined (backend validation forbids
           // null values).
-          await this.#supervisord.addService(spec as ServiceSpec, signal)
+          const wireSpec = spec as ServiceSpec
+          const serviceSpec =
+            this.#envVarManager !== undefined
+              ? mergeServiceRuntimeEnv(wireSpec, this.#envVarManager.current())
+              : wireSpec
+          await this.#supervisord.addService(serviceSpec, signal)
 
           // 2c — restart so a same-name spec with a new command/user/env
           // actually re-execs. `addService` writes the conf + reread/update,

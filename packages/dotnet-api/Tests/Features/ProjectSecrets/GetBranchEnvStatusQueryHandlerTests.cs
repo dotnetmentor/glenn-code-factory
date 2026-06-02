@@ -32,7 +32,7 @@ public class GetBranchEnvStatusQueryHandlerTests
 
     private static string BuildExpandedSpec()
     {
-        // Two services. OPENROUTER_API_KEY is declared by BOTH — the handler must
+        // Two services. THIRD_PARTY_API_KEY is declared by BOTH — the handler must
         // dedupe it to a single required item attributed to the FIRST declaring
         // service ("api"). QUEUE_URL is declared only by the worker and is the one
         // we leave unset so it surfaces as missing.
@@ -46,7 +46,7 @@ public class GetBranchEnvStatusQueryHandlerTests
                     Command = "dotnet run",
                     RequiredEnv = new List<RequiredEnvVar>
                     {
-                        new() { Key = "OPENROUTER_API_KEY", Description = "LLM gateway key", Secret = true },
+                        new() { Key = "THIRD_PARTY_API_KEY", Description = "LLM gateway key", Secret = true },
                         new() { Key = "API_BASE_URL", Secret = false },
                     },
                 },
@@ -56,7 +56,7 @@ public class GetBranchEnvStatusQueryHandlerTests
                     Command = "dotnet run --worker",
                     RequiredEnv = new List<RequiredEnvVar>
                     {
-                        new() { Key = "OPENROUTER_API_KEY", Description = "duplicate — should be deduped", Secret = true },
+                        new() { Key = "THIRD_PARTY_API_KEY", Description = "duplicate — should be deduped", Secret = true },
                         new() { Key = "QUEUE_URL" },
                     },
                 },
@@ -123,11 +123,11 @@ public class GetBranchEnvStatusQueryHandlerTests
             });
 
             // Branch-effective present set:
-            //  - OPENROUTER_API_KEY on THIS branch              → satisfied
+            //  - THIRD_PARTY_API_KEY on THIS branch              → satisfied
             //  - API_BASE_URL project-wide (null branch)        → satisfied
             //  - EXTRA_CONFIG project-wide, not required        → present but not required
             //  - WRONG_BRANCH_KEY on a DIFFERENT branch         → excluded from present
-            seed.ProjectSecrets.Add(Secret(projectId, branchId, "OPENROUTER_API_KEY"));
+            seed.ProjectSecrets.Add(Secret(projectId, branchId, "THIRD_PARTY_API_KEY"));
             seed.ProjectSecrets.Add(Secret(projectId, null, "API_BASE_URL"));
             seed.ProjectSecrets.Add(Secret(projectId, null, "EXTRA_CONFIG"));
             seed.ProjectSecrets.Add(Secret(projectId, otherBranchId, "WRONG_BRANCH_KEY"));
@@ -136,7 +136,9 @@ public class GetBranchEnvStatusQueryHandlerTests
         }
 
         await using var ctx = TestDbContextFactory.Create(_dbName);
-        var handler = new GetBranchEnvStatusQueryHandler(ctx, new CurrentExpandedSpecResolver(ctx));
+        var (encryption, _) = SecretsTestHarness.Build(_dbName);
+        var handler = new GetBranchEnvStatusQueryHandler(
+            ctx, new CurrentExpandedSpecResolver(ctx), encryption);
 
         var result = await handler.Handle(
             new GetBranchEnvStatusQuery(projectId, branchId), CancellationToken.None);
@@ -144,25 +146,81 @@ public class GetBranchEnvStatusQueryHandlerTests
         result.IsSuccess.Should().BeTrue();
         var status = result.Value;
 
-        // present: branch-effective, sorted, excludes the other branch's key.
-        status.Present.Should().Equal("API_BASE_URL", "EXTRA_CONFIG", "OPENROUTER_API_KEY");
+        status.Warnings.Should().BeEmpty();
 
-        // required: deduped to 3 distinct keys (OPENROUTER_API_KEY collapsed),
+        // present: branch-effective, sorted, excludes the other branch's key.
+        status.Present.Should().Equal("API_BASE_URL", "EXTRA_CONFIG", "THIRD_PARTY_API_KEY");
+
+        // required: deduped to 3 distinct keys (THIRD_PARTY_API_KEY collapsed),
         // sorted by key, BOGUS_PENDING_KEY absent (Pending proposal ignored).
         status.Required.Select(r => r.Key)
-            .Should().Equal("API_BASE_URL", "OPENROUTER_API_KEY", "QUEUE_URL");
+            .Should().Equal("API_BASE_URL", "QUEUE_URL", "THIRD_PARTY_API_KEY");
 
-        var openrouter = status.Required.Single(r => r.Key == "OPENROUTER_API_KEY");
-        openrouter.Service.Should().Be("api", "first declaring service wins on dedupe");
-        openrouter.Secret.Should().BeTrue();
-        openrouter.Description.Should().Be("LLM gateway key");
-        openrouter.Satisfied.Should().BeTrue();
+        var thirdParty = status.Required.Single(r => r.Key == "THIRD_PARTY_API_KEY");
+        thirdParty.Service.Should().Be("api", "first declaring service wins on dedupe");
+        thirdParty.Secret.Should().BeTrue();
+        thirdParty.Description.Should().Be("LLM gateway key");
+        thirdParty.Satisfied.Should().BeTrue();
 
         status.Required.Single(r => r.Key == "API_BASE_URL").Satisfied.Should().BeTrue();
         status.Required.Single(r => r.Key == "QUEUE_URL").Satisfied.Should().BeFalse();
 
         // missing: just the one unsatisfied required key.
         status.Missing.Should().Equal("QUEUE_URL");
+    }
+
+    [Fact]
+    public async Task Optional_required_false_vars_surface_in_suggested_not_missing()
+    {
+        var projectId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+
+        var spec = new RuntimeSpecV2
+        {
+            Services = new List<ServiceSpec>
+            {
+                new()
+                {
+                    Name = "dotnet-api",
+                    Command = "dotnet run",
+                    RequiredEnv = new List<RequiredEnvVar>
+                    {
+                        new() { Key = "Jwt__Key", Secret = true, Required = true },
+                        new() { Key = "OpenRouter__ApiKey", Secret = true, Required = false },
+                    },
+                },
+            },
+        };
+
+        await using (var seed = TestDbContextFactory.Create(_dbName))
+        {
+            seed.RuntimeProposals.Add(new RuntimeProposal
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = projectId,
+                RuntimeId = Guid.NewGuid(),
+                Status = RuntimeProposalStatus.Approved,
+                ProposedSpec = "{}",
+                ExpandedSpec = spec.ToJson(),
+                DecidedAt = DateTime.UtcNow,
+            });
+            seed.ProjectSecrets.Add(Secret(projectId, branchId, "Jwt__Key"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var ctx = TestDbContextFactory.Create(_dbName);
+        var (encryption, _) = SecretsTestHarness.Build(_dbName);
+        var handler = new GetBranchEnvStatusQueryHandler(
+            ctx, new CurrentExpandedSpecResolver(ctx), encryption);
+
+        var result = await handler.Handle(
+            new GetBranchEnvStatusQuery(projectId, branchId), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Warnings.Should().BeEmpty();
+        result.Value.Missing.Should().BeEmpty();
+        result.Value.Suggested.Should().ContainSingle(s => s.Key == "OpenRouter__ApiKey");
+        result.Value.Suggested.Single(s => s.Key == "OpenRouter__ApiKey").Satisfied.Should().BeFalse();
     }
 
     [Fact]
@@ -181,7 +239,9 @@ public class GetBranchEnvStatusQueryHandlerTests
         }
 
         await using var ctx = TestDbContextFactory.Create(_dbName);
-        var handler = new GetBranchEnvStatusQueryHandler(ctx, new CurrentExpandedSpecResolver(ctx));
+        var (encryption, _) = SecretsTestHarness.Build(_dbName);
+        var handler = new GetBranchEnvStatusQueryHandler(
+            ctx, new CurrentExpandedSpecResolver(ctx), encryption);
 
         var result = await handler.Handle(
             new GetBranchEnvStatusQuery(projectId, branchId), CancellationToken.None);
@@ -189,6 +249,76 @@ public class GetBranchEnvStatusQueryHandlerTests
         result.IsSuccess.Should().BeTrue();
         result.Value.Present.Should().Equal("SOME_KEY");
         result.Value.Required.Should().BeEmpty();
+        result.Value.Suggested.Should().BeEmpty();
         result.Value.Missing.Should().BeEmpty();
+        result.Value.Warnings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Database_url_with_local_docker_port_warns_when_postgres_in_spec()
+    {
+        var projectId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var (encryption, sp) = SecretsTestHarness.Build(_dbName);
+
+        var spec = new RuntimeSpecV2
+        {
+            Services = new List<ServiceSpec>
+            {
+                new()
+                {
+                    Name = "postgres",
+                    Command = "/usr/lib/postgresql/15/bin/postgres -D /data/postgres -p 5432",
+                    RequiredEnv = new List<RequiredEnvVar>
+                    {
+                        new() { Key = "DATABASE_URL", Secret = false },
+                    },
+                },
+            },
+        };
+
+        await using (var seed = TestDbContextFactory.Create(_dbName))
+        {
+            seed.RuntimeProposals.Add(new RuntimeProposal
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = projectId,
+                RuntimeId = Guid.NewGuid(),
+                Status = RuntimeProposalStatus.Approved,
+                ProposedSpec = "{}",
+                ExpandedSpec = spec.ToJson(),
+                DecidedAt = DateTime.UtcNow,
+            });
+
+            var connectionString =
+                "Host=localhost;Port=43594;Database=app;Username=postgres";
+            var (ciphertext, nonce, _) = await encryption.EncryptAsync(
+                projectId,
+                connectionString,
+                CancellationToken.None);
+
+            seed.ProjectSecrets.Add(new ProjectSecret
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = projectId,
+                BranchId = branchId,
+                Key = "DATABASE_URL",
+                Ciphertext = ciphertext,
+                Nonce = nonce,
+                IsSecret = false,
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        await using var ctx = TestDbContextFactory.Create(_dbName);
+        var handler = new GetBranchEnvStatusQueryHandler(
+            ctx, new CurrentExpandedSpecResolver(ctx), encryption);
+
+        var result = await handler.Handle(
+            new GetBranchEnvStatusQuery(projectId, branchId), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Warnings.Should().ContainSingle(w => w.Contains("43594"));
+        _ = sp;
     }
 }

@@ -5,16 +5,9 @@ using Source.Shared.Results;
 namespace Source.Features.RuntimeLifecycle.Commands.RestartRuntime;
 
 /// <summary>
-/// User-triggered restart for a <see cref="ProjectRuntime"/> stuck in
-/// <see cref="RuntimeState.Failed"/> or <see cref="RuntimeState.Crashed"/>.
-/// Walks the most-recent (non-deleted) runtime for the given
-/// <c>(ProjectId, BranchId)</c> pair to <c>Pending</c> via
-/// <see cref="ProjectRuntime.Restart"/>; the recurring
-/// <c>RuntimeProvisionerJob</c> then picks the row up on its next tick and
-/// spawns a fresh Fly machine on the existing
-/// <see cref="ProjectRuntime.FlyVolumeId"/>. <see cref="RuntimeState.Suspended"/>
-/// runtimes are delegated to <c>WakeRuntimeOnConnectCommand</c> instead — the
-/// machine + volume are already intact, only the VM needs starting.
+/// User-triggered restart for a branch runtime. Suspended runtimes wake;
+/// Online, mid-boot, Failed, and Crashed runtimes hard-reboot on the existing
+/// volume via <see cref="ProjectRuntime.Restart"/>.
 ///
 /// <para>Powers <c>POST /api/projects/{projectId}/branches/{branchId}/runtime/restart</c>.
 /// Returns the current <see cref="RuntimeStatusResponse"/> snapshot so the

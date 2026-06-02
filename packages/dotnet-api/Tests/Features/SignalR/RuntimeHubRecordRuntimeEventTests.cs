@@ -475,7 +475,8 @@ public class RuntimeHubRecordRuntimeEventTests : IDisposable
             new HealthSnapshotBuffer(),
             new ServiceDownDetector(),
             // SecretEncryptionService + IGithubAppTokenService + IAgentPermissionsResolver
-            // + ISystemSettingsService unused on this path — null! placeholders keep the rig minimal.
+            // + ISystemSettingsService + IAgentSecretsResolver unused on this path — null! placeholders.
+            null!,
             null!,
             null!,
             null!,

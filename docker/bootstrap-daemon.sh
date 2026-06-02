@@ -36,8 +36,12 @@ log "  daemon: version=$DAEMON_VERSION sha=$DAEMON_BUNDLE_SHA256"
 if [[ -f "$SHA_FILE" ]] && [[ "$(cat "$SHA_FILE")" == "$DAEMON_BUNDLE_SHA256" ]] && [[ -f "$DEST/daemon.js" ]]; then
   log "daemon cache hit (sha=$DAEMON_BUNDLE_SHA256), skipping download"
 else
-  log "downloading daemon bundle from $DAEMON_BUNDLE_URL"
-  curl -fsSL --retry 3 --retry-delay 2 --max-time 60 -o "$TARBALL" "$DAEMON_BUNDLE_URL"
+  bundle_url="$DAEMON_BUNDLE_URL"
+  if [[ "$bundle_url" != http://* && "$bundle_url" != https://* ]]; then
+    bundle_url="${MAIN_API_URL%/}${bundle_url}"
+  fi
+  log "downloading daemon bundle from $bundle_url"
+  curl -fsSL --retry 3 --retry-delay 2 --max-time 60 -o "$TARBALL" "$bundle_url"
 
   ACTUAL=$(sha256sum "$TARBALL" | awk '{print $1}')
   if [[ "$ACTUAL" != "$DAEMON_BUNDLE_SHA256" ]]; then

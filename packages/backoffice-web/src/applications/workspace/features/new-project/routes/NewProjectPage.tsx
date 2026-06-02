@@ -43,6 +43,9 @@ import {
   WorkspacePageHeader,
   WorkspacePageShell,
   bodySx,
+  buildGithubInstallationManageUrl,
+  isPoolEmptyError,
+  PoolEmptyErrorAlert,
   sectionTitleSx,
   workspaceAccent,
   workspaceColors,
@@ -78,27 +81,6 @@ function readErrorDetail(err: unknown): string | null {
     | undefined
   return data?.error ?? data?.detail ?? data?.title ?? maybe?.message ?? null
 }
-
-/**
- * cloudflare-tunnel-preview Phase 3: the backend signals "no preview
- * subdomains left in the pool" with HTTP 409 and body
- * {@code { "error": "pool_empty" }}. Detect that exact shape so we can
- * surface an admin-actionable message instead of the generic "Could not
- * create the project." We deliberately match on BOTH the 409 status AND
- * the literal error code so a future, unrelated 409 (e.g. duplicate name)
- * doesn't accidentally trigger the pool-empty copy.
- */
-function isPoolEmptyError(err: unknown): boolean {
-  const maybe = err as
-    | { response?: { status?: number; data?: { error?: string } } }
-    | undefined
-  return (
-    maybe?.response?.status === 409 && maybe?.response?.data?.error === 'pool_empty'
-  )
-}
-
-const POOL_EMPTY_MESSAGE =
-  'No preview subdomain available. Ask a system administrator to provision more in /super-admin/subdomains.'
 
 /**
  * Stable machine-readable prefix the backend uses when the create-repo path
@@ -153,26 +135,6 @@ function readDuplicateConflict(
     existingProjectId: data.existingProjectId,
     existingProjectName: data.existingProjectName,
   }
-}
-
-/**
- * Build the GitHub installation-manage URL so the user can grant the App
- * access to additional repositories without leaving our flow. Returns null
- * when we don't have enough info (no installation selected, etc.).
- *   - org:  https://github.com/organizations/{login}/settings/installations/{numericId}
- *   - user: https://github.com/settings/installations/{numericId}
- */
-function buildInstallationManageUrl(
-  installation: GithubInstallationListItem | null,
-): string | null {
-  if (!installation) return null
-  const numericId = installation.installationId
-  if (!numericId) return null
-  const accountType = installation.accountType?.toLowerCase() ?? ''
-  if (accountType === 'organization' && installation.accountLogin) {
-    return `https://github.com/organizations/${installation.accountLogin}/settings/installations/${numericId}`
-  }
-  return `https://github.com/settings/installations/${numericId}`
 }
 
 type WizardStep = 0 | 1 | 2
@@ -271,7 +233,7 @@ export function NewProjectPage() {
   }, [installationId, installations])
 
   const manageAccessUrl = useMemo(
-    () => buildInstallationManageUrl(selectedInstallation),
+    () => buildGithubInstallationManageUrl(selectedInstallation),
     [selectedInstallation],
   )
 
@@ -413,7 +375,6 @@ export function NewProjectPage() {
             return
           }
           if (isPoolEmptyError(err)) {
-            showError(POOL_EMPTY_MESSAGE)
             return
           }
           // The reauthorize-GitHub case has its own inline banner above the
@@ -552,11 +513,11 @@ export function NewProjectPage() {
   // into the generic inline alert.
   const needsGithubUserAuth =
     createProject.isError && isGithubUserAuthRequiredError(createProject.error)
+  const isPoolEmptySubmitError =
+    createProject.isError && isPoolEmptyError(createProject.error)
   const submitErrorMessage =
-    createProject.isError && !needsGithubUserAuth
-      ? isPoolEmptyError(createProject.error)
-        ? POOL_EMPTY_MESSAGE
-        : readErrorDetail(createProject.error)
+    createProject.isError && !needsGithubUserAuth && !isPoolEmptySubmitError
+      ? readErrorDetail(createProject.error)
       : null
 
   // Validation rule for the brand-new-repo name: must match GitHub's allowed character
@@ -603,7 +564,9 @@ export function NewProjectPage() {
   const visibleStepIndex = installations.length > 1 ? step : Math.max(0, step - 1)
 
   const starterFlowErrorBlock =
-    !isLegacyFlow && submitErrorMessage ? (
+    !isLegacyFlow && isPoolEmptySubmitError ? (
+      <PoolEmptyErrorAlert />
+    ) : !isLegacyFlow && submitErrorMessage ? (
       <Alert
         severity="error"
         variant="quiet"
@@ -1081,6 +1044,8 @@ export function NewProjectPage() {
                 Open it
               </Button>
             </Box>
+          ) : isPoolEmptySubmitError ? (
+            <PoolEmptyErrorAlert />
           ) : (
             submitErrorMessage && (
               <Alert

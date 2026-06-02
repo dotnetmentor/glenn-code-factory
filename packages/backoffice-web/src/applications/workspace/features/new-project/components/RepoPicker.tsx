@@ -17,9 +17,9 @@ import {
   Typography,
 } from '@mui/material'
 import LockIcon from '@mui/icons-material/Lock'
-import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import SearchIcon from '@mui/icons-material/Search'
 import type { GithubRepoListItemDto } from '../../../../../api/queries-commands'
+import { ManageGitHubAccessHint } from '../../../shared'
 
 interface RepoPickerProps {
   repos: GithubRepoListItemDto[]
@@ -35,7 +35,7 @@ interface RepoPickerProps {
   slug?: string
   /**
    * URL to GitHub's installation-manage page. When provided, a small
-   * "Can't see your repository? Manage GitHub access →" line is rendered
+   * "Can't see your repository? Modify access" link is rendered
    * below the list so users can adjust the GitHub App's repo selection.
    */
   manageAccessUrl?: string | null
@@ -105,7 +105,7 @@ export function RepoPicker({
           No repositories found for this installation. Make sure the GitHub App
           has been granted access to at least one repository.
         </Alert>
-        {manageAccessUrl && <ManageAccessHint url={manageAccessUrl} />}
+        {manageAccessUrl && <ManageGitHubAccessHint url={manageAccessUrl} />}
       </Stack>
     )
   }
@@ -279,44 +279,7 @@ export function RepoPicker({
         </Box>
       )}
 
-      {manageAccessUrl && <ManageAccessHint url={manageAccessUrl} />}
+      {manageAccessUrl && <ManageGitHubAccessHint url={manageAccessUrl} />}
     </Stack>
-  )
-}
-
-/**
- * Tiny muted "Can't see your repository? Manage GitHub access →" hint that
- * deep-links to the GitHub installation's repository-management page so the
- * user can grant the app access to additional repos without leaving our flow.
- */
-function ManageAccessHint({ url }: { url: string }) {
-  return (
-    <Typography
-      sx={{
-        fontSize: '0.8125rem',
-        color: 'text.secondary',
-        mt: 0.5,
-      }}
-    >
-      Can&apos;t see your repository?{' '}
-      <Box
-        component="a"
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        sx={{
-          color: 'primary.main',
-          textDecoration: 'none',
-          fontWeight: 500,
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 0.25,
-          '&:hover': { textDecoration: 'underline' },
-        }}
-      >
-        Manage GitHub access
-        <OpenInNewIcon sx={{ fontSize: 12 }} />
-      </Box>
-    </Typography>
   )
 }

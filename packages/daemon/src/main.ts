@@ -81,6 +81,8 @@ import { WritingConfigStage } from './bootstrap/stages/WritingConfigStage.js'
 import { DaemonConfig } from './config/DaemonConfig.js'
 import { DiskMonitor } from './disk/DiskMonitor.js'
 import { EnvVarManager } from './env/EnvVarManager.js'
+import { reapplyServicesForEnvKeys } from './env/reapplyServicesForEnvKeys.js'
+import { mergeServiceRuntimeEnv } from './env/serviceRuntimeEnv.js'
 import {
   DefaultRuntimeEventEmitter,
   type RuntimeEventEmitter,
@@ -119,6 +121,7 @@ import { InstallHashStore } from './runtime/InstallHashStore.js'
 import { RuntimeSpecApplier } from './runtime/RuntimeSpecApplier.js'
 import { ServiceStatusPoller } from './runtime/ServiceStatusPoller.js'
 import { SupervisordController } from './runtime/SupervisordController.js'
+import type { ServiceSpec } from './runtime/SupervisordController.js'
 import { SupervisordXmlRpcClient } from './supervisord/SupervisordXmlRpcClient.js'
 import { ProcessStatsCollector } from './sysstats/ProcessStatsCollector.js'
 import { SignalRClient } from './signalr/SignalRClient.js'
@@ -147,6 +150,10 @@ import {
   DaemonToolsMcpServer,
 } from './mcp/DaemonToolsMcpServer.js'
 import { isBenignAbortRejection } from './utils/isBenignAbortRejection.js'
+import {
+  isNonFatalOrphanedError,
+  isRecoverableToolingRejection,
+} from './utils/isRecoverableToolingRejection.js'
 import { DAEMON_VERSION } from './version.js'
 
 // ============================================================================
@@ -277,6 +284,7 @@ export interface MainDeps {
       listBootIssues: () => BootIssue[]
       triggerRebootstrap: (reason: string) => void | Promise<void>
     },
+    git?: { getGitModule: () => GitModule | undefined },
   ) => readonly CustomTool[]
   // Hook subsystem (Card 10 of daemon-hooks-runner). Each factory takes only
   // the prior-stage deps it needs; tests can swap any one without rebuilding
@@ -349,6 +357,7 @@ export interface MainDeps {
     logger: Logger,
     hashStore: InstallHashStore,
     emitter: RuntimeEventEmitter,
+    envVarManager: EnvVarManager,
   ) => RuntimeSpecApplier
   /**
    * Build the singleton `RuntimeEventEmitter`. Wired AFTER signalr connects so
@@ -681,7 +690,7 @@ const defaultMainDeps: MainDeps = {
       logger,
     }),
 
-  buildCustomTools: (config, logger, proposeRuntimeSpec, selfHeal) =>
+  buildCustomTools: (config, logger, proposeRuntimeSpec, selfHeal, git) =>
     buildCustomTools({
       config,
       logger,
@@ -694,6 +703,7 @@ const defaultMainDeps: MainDeps = {
             triggerRebootstrap: selfHeal.triggerRebootstrap,
           }
         : {}),
+      ...(git !== undefined ? { getGitModule: git.getGitModule } : {}),
     }),
 
   // Hook subsystem factories — Card 10 of daemon-hooks-runner. SIGTERM →
@@ -796,8 +806,24 @@ const defaultMainDeps: MainDeps = {
       logger,
       confDir: '/data/.glenn/supervisor.d',
     }),
-  buildRuntimeSpecApplier: (signalr, supervisord, executor, logger, hashStore, emitter) =>
-    new RuntimeSpecApplier({ signalr, supervisord, executor, logger, hashStore, emitter }),
+  buildRuntimeSpecApplier: (
+    signalr,
+    supervisord,
+    executor,
+    logger,
+    hashStore,
+    emitter,
+    envVarManager,
+  ) =>
+    new RuntimeSpecApplier({
+      signalr,
+      supervisord,
+      executor,
+      logger,
+      hashStore,
+      emitter,
+      envVarManager,
+    }),
 
   // RuntimeEvent fan-out — singleton emitter (Spec runtime-spec-v2 "Event
   // taxonomy"). Hooks onto the SignalR client's connected/disconnected
@@ -994,7 +1020,10 @@ export async function runMain(overrides: Partial<MainDeps> = {}): Promise<void> 
   // error — boot is never blocked on backend availability.
   const proposeRuntimeSpec = await deps.fetchToolDescription(config, logger)
 
-  const customTools = deps.buildCustomTools(config, logger, proposeRuntimeSpec, selfHealTools)
+  let gitModuleRef: GitModule | undefined
+  const customTools = deps.buildCustomTools(config, logger, proposeRuntimeSpec, selfHealTools, {
+    getGitModule: () => gitModuleRef,
+  })
   const daemonToolsMcpServer = deps.buildDaemonToolsMcpServer(config, customTools, logger)
   await daemonToolsMcpServer.start()
 
@@ -1063,7 +1092,6 @@ export async function runMain(overrides: Partial<MainDeps> = {}): Promise<void> 
   //   - DestructiveOpGate + PushRetryJob both depend on GitModule and live
   //     downstream of it.
   const sshKeyHandler = deps.buildSshKeyHandler(logger)
-  let gitModuleRef: GitModule | undefined
   const gitRunner = deps.buildGitRunner(GIT_CWD, config, logger, (e) => {
     gitModuleRef?.handleRunnerAudit(e)
   })
@@ -1180,12 +1208,19 @@ export async function runMain(overrides: Partial<MainDeps> = {}): Promise<void> 
     logger,
     applierHashStore,
     runtimeEventEmitter,
+    envVarManager,
   )
   // The MainDeps.buildCustomTools factory differs from the inline `customTools`
   // we built in Step 5 only in its approval wiring (this one auto-approves
   // server-initiated restarts). It still needs the same tool description,
   // which we already fetched once above.
-  const customToolsForServerInit = deps.buildCustomTools(config, logger, proposeRuntimeSpec, selfHealTools)
+  const customToolsForServerInit = deps.buildCustomTools(
+    config,
+    logger,
+    proposeRuntimeSpec,
+    selfHealTools,
+    { getGitModule: () => gitModuleRef },
+  )
 
   // Bootstrap seed for the hook subsystem. Empty until backend Card 4's
   // bootstrap delivery wires real config via UpdateConfig on connect. Seeded
@@ -1275,6 +1310,18 @@ export async function runMain(overrides: Partial<MainDeps> = {}): Promise<void> 
     if (p.envVarsDelta != null && p.envVarsDelta.length > 0) {
       try {
         await envVarManager.applyDelta(p.envVarsDelta)
+        const setKeys = p.envVarsDelta
+          .filter((d) => d.value !== null)
+          .map((d) => d.key)
+        if (setKeys.length > 0) {
+          await reapplyServicesForEnvKeys(setKeys, {
+            bootstrapState,
+            envVarManager,
+            supervisord: supervisordController,
+            executor,
+            logger,
+          })
+        }
       } catch (err) {
         // Reject paths (newline in value, mkdir/rename failures, …) are
         // logged but never fail the whole UpdateConfig handler — token
@@ -1474,6 +1521,24 @@ export async function runMain(overrides: Partial<MainDeps> = {}): Promise<void> 
   // RestartService — server-initiated restart. Reuses the same in-process
   // tool path as the SDK's restart_service tool — no separate code path.
   signalr.onRestartService(async (p: RestartServicePayload) => {
+    if (bootstrapState.hasPayload()) {
+      const services = bootstrapState.payload.runtimeSpec.services ?? []
+      const raw = services.find((s) => s.name === p.serviceName)
+      if (raw !== undefined) {
+        try {
+          const merged = mergeServiceRuntimeEnv(
+            raw as ServiceSpec,
+            envVarManager.current(),
+          )
+          await supervisordController.addService(merged)
+        } catch (err) {
+          logger.warn(
+            { err, service: p.serviceName },
+            'RestartService: supervisord conf re-apply failed (continuing with restart)',
+          )
+        }
+      }
+    }
     const tool = customToolsForServerInit.find((t) => t.name === 'restart_service')
     if (tool === undefined) {
       logger.warn('RestartService received but restart_service tool not registered')
@@ -2059,7 +2124,42 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
   }
 
+  const suppressNonFatalOrphanedError = (
+    kind: 'uncaughtException' | 'unhandledRejection',
+    reason: unknown,
+    promise?: Promise<unknown>,
+  ): void => {
+    promise?.catch(() => {
+      /* drain orphaned promise so Node stops reporting it */
+    })
+    const errObj = reason instanceof Error ? reason : new Error(String(reason))
+    const line =
+      JSON.stringify({
+        level: 40,
+        time: Date.now(),
+        msg: 'daemon: suppressed non-fatal orphaned error',
+        kind,
+        errorName: errObj.name,
+        errorMessage: errObj.message,
+        benignAbort: isBenignAbortRejection(reason),
+        recoverableTooling: isRecoverableToolingRejection(reason),
+      }) + '\n'
+    try {
+      process.stderr.write(line)
+    } catch {
+      // best-effort — same justification as shipCrashReport's stderr write.
+    }
+    crashReporterLogger?.warn(
+      { kind, err: errObj },
+      'suppressed non-fatal orphaned process error',
+    )
+  }
+
   process.on('uncaughtException', (err) => {
+    if (isNonFatalOrphanedError(err)) {
+      suppressNonFatalOrphanedError('uncaughtException', err)
+      return
+    }
     void shipCrashReport('uncaughtException', err).finally(() => {
       // Defer exit one tick so the stderr write actually flushes before Node
       // tears down. Fly's log capture has dropped messages on same-tick exits.
@@ -2068,30 +2168,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   })
 
   process.on('unhandledRejection', (reason, promise) => {
-    if (isBenignAbortRejection(reason)) {
-      // Mark the orphaned promise as handled so Node doesn't keep yelling
-      // about it. We still log a single structured warn line so this stays
-      // visible in operator logs / debug-panel — it's not an error, but
-      // it's worth knowing the path fired (high frequency = SDK upgrade
-      // candidate).
-      promise.catch(() => {
-        /* intentionally drain — re-attaching after the fact tells Node
-         * "we're aware of this, stop nagging". */
-      })
-      const errObj = reason instanceof Error ? reason : new Error(String(reason))
-      const line =
-        JSON.stringify({
-          level: 40, // pino warn
-          time: Date.now(),
-          msg: 'daemon: suppressed benign abort rejection',
-          errorName: errObj.name,
-          errorMessage: errObj.message,
-        }) + '\n'
-      try {
-        process.stderr.write(line)
-      } catch {
-        // best-effort — same justification as shipCrashReport's stderr write.
-      }
+    if (isNonFatalOrphanedError(reason)) {
+      suppressNonFatalOrphanedError('unhandledRejection', reason, promise)
       return
     }
     void shipCrashReport('unhandledRejection', reason).finally(() => {

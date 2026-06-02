@@ -25,14 +25,12 @@ public sealed record ListWorkspaceProjectsQuery() : IQuery<Result<List<ProjectSu
 /// <see cref="UpdatedAt"/> until there's a dedicated activity timestamp — the
 /// shape stays stable so the frontend can sort by recency without re-plumbing.
 ///
-/// <para><see cref="RuntimeState"/> mirrors the value on
-/// <see cref="Source.Features.Projects.Models.ProjectDto"/> so the sidebar can
-/// render a per-project status dot off the polled list without needing a
-/// per-row detail fetch. Sourced from the
-/// <see cref="Source.Features.RuntimeLifecycle.Models.ProjectRuntime"/> pinned
-/// to the project's default branch — the most recently created row if a
-/// project has been re-provisioned. <c>null</c> when the project has no
-/// runtime row yet (very narrow window during initial create).</para>
+/// <para><see cref="RuntimeState"/> is the highest-priority runtime state
+/// across all non-archived branch runtimes — Failed/Crashed wins over
+/// booting states, which win over Online/Suspended — so the sidebar's
+/// "Needs Action" bucket reflects any branch that needs attention, not just
+/// the default branch. <c>null</c> when no branch has been provisioned
+/// yet.</para>
 ///
 /// <para><see cref="RuntimeErrorMessage"/> is populated only when
 /// <see cref="RuntimeState"/> is <see cref="Source.Features.RuntimeLifecycle.Models.RuntimeState.Failed"/>;

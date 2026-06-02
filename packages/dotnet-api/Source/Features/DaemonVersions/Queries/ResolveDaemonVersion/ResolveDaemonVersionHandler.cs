@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Source.Features.DaemonVersions.Models;
+using Source.Features.RuntimeLifecycle.Configuration;
 using Source.Infrastructure;
 using Source.Infrastructure.Services.FileStorage;
 using Source.Shared.CQRS;
@@ -24,13 +25,16 @@ public sealed class ResolveDaemonVersionHandler
 
     private readonly ApplicationDbContext _db;
     private readonly IFileStorageService _fileStorage;
+    private readonly IRuntimeOptionsAccessor _runtimeOptions;
 
     public ResolveDaemonVersionHandler(
         ApplicationDbContext db,
-        IFileStorageService fileStorage)
+        IFileStorageService fileStorage,
+        IRuntimeOptionsAccessor runtimeOptions)
     {
         _db = db;
         _fileStorage = fileStorage;
+        _runtimeOptions = runtimeOptions;
     }
 
     public async Task<Result<DaemonVersionDto>> Handle(
@@ -54,6 +58,7 @@ public sealed class ResolveDaemonVersionHandler
         }
 
         var downloadUrl = await _fileStorage.GetFileUrlAsync(entity.BundleStorageKey, cancellationToken);
+        downloadUrl = ToAbsoluteDownloadUrl(downloadUrl, _runtimeOptions.Current.PublicApiUrl);
 
         return Result.Success(new DaemonVersionDto
         {
@@ -67,5 +72,22 @@ public sealed class ResolveDaemonVersionHandler
             IsActive = entity.IsActive,
             Notes = entity.Notes,
         });
+    }
+
+    internal static string ToAbsoluteDownloadUrl(string downloadUrl, string? publicApiUrl)
+    {
+        if (string.IsNullOrWhiteSpace(downloadUrl)
+            || downloadUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || downloadUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return downloadUrl;
+        }
+
+        if (string.IsNullOrWhiteSpace(publicApiUrl))
+        {
+            return downloadUrl;
+        }
+
+        return $"{publicApiUrl.TrimEnd('/')}{downloadUrl}";
     }
 }

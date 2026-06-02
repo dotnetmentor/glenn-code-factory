@@ -245,6 +245,7 @@ public class PresetExpander : IPresetExpander
                     Key = rev.Key,
                     Description = renderedDescription,
                     Secret = rev.Secret,
+                    Required = rev.Required,
                 });
             }
 

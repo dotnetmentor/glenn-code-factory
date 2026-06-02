@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Source.Features.Attachments.Models;
 using Source.Infrastructure;
-using Source.Infrastructure.Extensions;
 using Source.Infrastructure.Services.FileStorage;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
@@ -34,9 +33,7 @@ public record PresignAttachmentCommand(
     Guid ConversationId,
     string FileName,
     string? ContentType,
-    long SizeBytes,
-    string CallerUserId,
-    bool CallerIsSuperAdmin) : ICommand<Result<PresignAttachmentResponse>>;
+    long SizeBytes) : ICommand<Result<PresignAttachmentResponse>>;
 
 /// <summary>
 /// Response from <see cref="PresignAttachmentCommand"/>. The browser uses
@@ -102,22 +99,11 @@ public class PresignAttachmentCommandHandler
                 $"File too large (max {maxMb} MB)");
         }
 
-        // Conversation must exist and caller must have project access.
-        var projectId = await _db.Conversations
+        var conversationExists = await _db.Conversations
             .IgnoreQueryFilters()
-            .Where(c => c.Id == request.ConversationId)
-            .Select(c => (Guid?)c.ProjectId)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (projectId is null)
-        {
-            return Result.Failure<PresignAttachmentResponse>("Conversation not found");
-        }
+            .AnyAsync(c => c.Id == request.ConversationId, cancellationToken);
 
-        if (!await _db.UserCanAccessProjectAsync(
-                request.CallerUserId,
-                request.CallerIsSuperAdmin,
-                projectId.Value,
-                cancellationToken))
+        if (!conversationExists)
         {
             return Result.Failure<PresignAttachmentResponse>("Conversation not found");
         }

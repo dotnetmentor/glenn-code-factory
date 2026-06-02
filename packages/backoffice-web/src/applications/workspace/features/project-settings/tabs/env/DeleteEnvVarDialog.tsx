@@ -13,6 +13,7 @@ import {
   surfaceTokens,
   workspaceFontFamily,
 } from '../../../../shared/designTokens'
+import type { EnvVarScope } from './envVarTypes'
 
 const tokens = {
   canvas: surfaceTokens.canvasBg,
@@ -25,21 +26,23 @@ const tokens = {
 
 export interface DeleteEnvVarDialogProps {
   open: boolean
-  /** Key being removed; shown in monospace for confirmation. */
   envKey: string | null
+  scope: EnvVarScope
   isDeleting: boolean
   onClose: () => void
   onConfirm: () => void
 }
 
-/** Confirm dialog for removing a single env var. */
 export function DeleteEnvVarDialog({
   open,
   envKey,
+  scope,
   isDeleting,
   onClose,
   onConfirm,
 }: DeleteEnvVarDialogProps) {
+  const isBranchOverride = scope === 'branch'
+
   return (
     <Dialog
       open={open}
@@ -75,19 +78,19 @@ export function DeleteEnvVarDialog({
       </DialogTitle>
       <DialogContent sx={{ px: 3, pb: 2.5, pt: 0 }}>
         <Typography sx={{ fontSize: '0.8125rem', color: tokens.muted, lineHeight: 1.5 }}>
-          This removes{' '}
-          <Box
-            component="span"
-            sx={{
-              fontFamily: workspaceFontFamily.mono,
-              color: tokens.primary,
-              fontSize: '0.8125rem',
-            }}
-          >
-            {envKey}
-          </Box>{' '}
-          from this branch. If it's a required variable, the missing badge will
-          come back until you set it again.
+          {isBranchOverride ? (
+            <>
+              This removes the branch override for{' '}
+              <KeyMono>{envKey}</KeyMono>. The project default value will apply
+              on this branch again.
+            </>
+          ) : (
+            <>
+              This removes{' '}
+              <KeyMono>{envKey}</KeyMono> from the project. Every branch loses
+              this value unless it has its own override.
+            </>
+          )}
         </Typography>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5, pt: 1, gap: 1 }}>
@@ -121,5 +124,20 @@ export function DeleteEnvVarDialog({
         </Button>
       </DialogActions>
     </Dialog>
+  )
+}
+
+function KeyMono({ children }: { children: React.ReactNode }) {
+  return (
+    <Box
+      component="span"
+      sx={{
+        fontFamily: workspaceFontFamily.mono,
+        color: tokens.primary,
+        fontSize: '0.8125rem',
+      }}
+    >
+      {children}
+    </Box>
   )
 }

@@ -175,10 +175,17 @@ export function buildSharedButtonOverrides(p: SharedThemePalette): NonNullable<C
   }
 }
 
-export function buildSharedCssBaselineOverrides(p: SharedThemePalette): Components<Theme>['MuiCssBaseline'] {
+export function buildSharedCssBaselineOverrides(
+  p: SharedThemePalette,
+  isDark = false,
+): Components<Theme>['MuiCssBaseline'] {
+  const selectionBg = isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(29, 29, 31, 0.18)'
+  const selectionColor = isDark ? '#ffffff' : p.textPrimary
+
   return {
     styleOverrides: {
       html: {
+        fontSize: '12px',
         WebkitTextSizeAdjust: '100%',
         textSizeAdjust: '100%',
         backgroundColor: p.canvasBg,
@@ -195,8 +202,13 @@ export function buildSharedCssBaselineOverrides(p: SharedThemePalette): Componen
         outlineOffset: 2,
       },
       '::selection': {
-        backgroundColor: tint(p.ink, '1A'),
-        color: p.textPrimary,
+        backgroundColor: selectionBg,
+        color: selectionColor,
+        WebkitTextFillColor: selectionColor,
+      },
+      '::-moz-selection': {
+        backgroundColor: selectionBg,
+        color: selectionColor,
       },
       '::-webkit-scrollbar': { width: 6, height: 6 },
       '::-webkit-scrollbar-track': { background: 'transparent' },
@@ -205,9 +217,18 @@ export function buildSharedCssBaselineOverrides(p: SharedThemePalette): Componen
         borderRadius: 3,
       },
       '::-webkit-scrollbar-thumb:hover': { background: p.scrollbarThumbHover },
-      '*': {
+      '*, *::before, *::after': {
         scrollbarWidth: 'thin',
         scrollbarColor: `${p.scrollbarThumb} transparent`,
+        '&::selection': {
+          backgroundColor: selectionBg,
+          color: selectionColor,
+          WebkitTextFillColor: selectionColor,
+        },
+        '&::-moz-selection': {
+          backgroundColor: selectionBg,
+          color: selectionColor,
+        },
       },
       '@media screen and (max-width: 899px)': {
         'input, textarea, select': { fontSize: '16px !important' },
@@ -514,6 +535,7 @@ export function buildInstrumentTypography(
   faint: string,
 ) {
   return {
+    htmlFontSize: 12,
     fontFamily: sans,
     h1: { fontFamily: sans, fontWeight: 600, fontSize: '2rem', lineHeight: 1.2, letterSpacing: '-0.02em', color: ink },
     h2: { fontFamily: sans, fontWeight: 600, fontSize: '1.75rem', lineHeight: 1.25, letterSpacing: '-0.02em', color: ink },

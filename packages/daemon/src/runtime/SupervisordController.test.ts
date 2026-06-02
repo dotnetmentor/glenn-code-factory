@@ -204,27 +204,29 @@ describe('renderServiceBlock', () => {
     expect(withEmptyEnv).not.toContain('environment=')
   })
 
-  it('renders environment values, quoting only when unsafe characters appear', () => {
+  it('renders environment values with every value double-quoted for supervisord', () => {
     const block = renderServiceBlock({
       name: 'minio',
       command: '/minio',
       env: {
-        MINIO_ROOT_USER: 'minioadmin', // safe — no quotes
-        MINIO_ROOT_PASSWORD: 'pa ss', // contains space — quoted
+        MINIO_ROOT_USER: 'minioadmin',
+        MINIO_ROOT_PASSWORD: 'pa ss',
+        HOME: '/home/agent',
+        ASPNETCORE_URLS: 'http://0.0.0.0:5338',
       },
     })
     expect(block).toContain(
-      'environment=MINIO_ROOT_USER=minioadmin,MINIO_ROOT_PASSWORD="pa ss"',
+      'environment=MINIO_ROOT_USER="minioadmin",MINIO_ROOT_PASSWORD="pa ss",HOME="/home/agent",ASPNETCORE_URLS="http://0.0.0.0:5338"',
     )
   })
 
-  it('escapes embedded backslashes and quotes in env values', () => {
+  it('escapes embedded backslashes, quotes, and percent signs in env values', () => {
     const block = renderServiceBlock({
       name: 'x',
       command: 'x',
-      env: { WEIRD: 'he said "hi"\\back' },
+      env: { WEIRD: 'he said "hi"\\back', PCT: '100%' },
     })
-    expect(block).toContain('environment=WEIRD="he said \\"hi\\"\\\\back"')
+    expect(block).toContain('environment=WEIRD="he said \\"hi\\"\\\\back",PCT="100%%"')
   })
 
   it('does NOT render the healthcheck into the supervisord conf', () => {
@@ -268,7 +270,7 @@ describe('renderServiceBlock', () => {
         'stdout_logfile_maxbytes=10MB',
         'stdout_logfile_backups=3',
         'redirect_stderr=true',
-        'environment=MONGO_INITDB_ROOT=admin',
+        'environment=MONGO_INITDB_ROOT="admin"',
       ].join('\n') + '\n',
     )
   })
@@ -358,8 +360,8 @@ describe('SupervisordController.addService', () => {
     })
 
     const written = fs.files.get(`${CONF_DIR}/minio.conf`) ?? ''
-    expect(written).toContain('environment=MINIO_ROOT_USER=minioadmin')
-    expect(written).toContain('MINIO_ROOT_PASSWORD=minioadmin')
+    expect(written).toContain('environment=MINIO_ROOT_USER="minioadmin"')
+    expect(written).toContain('MINIO_ROOT_PASSWORD="minioadmin"')
   })
 
   it('renders defaults (user=agent) when ServiceSpec omits user', async () => {
@@ -547,5 +549,41 @@ describe('SupervisordController.reconcileServices', () => {
     expect(removed.sort()).toEqual(['postgres', 'redis'])
     expect(fs.files.has(`${CONF_DIR}/postgres.conf`)).toBe(false)
     expect(fs.files.has(`${CONF_DIR}/redis.conf`)).toBe(false)
+  })
+
+  it('preserves platform-managed programs when preserve set is supplied', async () => {
+    const { executor } = makeExecutor()
+    const fs = makeFs({
+      [`${CONF_DIR}/cloudflared.conf`]: '[program:cloudflared]\ncommand=...\n',
+      [`${CONF_DIR}/dotnet-api.conf`]: '[program:dotnet-api]\ncommand=...\n',
+    })
+    const controller = makeController({ executor, fs: fs.fs, confDir: CONF_DIR })
+
+    const removed = await controller.reconcileServices(new Set(['dotnet-api']), {
+      preserve: new Set(['cloudflared']),
+    })
+
+    expect(removed).toEqual([])
+    expect(fs.files.has(`${CONF_DIR}/cloudflared.conf`)).toBe(true)
+    expect(fs.files.has(`${CONF_DIR}/dotnet-api.conf`)).toBe(true)
+  })
+
+  it('renders merged dotnet-api secrets without supervisord parse errors', () => {
+    const block = renderServiceBlock({
+      name: 'dotnet-api',
+      command: 'dotnet run',
+      env: {
+        HOME: '/home/agent',
+        MISE_DATA_DIR: '/data/mise',
+        ASPNETCORE_URLS: 'http://0.0.0.0:5338',
+        DATABASE_URL: 'Host=localhost;Port=43594;Database=app;Username=postgres',
+        SystemSettings__EncryptionKey: 'GK6tTahlL+iG0r7oNQbd+7cGGic+9f9mILDtHMLSQV0=',
+        Jwt__Key: 'vkKmnGRt+I4GqAq1JoZYDA/xUCc6WNjUuh4qKtFkkHutJ4yNYOw+I5cvTlaz5iuI',
+        Bootstrap__SuperAdminEmail: 'william.holmberg@dotnetmentor.se',
+        Runtime__PublicApiUrl: 'http://localhost:5338',
+      },
+    })
+    expect(block).toContain('DATABASE_URL="Host=localhost;Port=43594;Database=app;Username=postgres"')
+    expect(block).toContain('ASPNETCORE_URLS="http://0.0.0.0:5338"')
   })
 })

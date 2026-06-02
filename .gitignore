@@ -87,6 +87,9 @@ yarn-error.log*
 # commit staged attachment bytes.
 .glenn/
 
+# Persistent local Cloudflare quick tunnel (npm run dev)
+.dev/cloudflare-tunnel/
+
 # Local-only agent / platform config (never commit real keys)
 .sdd/local-*.json
 .sdd/claude-session-map.json

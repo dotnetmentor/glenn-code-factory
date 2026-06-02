@@ -5,7 +5,6 @@ using Source.Features.Attachments.Services;
 using Source.Features.SignalR.Contracts;
 using Source.Features.SignalR.Hubs;
 using Source.Infrastructure;
-using Source.Infrastructure.Extensions;
 using Source.Infrastructure.Services.FileStorage;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
@@ -33,10 +32,7 @@ namespace Source.Features.Attachments.Commands;
 /// covers this (the frontend chip times out client-side after a while and
 /// offers Retry).</para>
 /// </summary>
-public record CompleteAttachmentCommand(
-    Guid AttachmentId,
-    string CallerUserId,
-    bool CallerIsSuperAdmin) : ICommand<Result<AttachmentDetailResponse>>;
+public record CompleteAttachmentCommand(Guid AttachmentId) : ICommand<Result<AttachmentDetailResponse>>;
 
 public class CompleteAttachmentCommandHandler
     : ICommandHandler<CompleteAttachmentCommand, Result<AttachmentDetailResponse>>
@@ -74,15 +70,6 @@ public class CompleteAttachmentCommandHandler
             .FirstOrDefaultAsync(a => a.Id == request.AttachmentId, cancellationToken);
 
         if (attachment is null)
-        {
-            return Result.Failure<AttachmentDetailResponse>("Attachment not found");
-        }
-
-        if (!await _db.UserCanAccessProjectAsync(
-                request.CallerUserId,
-                request.CallerIsSuperAdmin,
-                attachment.Conversation.ProjectId,
-                cancellationToken))
         {
             return Result.Failure<AttachmentDetailResponse>("Attachment not found");
         }

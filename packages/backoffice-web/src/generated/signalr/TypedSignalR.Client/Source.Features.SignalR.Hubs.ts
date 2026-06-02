@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { SubmitPromptPayload, SubmitPromptResponse, CancelTurnRequest, EventReplayRequest, AgentEventNotification, ResolvePermissionPayload, HeartbeatPayload, AgentSecretsDto, ErrorReportPayload, DiskPressurePayload, EmitEventPayload, ReportSessionCostPayload, PermissionRequestedPayload, RuntimeEventPayloadDto, ServiceLogLineDto, DaemonLogLineDto, LiveSupervisordSnapshotPayload, RuntimeStateChangedNotification, BootstrapProgressNotification, RuntimeWakingNotification, NotificationPayload, RunResultNotification, ConversationRenamedNotification, RuntimeDiskPressureNotification, RuntimeEventNotification, ServiceLogLineNotification, LiveSupervisordSnapshotNotification, DaemonLogLineNotification, PreviewPortChangedNotification, AttachmentStateChangedPayload, SpecificationChangedNotification, CardChangedNotification, SubtaskChangedNotification, StartTurnPayload, CancelTurnPayload, ConfigUpdatePayload, RestartServicePayload, ForceRebootstrapPayload } from '../Source.Features.SignalR.Contracts';
+import type { SubmitPromptPayload, SubmitPromptResponse, CancelTurnRequest, EventReplayRequest, AgentEventNotification, ResolvePermissionPayload, HeartbeatPayload, AgentSecretsDto, ErrorReportPayload, DiskPressurePayload, EmitEventPayload, ReportSessionCostPayload, PermissionRequestedPayload, RuntimeEventPayloadDto, ServiceLogLineDto, DaemonLogLineDto, LiveSupervisordSnapshotPayload, RuntimeStateChangedNotification, BootstrapProgressNotification, RuntimeWakingNotification, NotificationPayload, RunResultNotification, ConversationRenamedNotification, RuntimeDiskPressureNotification, RuntimeEventNotification, ServiceLogLineNotification, LiveSupervisordSnapshotNotification, DaemonLogLineNotification, PreviewPortChangedNotification, SpecificationChangedNotification, CardChangedNotification, SubtaskChangedNotification, StartTurnPayload, CancelTurnPayload, ConfigUpdatePayload, RestartServicePayload, ForceRebootstrapPayload, StageAttachmentPayload } from '../Source.Features.SignalR.Contracts';
 import type { BootstrapPayloadV2, RepoAccessToken } from '../Source.Features.RuntimeBootstrap.Contracts';
 import type { AgentPermissionsConfig } from '../Source.Features.AgentPermissions.Models';
 import type { TurnRefusedPayload } from '../Source.Features.Conversations.Models';
@@ -713,18 +713,6 @@ export type IAgentClient = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     previewPortChanged(payload: PreviewPortChangedNotification): Promise<void>;
-    /**
-    * chat-file-attachments — pushed whenever the daemon acks a staging
-    * attempt (success or failure) for an attachment in this branch's
-    * composer. Drives the per-chip state machine: "Ready" flips
-    * "Staging on runtime…" → checkmark, "Failed" flips it to
-    * "Runtime download failed" with Retry/Remove. Fan-out scope is
-    * branch-{branchId} so sibling-branch tabs don't see each other's
-    * composer events.
-    * @param payload Transpiled from Source.Features.SignalR.Contracts.AttachmentStateChangedPayload
-    * @returns Transpiled from System.Threading.Tasks.Task
-    */
-    attachmentStateChanged(payload: AttachmentStateChangedPayload): Promise<void>;
 }
 
 /**
@@ -846,6 +834,15 @@ export type IRuntimeClient = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     forceRebootstrap(payload: ForceRebootstrapPayload): Promise<void>;
+    /**
+    * Server-to-daemon: stage a chat attachment onto the runtime's local FS.
+    * Pushed the moment a browser-side R2 upload completes; the daemon
+    * downloads the file from the presigned URL to LocalPath and acks via
+    * RuntimeHub.ReportAttachmentStaged. See chat-file-attachments.
+    * @param payload Transpiled from Source.Features.SignalR.Contracts.StageAttachmentPayload
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    stageAttachment(payload: StageAttachmentPayload): Promise<void>;
     /**
     * Server-to-daemon: the user has answered a previously-requested
     * permission prompt. Correlated by the payload's ToolUseId — the

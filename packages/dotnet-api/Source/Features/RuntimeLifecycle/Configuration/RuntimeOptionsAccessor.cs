@@ -11,6 +11,11 @@ namespace Source.Features.RuntimeLifecycle.Configuration;
 /// <para>Reads pass through the in-memory <see cref="SystemSettingsCache"/>; the very
 /// first read of the <c>Runtime</c> category triggers a single DB roundtrip that
 /// populates the cache for the whole category at once. After that, reads are O(1).</para>
+///
+/// <para><c>Runtime:PublicApiUrl</c> from configuration (e.g. <c>Runtime__PublicApiUrl</c>
+/// in <c>.env</c>) overrides the SystemSettings value when non-empty. Local dev uses this
+/// with an ephemeral Cloudflare quick tunnel so Fly runtimes can dial back without a
+/// named tunnel hostname.</para>
 /// </summary>
 public interface IRuntimeOptionsAccessor
 {
@@ -26,11 +31,34 @@ public interface IRuntimeOptionsAccessor
 public class RuntimeOptionsAccessor : IRuntimeOptionsAccessor
 {
     private readonly ISystemSettingsService _settings;
+    private readonly IConfiguration _configuration;
 
-    public RuntimeOptionsAccessor(ISystemSettingsService settings)
+    public RuntimeOptionsAccessor(
+        ISystemSettingsService settings,
+        IConfiguration configuration)
     {
         _settings = settings;
+        _configuration = configuration;
     }
 
-    public RuntimeOptions Current => _settings.GetSection<RuntimeOptions>(RuntimeOptions.SectionName);
+    public RuntimeOptions Current
+    {
+        get
+        {
+            var options = _settings.GetSection<RuntimeOptions>(RuntimeOptions.SectionName);
+            ApplyPublicApiUrlOverride(options);
+            return options;
+        }
+    }
+
+    private void ApplyPublicApiUrlOverride(RuntimeOptions options)
+    {
+        var envOverride = _configuration[$"{RuntimeOptions.SectionName}:PublicApiUrl"];
+        if (string.IsNullOrWhiteSpace(envOverride))
+        {
+            return;
+        }
+
+        options.PublicApiUrl = envOverride.Trim().TrimEnd('/');
+    }
 }

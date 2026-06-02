@@ -113,7 +113,7 @@ export function buildInstrumentTheme(
   // reference them as `var(--ws-…)`. Re-emitted whenever (mode, accent)
   // changes, which is what makes the workspace flip reactively.
   const wsCssVars = buildWorkspaceCssVars(tokens)
-  const baseCssBaseline = buildSharedCssBaselineOverrides(sharedPalette)
+  const baseCssBaseline = buildSharedCssBaselineOverrides(sharedPalette, isDark)
   const baseStyleOverrides =
     (baseCssBaseline?.styleOverrides as Record<string, unknown> | undefined) ?? {}
   const cssBaselineWithVars: typeof baseCssBaseline = {

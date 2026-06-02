@@ -24,7 +24,7 @@ public sealed class PublishDaemonVersionHandler
     private const string DefaultChannel = "stable";
     private const int MaxChannelLength = 32;
     private const int MaxNotesLength = 2000;
-    private const string BundleFolder = "daemon-bundles";
+    private const string BundleFolder = DaemonBundleStorage.Folder;
 
     private readonly ApplicationDbContext _db;
     private readonly IFileStorageService _fileStorage;

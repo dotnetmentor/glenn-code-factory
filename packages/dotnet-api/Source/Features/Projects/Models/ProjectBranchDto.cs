@@ -1,5 +1,7 @@
 namespace Source.Features.Projects.Models;
 
+using Source.Features.RuntimeLifecycle.Models;
+
 /// <summary>
 /// Wire shape for a single <see cref="ProjectBranch"/> row returned by
 /// <c>GET /api/projects/{projectId}/branches</c>. Flat by design — the project
@@ -19,6 +21,12 @@ namespace Source.Features.Projects.Models;
 /// picker / sidebar. Both are computed via correlated subqueries so the list
 /// endpoint stays a single round-trip.</para>
 ///
+/// <para><see cref="RuntimeState"/> mirrors the newest
+/// <see cref="Source.Features.RuntimeLifecycle.Models.ProjectRuntime"/> row
+/// for this branch so the sidebar can surface per-branch Failed/Crashed dots
+/// without an N+1 status fetch. <c>null</c> when the branch has not been
+/// provisioned yet.</para>
+///
 /// <para><see cref="PreviewHostname"/> is the fully-qualified hostname of the
 /// preview subdomain assigned to this branch (e.g. <c>wpxdludx.glenncode.cc</c>),
 /// via <c>ProjectBranch.AssignedSubdomain.Hostname</c>. <c>null</c> for
@@ -36,5 +44,6 @@ public record ProjectBranchDto(
     int RunningTurnCount,
     string? PreviewHostname,
     bool IsArchived,
-    DateTime? ArchivedAt
+    DateTime? ArchivedAt,
+    RuntimeState? RuntimeState
 );

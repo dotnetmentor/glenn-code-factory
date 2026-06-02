@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IAgentHub, IPlanningHub, IRuntimeHub, IAgentClient, IPlanningClient, IRuntimeClient } from './Source.Features.SignalR.Hubs';
-import type { SubmitPromptPayload, SubmitPromptResponse, CancelTurnRequest, EventReplayRequest, AgentEventNotification, ResolvePermissionPayload, HeartbeatPayload, AgentSecretsDto, ErrorReportPayload, DiskPressurePayload, EmitEventPayload, ReportSessionCostPayload, PermissionRequestedPayload, RuntimeEventPayloadDto, ServiceLogLineDto, DaemonLogLineDto, LiveSupervisordSnapshotPayload, RuntimeStateChangedNotification, BootstrapProgressNotification, RuntimeWakingNotification, NotificationPayload, RunResultNotification, ConversationRenamedNotification, RuntimeDiskPressureNotification, RuntimeEventNotification, ServiceLogLineNotification, LiveSupervisordSnapshotNotification, DaemonLogLineNotification, PreviewPortChangedNotification, AttachmentStateChangedPayload, SpecificationChangedNotification, CardChangedNotification, SubtaskChangedNotification, StartTurnPayload, CancelTurnPayload, ConfigUpdatePayload, RestartServicePayload, ForceRebootstrapPayload } from '../Source.Features.SignalR.Contracts';
+import type { SubmitPromptPayload, SubmitPromptResponse, CancelTurnRequest, EventReplayRequest, AgentEventNotification, ResolvePermissionPayload, HeartbeatPayload, AgentSecretsDto, ErrorReportPayload, DiskPressurePayload, EmitEventPayload, ReportSessionCostPayload, PermissionRequestedPayload, RuntimeEventPayloadDto, ServiceLogLineDto, DaemonLogLineDto, LiveSupervisordSnapshotPayload, RuntimeStateChangedNotification, BootstrapProgressNotification, RuntimeWakingNotification, NotificationPayload, RunResultNotification, ConversationRenamedNotification, RuntimeDiskPressureNotification, RuntimeEventNotification, ServiceLogLineNotification, LiveSupervisordSnapshotNotification, DaemonLogLineNotification, PreviewPortChangedNotification, SpecificationChangedNotification, CardChangedNotification, SubtaskChangedNotification, StartTurnPayload, CancelTurnPayload, ConfigUpdatePayload, RestartServicePayload, ForceRebootstrapPayload, StageAttachmentPayload } from '../Source.Features.SignalR.Contracts';
 import type { BootstrapPayloadV2, RepoAccessToken } from '../Source.Features.RuntimeBootstrap.Contracts';
 import type { AgentPermissionsConfig } from '../Source.Features.AgentPermissions.Models';
 import type { TurnRefusedPayload } from '../Source.Features.Conversations.Models';
@@ -365,7 +365,6 @@ class IAgentClient_Binder implements ReceiverRegister<IAgentClient> {
         const __liveSupervisordSnapshotReceived = (...args: [LiveSupervisordSnapshotNotification]) => receiver.liveSupervisordSnapshotReceived(...args);
         const __daemonLogLineReceived = (...args: [DaemonLogLineNotification]) => receiver.daemonLogLineReceived(...args);
         const __previewPortChanged = (...args: [PreviewPortChangedNotification]) => receiver.previewPortChanged(...args);
-        const __attachmentStateChanged = (...args: [AttachmentStateChangedPayload]) => receiver.attachmentStateChanged(...args);
 
         connection.on("RuntimeStateChanged", __runtimeStateChanged);
         connection.on("BootstrapProgress", __bootstrapProgress);
@@ -398,7 +397,6 @@ class IAgentClient_Binder implements ReceiverRegister<IAgentClient> {
         connection.on("LiveSupervisordSnapshotReceived", __liveSupervisordSnapshotReceived);
         connection.on("DaemonLogLineReceived", __daemonLogLineReceived);
         connection.on("PreviewPortChanged", __previewPortChanged);
-        connection.on("AttachmentStateChanged", __attachmentStateChanged);
 
         const methodList: ReceiverMethod[] = [
             { methodName: "RuntimeStateChanged", method: __runtimeStateChanged },
@@ -431,8 +429,7 @@ class IAgentClient_Binder implements ReceiverRegister<IAgentClient> {
             { methodName: "ServiceLogLine", method: __serviceLogLine },
             { methodName: "LiveSupervisordSnapshotReceived", method: __liveSupervisordSnapshotReceived },
             { methodName: "DaemonLogLineReceived", method: __daemonLogLineReceived },
-            { methodName: "PreviewPortChanged", method: __previewPortChanged },
-            { methodName: "AttachmentStateChanged", method: __attachmentStateChanged }
+            { methodName: "PreviewPortChanged", method: __previewPortChanged }
         ]
 
         return new ReceiverMethodSubscription(connection, methodList);
@@ -493,6 +490,7 @@ class IRuntimeClient_Binder implements ReceiverRegister<IRuntimeClient> {
         const __getBranchChangedFiles = (...args: [string, string, string]) => receiver.getBranchChangedFiles(...args);
         const __getBranchFileDiff = (...args: [string, string, string, string]) => receiver.getBranchFileDiff(...args);
         const __getCommitRange = (...args: [string, string, string, number]) => receiver.getCommitRange(...args);
+        const __stageAttachment = (...args: [StageAttachmentPayload]) => receiver.stageAttachment(...args);
 
         connection.on("StartTurn", __startTurn);
         connection.on("CancelTurn", __cancelTurn);
@@ -512,6 +510,7 @@ class IRuntimeClient_Binder implements ReceiverRegister<IRuntimeClient> {
         connection.on("GetBranchChangedFiles", __getBranchChangedFiles);
         connection.on("GetBranchFileDiff", __getBranchFileDiff);
         connection.on("GetCommitRange", __getCommitRange);
+        connection.on("StageAttachment", __stageAttachment);
 
         const methodList: ReceiverMethod[] = [
             { methodName: "StartTurn", method: __startTurn },
@@ -531,7 +530,8 @@ class IRuntimeClient_Binder implements ReceiverRegister<IRuntimeClient> {
             { methodName: "GetFileDiff", method: __getFileDiff },
             { methodName: "GetBranchChangedFiles", method: __getBranchChangedFiles },
             { methodName: "GetBranchFileDiff", method: __getBranchFileDiff },
-            { methodName: "GetCommitRange", method: __getCommitRange }
+            { methodName: "GetCommitRange", method: __getCommitRange },
+            { methodName: "StageAttachment", method: __stageAttachment }
         ]
 
         return new ReceiverMethodSubscription(connection, methodList);

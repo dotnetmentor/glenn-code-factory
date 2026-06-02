@@ -62,6 +62,7 @@ import {
 } from '../../new-project/components/StarterPicker'
 import { parseGithubUrl } from '../../new-project/utils/parseGithubUrl'
 
+import { buildGithubInstallationManageUrl, isPoolEmptyError, PoolEmptyErrorAlert } from '../../../shared'
 import {
   chromeTokens,
   pageCardPaddedSx,
@@ -154,30 +155,6 @@ function readDuplicateConflict(
     existingProjectId: data.existingProjectId,
     existingProjectName: data.existingProjectName,
   }
-}
-
-/**
- * Build the GitHub URL where the user can grant the GitHub App access to
- * additional repositories. Returns null when we don't have enough info to
- * construct it (no installation selected yet, etc.).
- *
- * GitHub's installation-manage URLs are:
- *   - org:  https://github.com/organizations/{login}/settings/installations/{numericId}
- *   - user: https://github.com/settings/installations/{numericId}
- *
- * `installationId` on the DTO is the GitHub numeric ID (not our DB Guid).
- */
-function buildInstallationManageUrl(
-  installation: GithubInstallationListItem | null,
-): string | null {
-  if (!installation) return null
-  const numericId = installation.installationId
-  if (!numericId) return null
-  const accountType = installation.accountType?.toLowerCase() ?? ''
-  if (accountType === 'organization' && installation.accountLogin) {
-    return `https://github.com/organizations/${installation.accountLogin}/settings/installations/${numericId}`
-  }
-  return `https://github.com/settings/installations/${numericId}`
 }
 
 // ── Public surface ────────────────────────────────────────────────────────
@@ -784,7 +761,7 @@ function InlineNewProject({ slug, onClose }: InlineNewProjectProps) {
   }, [installationId, installations])
 
   const manageAccessUrl = useMemo(
-    () => buildInstallationManageUrl(selectedInstallation),
+    () => buildGithubInstallationManageUrl(selectedInstallation),
     [selectedInstallation],
   )
 
@@ -830,6 +807,8 @@ function InlineNewProject({ slug, onClose }: InlineNewProjectProps) {
   }, [branches, selectedBranch])
 
   const createProject = usePostApiProjects()
+  const isPoolEmptySubmitError =
+    createProject.isError && isPoolEmptyError(createProject.error)
 
   // Starter-flow project-name validation mirrors the legacy brand-new-repo
   // rules in NewProjectPage. 1–100 chars, alphanumerics/dot/dash/underscore.
@@ -907,6 +886,10 @@ function InlineNewProject({ slug, onClose }: InlineNewProjectProps) {
           const dup = readDuplicateConflict(err)
           if (dup) {
             setDuplicateConflict(dup)
+            return
+          }
+          if (isPoolEmptyError(err)) {
+            setSubmitError(null)
             return
           }
           setSubmitError(
@@ -1066,6 +1049,7 @@ function InlineNewProject({ slug, onClose }: InlineNewProjectProps) {
           parsedGithubUrl={parsedGithubUrl}
           submitting={createProject.isPending}
           submitError={submitError}
+          poolEmptyError={isPoolEmptySubmitError}
           duplicateConflict={duplicateConflict}
           canSubmitStarter={canSubmitStarter}
           canSubmitGithubUrl={canSubmitGithubUrl}
@@ -1256,6 +1240,8 @@ function InlineNewProject({ slug, onClose }: InlineNewProjectProps) {
                   existingProjectId={duplicateConflict.existingProjectId}
                   existingProjectName={duplicateConflict.existingProjectName}
                 />
+              ) : isPoolEmptySubmitError ? (
+                <PoolEmptyErrorAlert />
               ) : (
                 submitError && (
                   <Alert
@@ -1410,6 +1396,7 @@ interface InlineStarterFlowProps {
   parsedGithubUrl: { owner: string; name: string } | null
   submitting: boolean
   submitError: string | null
+  poolEmptyError: boolean
   duplicateConflict: {
     existingProjectId: string
     existingProjectName?: string
@@ -1449,6 +1436,7 @@ function InlineStarterFlow({
   parsedGithubUrl,
   submitting,
   submitError,
+  poolEmptyError,
   duplicateConflict,
   canSubmitStarter,
   canSubmitGithubUrl,
@@ -1600,6 +1588,8 @@ function InlineStarterFlow({
               existingProjectId={duplicateConflict.existingProjectId}
               existingProjectName={duplicateConflict.existingProjectName}
             />
+          ) : poolEmptyError ? (
+            <PoolEmptyErrorAlert />
           ) : (
             submitError && (
               <Alert
@@ -1709,6 +1699,8 @@ function InlineStarterFlow({
               existingProjectId={duplicateConflict.existingProjectId}
               existingProjectName={duplicateConflict.existingProjectName}
             />
+          ) : poolEmptyError ? (
+            <PoolEmptyErrorAlert />
           ) : (
             submitError && (
               <Alert

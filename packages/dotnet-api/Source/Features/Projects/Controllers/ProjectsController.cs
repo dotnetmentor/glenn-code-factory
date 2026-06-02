@@ -16,6 +16,7 @@ using Source.Features.Projects.Commands.UpdateProjectByok;
 using Source.Features.Projects.Commands.UpdateProjectCursorModel;
 using Source.Features.Projects.Commands.UpdateRuntimeSpec;
 using Source.Features.Projects.Models;
+using Source.Features.Projects.Queries.GetBranchRuntimeHardwareSnapshots;
 using Source.Features.Projects.Queries.GetProject;
 using Source.Features.Projects.Queries.ListProjectBranches;
 using Source.Features.Projects.Queries.ListProjectGithubBranches;
@@ -373,11 +374,10 @@ public class ProjectsController : BaseApiController
 
     /// <summary>
     /// Update the project's default <b>runtime spec</b> — CPU class, vCPU count,
-    /// RAM and volume size. The new spec applies to <i>subsequent</i> runtime
-    /// rows only (new branch, fork, attach, AI onboarding); live runtimes keep
-    /// the spec they booted with thanks to the snapshot pattern in the
-    /// creation handlers. Powers the "Performance" tab in project settings so
-    /// users can lab with different sizes per project.
+    /// RAM and volume size. By default only affects subsequently-created runtime
+    /// rows; set <see cref="UpdateRuntimeSpecRequest.ApplyToExistingBranches"/>
+    /// to reprovision live branch machines with the new sizing. Powers the
+    /// "Performance" tab in project settings.
     ///
     /// <para><b>Validation.</b> Delegated to <c>Project.SetRuntimeSpec(...)</c>.
     /// Sentinel error codes mapped to 400 so the frontend can render a
@@ -412,13 +412,20 @@ public class ProjectsController : BaseApiController
             });
         }
 
+        if (!Guid.TryParse(userId, out var userGuid))
+        {
+            return Unauthorized();
+        }
+
         var result = await Mediator.Send(
             new UpdateProjectRuntimeSpecCommand(
                 ProjectId: projectId,
                 CpuKind: request.CpuKind,
                 Cpus: request.Cpus,
                 MemoryMb: request.MemoryMb,
-                VolumeSizeGb: request.VolumeSizeGb),
+                VolumeSizeGb: request.VolumeSizeGb,
+                ApplyToExistingBranches: request.ApplyToExistingBranches,
+                UserId: userGuid),
             ct);
 
         if (!result.IsSuccess)
@@ -431,6 +438,38 @@ public class ProjectsController : BaseApiController
                 Title = "Could not update runtime spec",
                 Detail = result.Error,
             });
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Lists hardware sizing snapshotted on each branch's active runtime so the
+    /// Performance tab can detect drift from the project default before save.
+    /// </summary>
+    [HttpGet("{projectId:guid}/runtime-spec/branch-hardware")]
+    [ProducesResponseType(typeof(IReadOnlyList<BranchRuntimeHardwareSnapshotDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<BranchRuntimeHardwareSnapshotDto>>> GetBranchRuntimeHardwareSnapshots(
+        Guid projectId,
+        CancellationToken ct)
+    {
+        var userId = GetCurrentUserId();
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var result = await Mediator.Send(
+            new GetBranchRuntimeHardwareSnapshotsQuery(projectId, userId),
+            ct);
+
+        if (!result.IsSuccess)
+        {
+            if (result.Error?.StartsWith(GetBranchRuntimeHardwareSnapshotsHandler.NotFoundPrefix, StringComparison.Ordinal) == true)
+            {
+                return NotFound();
+            }
+
+            return BadRequest(new ProblemDetails { Detail = result.Error });
         }
 
         return Ok(result.Value);
@@ -607,6 +646,11 @@ public class ProjectsController : BaseApiController
                     "UpdateByok: 404 for project {ProjectId} caller {UserId}: {Error}",
                     projectId, userId, result.Error);
                 return NotFound();
+            }
+
+            if (result.Error == UpdateProjectByokHandler.ProjectOverrideDisabled)
+            {
+                return BadRequest(new { error = result.Error });
             }
 
             Logger.LogWarning("UpdateByok validation failed: {Error}", result.Error);
@@ -1297,7 +1341,8 @@ public record UpdateRuntimeSpecRequest(
     string CpuKind,
     int Cpus,
     int MemoryMb,
-    int VolumeSizeGb);
+    int VolumeSizeGb,
+    bool ApplyToExistingBranches = false);
 
 /// <summary>
 /// Body shape for <c>PATCH /api/projects/{projectId}/agent-model</c>. Single

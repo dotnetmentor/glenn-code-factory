@@ -88,7 +88,9 @@ describe('StartingServicesStage', () => {
       state,
       supervisord: {
         addService,
+        removeService: vi.fn(async () => false),
         reconcileServices: vi.fn(async () => []),
+        restartService: vi.fn(async () => {}),
         listConfiguredServiceNames: vi.fn(async () => []),
       },
       executor,
@@ -115,7 +117,9 @@ describe('StartingServicesStage', () => {
       state,
       supervisord: {
         addService,
+        removeService: vi.fn(async () => false),
         reconcileServices: vi.fn(async () => []),
+        restartService: vi.fn(async () => {}),
         listConfiguredServiceNames: vi.fn(async () => []),
       },
       executor,
@@ -152,7 +156,9 @@ describe('StartingServicesStage', () => {
       state,
       supervisord: {
         addService,
+        removeService: vi.fn(async () => false),
         reconcileServices: vi.fn(async () => []),
+        restartService: vi.fn(async () => {}),
         listConfiguredServiceNames: vi.fn(async () => []),
       },
       executor,
@@ -180,7 +186,9 @@ describe('StartingServicesStage', () => {
       state,
       supervisord: {
         addService,
+        removeService: vi.fn(async () => false),
         reconcileServices: vi.fn(async () => []),
+        restartService: vi.fn(async () => {}),
         listConfiguredServiceNames: vi.fn(async () => []),
       },
       executor,
@@ -213,7 +221,9 @@ describe('StartingServicesStage', () => {
       state,
       supervisord: {
         addService,
+        removeService: vi.fn(async () => false),
         reconcileServices: vi.fn(async () => []),
+        restartService: vi.fn(async () => {}),
         listConfiguredServiceNames: vi.fn(async () => []),
       },
       executor,
@@ -238,7 +248,9 @@ describe('StartingServicesStage', () => {
       state,
       supervisord: {
         addService,
+        removeService: vi.fn(async () => false),
         reconcileServices: vi.fn(async () => []),
+        restartService: vi.fn(async () => {}),
         listConfiguredServiceNames: vi.fn(async () => []),
       },
       executor,
@@ -275,7 +287,9 @@ describe('StartingServicesStage', () => {
       state,
       supervisord: {
         addService,
+        removeService: vi.fn(async () => false),
         reconcileServices: vi.fn(async () => []),
+        restartService: vi.fn(async () => {}),
         listConfiguredServiceNames: vi.fn(async () => []),
       },
       executor,
@@ -331,7 +345,9 @@ describe('StartingServicesStage', () => {
       state,
       supervisord: {
         addService,
+        removeService: vi.fn(async () => false),
         reconcileServices: vi.fn(async () => []),
+        restartService: vi.fn(async () => {}),
         listConfiguredServiceNames: vi.fn(async () => []),
       },
       executor,
@@ -389,7 +405,9 @@ describe('StartingServicesStage', () => {
       state,
       supervisord: {
         addService,
+        removeService: vi.fn(async () => false),
         reconcileServices: vi.fn(async () => []),
+        restartService: vi.fn(async () => {}),
         listConfiguredServiceNames: vi.fn(async () => []),
       },
       executor,
@@ -445,7 +463,7 @@ describe('StartingServicesStage', () => {
       const state = new BootstrapState()
       state.setPayload(
         payloadWithServices([
-          svc('worker', [{ key: 'QUEUE_URL' }, { key: 'OPENROUTER_API_KEY', secret: true }]),
+          svc('worker', [{ key: 'QUEUE_URL' }, { key: 'THIRD_PARTY_API_KEY', secret: true }]),
         ]),
       )
       const stage = new StartingServicesStage({
@@ -453,7 +471,9 @@ describe('StartingServicesStage', () => {
         state,
         supervisord: {
           addService,
+          removeService: vi.fn(async () => false),
           reconcileServices: vi.fn(async () => []),
+          restartService: vi.fn(async () => {}),
           listConfiguredServiceNames: vi.fn(async () => []),
         },
         executor,
@@ -477,7 +497,7 @@ describe('StartingServicesStage', () => {
       expect(envMissing[0][1]).toBe('Warn')
       expect(envMissing[0][2]).toEqual({
         serviceName: 'worker',
-        missingEnvVars: ['QUEUE_URL', 'OPENROUTER_API_KEY'],
+        missingEnvVars: ['QUEUE_URL', 'THIRD_PARTY_API_KEY'],
       })
     })
 
@@ -492,7 +512,9 @@ describe('StartingServicesStage', () => {
         state,
         supervisord: {
           addService,
+          removeService: vi.fn(async () => false),
           reconcileServices: vi.fn(async () => []),
+          restartService: vi.fn(async () => {}),
           listConfiguredServiceNames: vi.fn(async () => []),
         },
         executor,
@@ -520,19 +542,21 @@ describe('StartingServicesStage', () => {
       const { emit, emitter } = makeEmitter()
       const state = new BootstrapState()
       state.setPayload(
-        payloadWithServices([svc('api', [{ key: 'OPENROUTER_API_KEY', secret: true }])]),
+        payloadWithServices([svc('api', [{ key: 'THIRD_PARTY_API_KEY', secret: true }])]),
       )
       const stage = new StartingServicesStage({
         signalr: { reportBootstrapProgress: vi.fn(async () => {}) },
         state,
         supervisord: {
           addService,
+          removeService: vi.fn(async () => false),
           reconcileServices: vi.fn(async () => []),
+          restartService: vi.fn(async () => {}),
           listConfiguredServiceNames: vi.fn(async () => []),
         },
         executor,
         emitter,
-        envVarManager: makeEnv({ OPENROUTER_API_KEY: 'sk-or-xyz' }),
+        envVarManager: makeEnv({ THIRD_PARTY_API_KEY: 'sk-test-xyz' }),
         healthTimeoutMs: 5_000,
         healthPollIntervalMs: 100,
       })
@@ -545,6 +569,7 @@ describe('StartingServicesStage', () => {
 
       expect(result).toEqual({ ok: true })
       expect(addService).toHaveBeenCalledTimes(1)
+      expect(addService.mock.calls[0]?.[0]?.env?.THIRD_PARTY_API_KEY).toBe('sk-test-xyz')
       expect(emit.mock.calls.filter((c) => c[0] === 'ServiceEnvMissing')).toHaveLength(0)
     })
 
@@ -556,7 +581,7 @@ describe('StartingServicesStage', () => {
       const state = new BootstrapState()
       state.setPayload(
         payloadWithServices([
-          svc('api', [{ key: 'OPENROUTER_API_KEY', secret: true }]),
+          svc('api', [{ key: 'THIRD_PARTY_API_KEY', secret: true }]),
           svc('worker', [{ key: 'QUEUE_URL' }]),
         ]),
       )
@@ -565,12 +590,14 @@ describe('StartingServicesStage', () => {
         state,
         supervisord: {
           addService,
+          removeService: vi.fn(async () => false),
           reconcileServices: vi.fn(async () => []),
+          restartService: vi.fn(async () => {}),
           listConfiguredServiceNames: vi.fn(async () => []),
         },
         executor,
         emitter,
-        envVarManager: makeEnv({ OPENROUTER_API_KEY: 'sk-or-xyz' }), // QUEUE_URL absent
+        envVarManager: makeEnv({ THIRD_PARTY_API_KEY: 'sk-test-xyz' }), // QUEUE_URL absent
         healthTimeoutMs: 5_000,
         healthPollIntervalMs: 100,
       })
@@ -606,7 +633,9 @@ describe('StartingServicesStage', () => {
         state,
         supervisord: {
           addService,
+          removeService: vi.fn(async () => false),
           reconcileServices: vi.fn(async () => []),
+          restartService: vi.fn(async () => {}),
           listConfiguredServiceNames: vi.fn(async () => []),
         },
         executor,

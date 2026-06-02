@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Source.Features.ProjectSecrets.Models;
+using Source.Features.ProjectSecrets.Services;
 using Source.Features.RuntimeBootstrap.Contracts;
 using Source.Features.RuntimeCuration.Services;
 using Source.Infrastructure;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
+using System.Text.RegularExpressions;
 
 namespace Source.Features.ProjectSecrets.Queries;
 
@@ -52,27 +55,46 @@ public record RequiredEnvStatusItem(
     bool Satisfied);
 
 /// <summary>
+/// An env var the spec declares but does not require before boot.
+/// </summary>
+public record SuggestedEnvStatusItem(
+    string Service,
+    string Key,
+    string? Description,
+    bool? Secret,
+    bool Satisfied);
+
+/// <summary>
 /// Result of <see cref="GetBranchEnvStatusQuery"/>: the branch-effective present
-/// keys, the required-env status items (one per distinct required key), and the
-/// missing-required key list. All three are sorted for deterministic responses.
+/// keys, required/suggested status items, and the missing-required key list.
+/// All arrays are sorted for deterministic responses.
 /// </summary>
 public record EnvStatusResponse(
     string[] Present,
     RequiredEnvStatusItem[] Required,
-    string[] Missing);
+    SuggestedEnvStatusItem[] Suggested,
+    string[] Missing,
+    string[] Warnings);
 
 public class GetBranchEnvStatusQueryHandler
     : IQueryHandler<GetBranchEnvStatusQuery, Result<EnvStatusResponse>>
 {
+    private const string DatabaseUrlKey = "DATABASE_URL";
+    private const int DefaultPostgresPort = 5432;
+    private const int LocalDockerPostgresPort = 43594;
+
     private readonly ApplicationDbContext _db;
     private readonly ICurrentExpandedSpecResolver _currentExpandedResolver;
+    private readonly SecretEncryptionService _encryption;
 
     public GetBranchEnvStatusQueryHandler(
         ApplicationDbContext db,
-        ICurrentExpandedSpecResolver currentExpandedResolver)
+        ICurrentExpandedSpecResolver currentExpandedResolver,
+        SecretEncryptionService encryption)
     {
         _db = db;
         _currentExpandedResolver = currentExpandedResolver;
+        _encryption = encryption;
     }
 
     public async Task<Result<EnvStatusResponse>> Handle(
@@ -105,15 +127,19 @@ public class GetBranchEnvStatusQueryHandler
             request.ProjectId, excludeProposalId: null, cancellationToken);
 
         var requiredItems = new List<RequiredEnvStatusItem>();
+        var suggestedItems = new List<SuggestedEnvStatusItem>();
+        List<ServiceSpec>? expandedServices = null;
         if (!string.IsNullOrWhiteSpace(currentExpandedJson))
         {
             var parsed = RuntimeSpecV2.TryParse(currentExpandedJson);
             if (parsed.IsSuccess && parsed.Value.Services is { Count: > 0 } services)
             {
-                // Dedupe by key — the same required var can be declared by
-                // multiple services. We keep the FIRST declaring service name
-                // (simple, deterministic given spec order) and skip later dupes.
-                var seen = new HashSet<string>(StringComparer.Ordinal);
+                expandedServices = services;
+                // Dedupe by key — the same var can be declared by multiple
+                // services. We keep the FIRST declaring service name (simple,
+                // deterministic given spec order) and skip later dupes.
+                var seenRequired = new HashSet<string>(StringComparer.Ordinal);
+                var seenSuggested = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var service in services)
                 {
                     if (service.RequiredEnv is not { Count: > 0 } reqs)
@@ -123,17 +149,40 @@ public class GetBranchEnvStatusQueryHandler
 
                     foreach (var req in reqs)
                     {
-                        if (string.IsNullOrEmpty(req.Key) || !seen.Add(req.Key))
+                        if (string.IsNullOrEmpty(req.Key))
                         {
                             continue;
                         }
 
-                        requiredItems.Add(new RequiredEnvStatusItem(
-                            Service: service.Name,
-                            Key: req.Key,
-                            Description: req.Description,
-                            Secret: req.Secret,
-                            Satisfied: presentKeys.Contains(req.Key)));
+                        var satisfied = presentKeys.Contains(req.Key);
+                        if (req.IsRequired)
+                        {
+                            if (!seenRequired.Add(req.Key))
+                            {
+                                continue;
+                            }
+
+                            requiredItems.Add(new RequiredEnvStatusItem(
+                                Service: service.Name,
+                                Key: req.Key,
+                                Description: req.Description,
+                                Secret: req.Secret,
+                                Satisfied: satisfied));
+                        }
+                        else
+                        {
+                            if (!seenSuggested.Add(req.Key))
+                            {
+                                continue;
+                            }
+
+                            suggestedItems.Add(new SuggestedEnvStatusItem(
+                                Service: service.Name,
+                                Key: req.Key,
+                                Description: req.Description,
+                                Secret: req.Secret,
+                                Satisfied: satisfied));
+                        }
                     }
                 }
             }
@@ -154,6 +203,135 @@ public class GetBranchEnvStatusQueryHandler
             .OrderBy(r => r.Key, StringComparer.Ordinal)
             .ToArray();
 
-        return Result.Success(new EnvStatusResponse(present, required, missing));
+        var suggested = suggestedItems
+            .OrderBy(r => r.Key, StringComparer.Ordinal)
+            .ToArray();
+
+        var warnings = await BuildWarningsAsync(
+            request,
+            presentKeys,
+            expandedServices,
+            cancellationToken);
+
+        return Result.Success(new EnvStatusResponse(present, required, suggested, missing, warnings));
+    }
+
+    private async Task<string[]> BuildWarningsAsync(
+        GetBranchEnvStatusQuery request,
+        IReadOnlySet<string> presentKeys,
+        List<ServiceSpec>? expandedServices,
+        CancellationToken cancellationToken)
+    {
+        if (expandedServices is null
+            || !presentKeys.Contains(DatabaseUrlKey)
+            || !expandedServices.Any(IsPostgresService))
+        {
+            return [];
+        }
+
+        var expectedPort = ResolvePostgresPort(expandedServices);
+        var databaseUrl = await ResolveEffectivePlaintextAsync(
+            request.ProjectId,
+            request.BranchId,
+            DatabaseUrlKey,
+            cancellationToken);
+        if (string.IsNullOrWhiteSpace(databaseUrl))
+        {
+            return [];
+        }
+
+        var configuredPort = TryParseConnectionStringPort(databaseUrl);
+        if (configuredPort is null)
+        {
+            return [];
+        }
+
+        if (configuredPort == LocalDockerPostgresPort
+            || (expectedPort != LocalDockerPostgresPort && configuredPort != expectedPort))
+        {
+            return
+            [
+                $"DATABASE_URL uses Port={configuredPort}, but this runtime's Postgres listens on {expectedPort}. "
+                + "Port 43594 is the local Docker dev default — update DATABASE_URL before booting the runtime.",
+            ];
+        }
+
+        return [];
+    }
+
+    private async Task<string?> ResolveEffectivePlaintextAsync(
+        Guid projectId,
+        Guid branchId,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        var candidates = await _db.ProjectSecrets
+            .AsNoTracking()
+            .Where(s => s.ProjectId == projectId
+                && s.Key == key
+                && (s.BranchId == null || s.BranchId == branchId))
+            .ToListAsync(cancellationToken);
+
+        var secret =
+            candidates.FirstOrDefault(s => s.BranchId == branchId)
+            ?? candidates.FirstOrDefault(s => s.BranchId == null);
+        if (secret is null)
+        {
+            return null;
+        }
+
+        return await _encryption.DecryptAsync(
+            projectId,
+            secret.Ciphertext,
+            secret.Nonce,
+            secret.DekVersion,
+            cancellationToken);
+    }
+
+    private static bool IsPostgresService(ServiceSpec service)
+    {
+        if (service.Name.Contains("postgres", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return service.Command.Contains("postgres", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ResolvePostgresPort(IEnumerable<ServiceSpec> services)
+    {
+        foreach (var service in services.Where(IsPostgresService))
+        {
+            var fromCommand = Regex.Match(service.Command, @"-p\s+(\d+)");
+            if (fromCommand.Success && int.TryParse(fromCommand.Groups[1].Value, out var commandPort))
+            {
+                return commandPort;
+            }
+
+            if (service.Env?.TryGetValue("PGPORT", out var pgPort) == true
+                && int.TryParse(pgPort, out var envPort))
+            {
+                return envPort;
+            }
+        }
+
+        return DefaultPostgresPort;
+    }
+
+    private static int? TryParseConnectionStringPort(string connectionString)
+    {
+        foreach (var segment in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = segment.Trim();
+            if (!trimmed.StartsWith("Port=", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = trimmed["Port=".Length..];
+            return int.TryParse(value, out var port) ? port : null;
+        }
+
+        return null;
     }
 }

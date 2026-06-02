@@ -10,6 +10,7 @@ import {
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import { useWorkspace } from '../../../shared/contexts/WorkspaceContext'
+import { CredentialsTab } from './tabs/CredentialsTab'
 import { IntegrationsTab } from './tabs/IntegrationsTab'
 import { MembersTab } from './tabs/MembersTab'
 import { RepositoriesTab } from './tabs/RepositoriesTab'
@@ -29,6 +30,7 @@ import { WorkspaceGeneralTab } from './tabs/WorkspaceGeneralTab'
 export const WORKSPACE_SETTINGS_TABS = [
   'general',
   'members',
+  'credentials',
   'integrations',
   'repositories',
   'specs',
@@ -44,6 +46,7 @@ interface TabDescriptor {
 const TAB_DESCRIPTORS: readonly TabDescriptor[] = [
   { value: 'general', label: 'General' },
   { value: 'members', label: 'Members' },
+  { value: 'credentials', label: 'Credentials' },
   { value: 'integrations', label: 'Integrations' },
   { value: 'repositories', label: 'Repositories' },
   { value: 'specs', label: 'Specs' },
@@ -282,6 +285,7 @@ export function WorkspaceSettingsDrawer({
               <WorkspaceGeneralTab onDeleted={onClose} />
             )}
             {selectedTab === 'members' && <MembersTab />}
+            {selectedTab === 'credentials' && <CredentialsTab />}
             {selectedTab === 'integrations' && <IntegrationsTab />}
             {selectedTab === 'repositories' && <RepositoriesTab />}
             {selectedTab === 'specs' && <SpecsTab />}

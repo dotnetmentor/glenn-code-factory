@@ -342,7 +342,7 @@ public class PushSecretToRuntimeHandlerTests
     // V2 JSON; a real ProjectSecret row + the harness encryption service make
     // the UpdateConfig decrypt path succeed before the restart block runs.
 
-    private const string SpecWithApiRequiringOpenRouter =
+    private const string SpecWithApiRequiringSecret =
         """
         {
           "version": 2,
@@ -350,7 +350,7 @@ public class PushSecretToRuntimeHandlerTests
             {
               "name": "api",
               "command": "dotnet run",
-              "requiredEnv": [ { "key": "OPENROUTER_API_KEY", "secret": true } ]
+              "requiredEnv": [ { "key": "THIRD_PARTY_API_KEY", "secret": true } ]
             }
           ]
         }
@@ -388,7 +388,7 @@ public class PushSecretToRuntimeHandlerTests
             {
                 Id = Guid.NewGuid(),
                 ProjectId = projectId,
-                Key = "OPENROUTER_API_KEY",
+                Key = "THIRD_PARTY_API_KEY",
                 Ciphertext = ciphertext,
                 Nonce = nonce,
                 DekVersion = dekVersion,
@@ -398,10 +398,10 @@ public class PushSecretToRuntimeHandlerTests
             await seed.SaveChangesAsync();
         }
 
-        // The current expanded spec declares OPENROUTER_API_KEY as required on "api".
+        // The current expanded spec declares THIRD_PARTY_API_KEY as required on "api".
         _resolver
             .Setup(r => r.ResolveAsync(projectId, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(SpecWithApiRequiringOpenRouter);
+            .ReturnsAsync(SpecWithApiRequiringSecret);
 
         _groupClient
             .Setup(c => c.UpdateConfig(It.IsAny<ConfigUpdatePayload>()))
@@ -415,7 +415,7 @@ public class PushSecretToRuntimeHandlerTests
 
         // Act
         await handler.Handle(
-            new SecretsChanged(projectId, "OPENROUTER_API_KEY", Deleted: false, BranchId: null),
+            new SecretsChanged(projectId, "THIRD_PARTY_API_KEY", Deleted: false, BranchId: null),
             CancellationToken.None);
 
         // Assert: the declaring service "api" is restarted exactly once, after
@@ -425,7 +425,7 @@ public class PushSecretToRuntimeHandlerTests
             c => c.RestartService(It.Is<RestartServicePayload>(p =>
                 p.ServiceName == "api"
                 && p.RuntimeId == runtimeId
-                && p.Reason.Contains("OPENROUTER_API_KEY"))),
+                && p.Reason.Contains("THIRD_PARTY_API_KEY"))),
             Times.Once);
     }
 
@@ -469,10 +469,10 @@ public class PushSecretToRuntimeHandlerTests
             await seed.SaveChangesAsync();
         }
 
-        // Same spec: "api" requires OPENROUTER_API_KEY, NOT UNRELATED_KEY.
+        // Same spec: "api" requires THIRD_PARTY_API_KEY, NOT UNRELATED_KEY.
         _resolver
             .Setup(r => r.ResolveAsync(projectId, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(SpecWithApiRequiringOpenRouter);
+            .ReturnsAsync(SpecWithApiRequiringSecret);
 
         _groupClient
             .Setup(c => c.UpdateConfig(It.IsAny<ConfigUpdatePayload>()))

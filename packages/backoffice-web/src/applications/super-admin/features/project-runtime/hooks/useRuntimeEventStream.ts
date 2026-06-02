@@ -7,11 +7,16 @@ import {
   type RuntimeEventDto,
 } from '@/api/queries-commands'
 import type { AgentHubConnection } from '@/lib/signalr'
+import { RuntimeState } from '@/api/queries-commands'
 import type {
   LiveSupervisordSnapshotNotification,
   LiveSupervisordSnapshotPayload,
   RuntimeEventNotification,
 } from '@/generated/signalr/Source.Features.SignalR.Contracts'
+import {
+  isDaemonMidBootConnected,
+  type RuntimeConnectivityStatus,
+} from '@/applications/shared/runtime/runtimeDaemonConnectivity'
 
 /**
  * Page size for both the initial REST fetch and each "load more" tap. The
@@ -146,12 +151,7 @@ export function useRuntimeEventStream(params: {
    * if omitted the hook still works but {@code heartbeatSnapshot} stays
    * null.
    */
-  status?: {
-    lastDiskUsedBytes?: number | null
-    lastDiskTotalBytes?: number | null
-    lastDiskSampledAt?: string | null
-    lastSysstatsSnapshot?: string | null
-  } | null
+  status?: RuntimeConnectivityStatus | null
   /** Skip both REST + SignalR while false. Used to inert the hook while the drawer is closed. */
   enabled: boolean
 }): UseRuntimeEventStreamReturn {
@@ -362,6 +362,32 @@ export function useRuntimeEventStream(params: {
       }
     }
   }, [enabled, connection, runtimeId, queryClient])
+
+  // Drop cached supervisord rows when live pushes stop — otherwise the Services
+  // tab keeps showing the last RUNNING snapshot from before a crash / force-stop
+  // even though no daemon is connected to refresh it.
+  useEffect(() => {
+    if (!enabled) return
+
+    const state = status?.state as RuntimeState | undefined
+    const terminal =
+      state === RuntimeState.Failed ||
+      state === RuntimeState.Crashed ||
+      state === RuntimeState.Pending ||
+      state === RuntimeState.Suspended ||
+      state === RuntimeState.Suspending ||
+      state === RuntimeState.Deleting ||
+      state === RuntimeState.Deleted
+
+    if (terminal) {
+      setSupervisordSnapshot(null)
+      return
+    }
+
+    if (!isLive && status && !isDaemonMidBootConnected(status)) {
+      setSupervisordSnapshot(null)
+    }
+  }, [enabled, isLive, status])
 
   // ── Derived heartbeat snapshot from polled status row ───────────────────
   const heartbeatSnapshot = useMemo<HeartbeatSnapshot | null>(() => {

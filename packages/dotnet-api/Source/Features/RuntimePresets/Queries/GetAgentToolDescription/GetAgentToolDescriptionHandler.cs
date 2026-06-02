@@ -100,20 +100,34 @@ public sealed class GetAgentToolDescriptionHandler
         }
 
         sb.AppendLine();
-        sb.AppendLine("Shape: { proposedSpec: { version: 3, services: [{ kind, name, values }], setup?, install? }, reason }");
+        sb.AppendLine(
+            "Shape: { proposedSpec: { version: 3, services: [{ kind, name, values, requiredEnv? }], setup?, install? }, reason }");
         sb.AppendLine();
-        sb.AppendLine("WORKED EXAMPLE — this project (.NET + Vite backoffice):");
+        sb.AppendLine("REQUIRED ENV (per service, project-specific):");
+        sb.AppendLine(
+            "Before proposing, inspect the repo (.env.example, README, docker env, framework config with empty values or comments, startup errors) and declare every env var each service may need via requiredEnv: [{ key, description?, secret?, required? }]. Never put secret VALUES in the proposal — the user sets values in the Environment tab.");
+        sb.AppendLine(
+            "Set required:true (default) for vars the service cannot boot without (Jwt__Key, DATABASE_URL, encryption keys). Set required:false for optional integrations the project supports but does not need in every environment (R2, Resend, OpenRouter, Mapbox, etc.) — they still appear in the Environment tab as suggestions.");
+        sb.AppendLine();
+        sb.AppendLine("WORKED EXAMPLE — .NET + Vite backoffice (requiredEnv from repo inspection):");
         sb.AppendLine("{");
         sb.AppendLine("  \"proposedSpec\": {");
         sb.AppendLine("    \"version\": 3,");
         sb.AppendLine("    \"services\": [");
         sb.AppendLine("      { \"kind\": \"dotnet-mise\", \"name\": \"dotnet-api\",");
-        sb.AppendLine("        \"values\": { \"project\": \"packages/dotnet-api\", \"dotnetVersion\": \"9\", \"port\": 5338 } },");
+        sb.AppendLine("        \"values\": { \"project\": \"packages/dotnet-api\", \"dotnetVersion\": \"9\", \"port\": 5338 },");
+        sb.AppendLine("        \"requiredEnv\": [");
+        sb.AppendLine(
+            "          { \"key\": \"Jwt__Key\", \"secret\": true, \"description\": \"JWT signing key (min 32 chars); see .env.example / appsettings Jwt comment\" },");
+        sb.AppendLine(
+            "          { \"key\": \"SystemSettings__EncryptionKey\", \"secret\": true, \"description\": \"Encrypts project secrets at rest; see appsettings SystemSettings comment\" }");
+        sb.AppendLine("        ] },");
         sb.AppendLine("      { \"kind\": \"node-vite\", \"name\": \"backoffice-web\",");
         sb.AppendLine("        \"values\": { \"project\": \"packages/backoffice-web\", \"port\": 5173 } }");
         sb.AppendLine("    ]");
         sb.AppendLine("  },");
-        sb.AppendLine("  \"reason\": \"Repo has a .NET API and a Vite frontend; both need a runtime.\"");
+        sb.AppendLine(
+            "  \"reason\": \"Repo has a .NET API and Vite frontend; requiredEnv lists secrets found in .env.example and appsettings — user fills values in Environment tab.\"");
         sb.AppendLine("}");
 
         return sb.ToString();
@@ -208,6 +222,51 @@ public sealed class GetAgentToolDescriptionHandler
                 ["kind"] = new Dictionary<string, object?> { ["const"] = slug },
                 ["name"] = new Dictionary<string, object?> { ["type"] = "string" },
                 ["values"] = valuesSchema,
+                ["requiredEnv"] = BuildRequiredEnvArraySchema(),
+            },
+        };
+    }
+
+    /// <summary>
+    /// JSON-schema for <c>ServiceSpecV3.RequiredEnv</c> — project-specific env
+    /// vars the operator must set in the Environment tab. Optional on each
+    /// service entry in a proposal.
+    /// </summary>
+    private static Dictionary<string, object?> BuildRequiredEnvArraySchema()
+    {
+        return new Dictionary<string, object?>
+        {
+            ["type"] = "array",
+            ["description"] =
+                "Env vars this service needs at runtime for THIS project. Inspect the repo (.env.example, README, docker env, framework config) — declare keys only, never secret values.",
+            ["items"] = new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["required"] = new List<object?> { "key" },
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["key"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Env var name, e.g. API_KEY or Jwt__Key",
+                    },
+                    ["description"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Human-readable hint for the Environment tab",
+                    },
+                    ["secret"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "boolean",
+                        ["description"] = "True for API keys, passwords, signing secrets",
+                    },
+                    ["required"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "boolean",
+                        ["description"] =
+                            "True (default) = service will not start until set. False = show in Environment tab but optional for boot.",
+                    },
+                },
             },
         };
     }

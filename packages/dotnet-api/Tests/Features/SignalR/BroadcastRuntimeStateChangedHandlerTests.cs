@@ -92,6 +92,7 @@ public class BroadcastRuntimeStateChangedHandlerTests
         captured.Should().NotBeNull();
         captured!.RuntimeId.Should().Be(runtimeId);
         captured.ProjectId.Should().Be(projectId);
+        captured.BranchId.Should().Be(branchId);
         captured.FromState.Should().Be("Booting");
         captured.ToState.Should().Be("Bootstrapping");
         captured.Reason.Should().Be("fly_webhook:machine.started");

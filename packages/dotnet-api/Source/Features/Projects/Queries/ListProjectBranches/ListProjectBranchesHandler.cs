@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Source.Features.Conversations.Models;
 using Source.Features.Projects.Models;
+using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
@@ -118,7 +119,15 @@ public sealed class ListProjectBranchesHandler
                 // into a left join, no .Include needed.
                 b.AssignedSubdomain != null ? b.AssignedSubdomain.Hostname : null,
                 b.IsArchived,
-                b.ArchivedAt))
+                b.ArchivedAt,
+                // RuntimeState — newest runtime row for this branch. Mirrors
+                // the per-branch status endpoint so the sidebar can render
+                // attention dots without opening the context menu.
+                _db.ProjectRuntimes
+                    .Where(r => r.BranchId == b.Id)
+                    .OrderByDescending(r => r.CreatedAt)
+                    .Select(r => (RuntimeState?)r.State)
+                    .FirstOrDefault()))
             .ToListAsync(cancellationToken);
 
         return Result.Success(branches);

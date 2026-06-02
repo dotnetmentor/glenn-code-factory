@@ -66,6 +66,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 # passwordless sudoers entry below (Layer 1d) so `sudo -n` succeeds without a
 # prompt. Documented by daemon's InstallStage.ts (Card P2 / sudo TODO).
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        bash \
         ca-certificates \
         curl \
         wget \
@@ -79,7 +80,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tar \
         gzip \
         sudo \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && test -x /bin/bash \
+    && (test -x /usr/bin/bash || ln -sf /bin/bash /usr/bin/bash)
 
 # ----------------------- Layer 1a: Kernel sysctl tuning (very stable) ---------------
 # Raise inotify limits well above Debian's stock 8192/128. chokidar (used by the
@@ -213,79 +216,9 @@ RUN useradd --create-home --shell /bin/bash --uid 1001 agent \
     && ( getent group docker >/dev/null 2>&1 || groupadd -g 999 docker ) \
     && usermod -aG docker agent
 
-# ----------------------- Layer 5a: Modern Ruby (3.3.7) via mise ---------------------
-# Why this exists: Debian bookworm's system Ruby is 3.1.2 (RubyGems 3.3.x). That
-# RubyGems pre-dates the libc-split linux platform-tag convention introduced in
-# RubyGems 3.5+ (alongside Ruby 3.3 / Rails 8 era, late 2024). Gems published
-# under that newer convention — notably `tailwindcss-ruby >= 4.1` — are only
-# uploaded for `x86_64-linux-gnu` / `x86_64-linux-musl` platforms; the legacy
-# bare `x86_64-linux` tarball is missing.
-#
-# Symptom we hit: a Rails 8 project running `bundle install` against system
-# Ruby 3.1.2 asks rubygems.org for `tailwindcss-ruby-4.3.0-x86_64-linux.gem`
-# and gets back HTTP 403 (S3 returns 403 not 404 for missing objects when
-# LIST is denied). `bundle install` aborts, the agent can't scaffold Rails.
-#
-# Fix: ship a modern Ruby (3.3.7 → RubyGems 3.5.x → Bundler 2.5.x). With that,
-# bundler resolves to `x86_64-linux-gnu` which is what the publishers actually
-# upload.
-#
-# Why mise (rather than apt PPA or ruby-install or rbenv): mise is already
-# installed on this image (Layer 4) and the daemon also uses it for per-project
-# language pinning. Reusing it keeps the image surface small. Build deps (libssl,
-# libyaml, libreadline, etc.) are required because mise's ruby plugin compiles
-# from source via ruby-build. We keep the build deps in the image AFTER the
-# compile because Rails projects routinely install native gems (pg requires
-# libpq-dev, nokogiri now ships as binary but used to need libxml2-dev, etc.).
-#
-# Layout:
-#   MISE_DATA_DIR=/opt/mise    — shared install location (root-owned during build)
-#   /opt/mise/installs/ruby/3.3.7/bin/{ruby,gem,bundle,rake,irb,erb}
-#   Symlinked into /usr/local/bin so any user finds them on PATH without needing
-#   `mise activate` shims. Chown'd to agent so `gem install` and `bundle install`
-#   into the system gem dir work without sudo.
-ENV MISE_DATA_DIR=/opt/mise
-ENV RUBY_VERSION=3.3.7
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        autoconf \
-        bison \
-        libssl-dev \
-        libyaml-dev \
-        libreadline-dev \
-        zlib1g-dev \
-        libncurses-dev \
-        libffi-dev \
-        libgmp-dev \
-        libgdbm-dev \
-        libdb-dev \
-        uuid-dev \
-        libpq-dev \
-        libxml2-dev \
-        libxslt1-dev \
-        libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p ${MISE_DATA_DIR} \
-    && mise install ruby@${RUBY_VERSION} \
-    && RUBY_BIN=${MISE_DATA_DIR}/installs/ruby/${RUBY_VERSION}/bin \
-    && ln -sf ${RUBY_BIN}/ruby /usr/local/bin/ruby \
-    && ln -sf ${RUBY_BIN}/gem /usr/local/bin/gem \
-    && ln -sf ${RUBY_BIN}/bundle /usr/local/bin/bundle \
-    && ln -sf ${RUBY_BIN}/bundler /usr/local/bin/bundler \
-    && ln -sf ${RUBY_BIN}/rake /usr/local/bin/rake \
-    && ln -sf ${RUBY_BIN}/irb /usr/local/bin/irb \
-    && ln -sf ${RUBY_BIN}/erb /usr/local/bin/erb \
-    && ln -sf ${RUBY_BIN}/rdoc /usr/local/bin/rdoc \
-    && ln -sf ${RUBY_BIN}/ri /usr/local/bin/ri \
-    && chown -R agent:agent ${MISE_DATA_DIR} \
-    && ruby --version \
-    && gem --version \
-    && bundle --version
-# /etc/supervisor/conf.d is chowned to agent so the daemon (running as agent)
-# can write per-service supervisord conf files via plain node:fs writeFile,
-# without needing a sudo shell-out. supervisord itself runs as agent (see
-# `USER agent` below), so it can read these confs. The daemon then calls
-# `supervisorctl reread && supervisorctl update` to apply them — these talk
-# to the supervisord unix socket which is also agent-owned.
+# Ruby is NOT baked here — use the built-in ruby-rails ServicePreset
+# (mise install + native build deps via spec install on first boot). Debian's
+# stock Ruby 3.1.2 lacks modern gem platform tags (e.g. tailwindcss-ruby).
 
 # ----------------------- Layer 6: (REMOVED) Legacy native CLI binaries ----------------
 # Historical context — DO NOT add this layer back without re-reading the doc!

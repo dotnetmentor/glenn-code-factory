@@ -148,6 +148,9 @@ builder.Services.AddScoped<Source.Features.Conversations.Services.ITurnDispatche
 // chain RuntimeHub.GetSecrets uses on the daemon side, so both code paths
 // agree on what "configured" means before we dispatch a turn.
 builder.Services.AddScoped<
+    Source.Features.SignalR.Services.ICursorApiKeyResolver,
+    Source.Features.SignalR.Services.CursorApiKeyResolver>();
+builder.Services.AddScoped<
     Source.Features.SignalR.Services.IAgentSecretsResolver,
     Source.Features.SignalR.Services.AgentSecretsResolver>();
 // Scoped: resolves the effective AgentPermissionsConfig for a project per turn.
@@ -172,8 +175,8 @@ builder.Services.Configure<ErrorCaptureOptions>(
 // The IOptions<RuntimeOptions> binding is kept for any legacy/test code paths,
 // but production reads go through IRuntimeOptionsAccessor which is backed by
 // SystemSettings — so the value can be live-edited from the admin UI without
-// a process restart. The seeder copies the appsettings value into SystemSettings
-// on first boot of an environment.
+// a process restart. When Runtime__PublicApiUrl is set in the environment it
+// overrides the SystemSettings value (local dev / quick tunnels).
 builder.Services.Configure<Source.Features.RuntimeLifecycle.Configuration.RuntimeOptions>(
     builder.Configuration.GetSection(Source.Features.RuntimeLifecycle.Configuration.RuntimeOptions.SectionName));
 builder.Services.AddScoped<

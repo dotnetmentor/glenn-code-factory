@@ -3,6 +3,7 @@ import { Box, Button, Stack, Typography } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { useWorkspace } from '../../../../shared/contexts/WorkspaceContext'
 import { useDocumentTitle } from '../../../../shared/hooks'
+import { CredentialsTab } from '../tabs/CredentialsTab'
 import { IntegrationsTab } from '../tabs/IntegrationsTab'
 import { MembersTab } from '../tabs/MembersTab'
 import { RepositoriesTab } from '../tabs/RepositoriesTab'
@@ -140,8 +141,8 @@ export function WorkspaceSettingsView() {
               lineHeight: 1.5,
             }}
           >
-            Name, members, integrations, repositories, and the spec catalog
-            — all in one place.
+            Name, members, credentials, integrations, repositories, and the spec
+            catalog — all in one place.
           </Typography>
           {workspaceName && (
             <Typography
@@ -177,6 +178,7 @@ export function WorkspaceSettingsView() {
         >
           <WorkspaceGeneralTab onDeleted={handleWorkspaceDeleted} />
           <MembersTab />
+          <CredentialsTab />
           <IntegrationsTab />
           <RepositoriesTab />
           <SpecsTab />

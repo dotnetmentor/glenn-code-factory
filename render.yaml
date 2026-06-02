@@ -69,9 +69,6 @@ services:
         sync: false
       - key: FileStorage__R2__PublicUrl
         sync: false
-      # OpenRouter (LLM access).
-      - key: OpenRouter__ApiKey
-        sync: false
 
       # ── Non-secret config ──
       # Public base URL runtime daemons dial back at. Set to this service's URL once known

@@ -29,7 +29,7 @@ public record BootstrapEnvResponse(List<EnvVarEntry> Entries);
 
 /// <summary>
 /// One env-var line in the bootstrap bundle. <see cref="Key"/> is the env-var
-/// name (mirrors <see cref="ProjectSecret.Key"/> validation: <c>^[A-Z][A-Z0-9_]*$</c>),
+/// name (mirrors <see cref="ProjectSecret.Key"/> validation: <c>^[A-Za-z][A-Za-z0-9_]*$</c>),
 /// <see cref="Value"/> is the decrypted plaintext.
 ///
 /// <para>This shape mirrors <see cref="EnvVarDelta"/> deliberately — same

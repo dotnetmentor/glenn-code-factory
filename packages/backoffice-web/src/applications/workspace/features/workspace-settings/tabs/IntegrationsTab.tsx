@@ -35,8 +35,10 @@ import type {
 import { useNotification } from '../../../../shared/contexts/NotificationContext'
 import { useWorkspace } from '../../../../shared/contexts/WorkspaceContext'
 import {
+  ManageGitHubAccessHint,
   ReconnectProjectsDialog,
   bodySx,
+  buildGithubInstallationManageUrl,
   captionSx,
   pageCardEmptySx,
   pageCardFlushSx,
@@ -510,11 +512,11 @@ function InstallationRow({
   disconnecting,
   onDisconnect,
 }: InstallationRowProps) {
+  const manageAccessUrl = buildGithubInstallationManageUrl(installation)
+
   return (
     <Stack
-      direction="row"
-      spacing={2}
-      alignItems="center"
+      spacing={1}
       sx={{
         px: 2.5,
         py: 2,
@@ -522,51 +524,58 @@ function InstallationRow({
         borderColor: 'instrument.hairline',
       }}
     >
-      <Avatar
-        src={installation.accountAvatarUrl ?? undefined}
-        alt={installation.accountLogin}
-        variant="rounded"
-        sx={{ width: 36, height: 36, fontSize: '0.8125rem' }}
-      >
-        {installation.accountLogin.charAt(0).toUpperCase()}
-      </Avatar>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.25 }}>
-          <Typography
-            sx={{
-              ...sectionTitleSx,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {installation.accountLogin}
-          </Typography>
-          <Chip label={installation.accountType} size="small" variant="outlined" />
-          {installation.suspended && (
-            <Chip label="Suspended" size="small" color="warning" variant="outlined" />
-          )}
-        </Stack>
-        <Typography sx={captionSx}>
-          {installation.repoCount}{' '}
-          {installation.repoCount === 1 ? 'repository' : 'repositories'}
-        </Typography>
-      </Box>
-      {canDisconnect && (
-        <Tooltip title="Disconnect">
-          <span>
-            <IconButton
-              size="small"
-              color="error"
-              aria-label={`Disconnect ${installation.accountLogin}`}
-              onClick={onDisconnect}
-              disabled={disconnecting}
+      <Stack direction="row" spacing={2} alignItems="center">
+        <Avatar
+          src={installation.accountAvatarUrl ?? undefined}
+          alt={installation.accountLogin}
+          variant="rounded"
+          sx={{ width: 36, height: 36, fontSize: '0.8125rem' }}
+        >
+          {installation.accountLogin.charAt(0).toUpperCase()}
+        </Avatar>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.25 }}>
+            <Typography
+              sx={{
+                ...sectionTitleSx,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
             >
-              {disconnecting ? <CircularProgress size={16} /> : <LinkOffIcon fontSize="small" />}
-            </IconButton>
-          </span>
-        </Tooltip>
-      )}
+              {installation.accountLogin}
+            </Typography>
+            <Chip label={installation.accountType} size="small" variant="outlined" />
+            {installation.suspended && (
+              <Chip label="Suspended" size="small" color="warning" variant="outlined" />
+            )}
+          </Stack>
+          <Typography sx={captionSx}>
+            {installation.repoCount}{' '}
+            {installation.repoCount === 1 ? 'repository' : 'repositories'}
+          </Typography>
+        </Box>
+        {canDisconnect && (
+          <Tooltip title="Disconnect">
+            <span>
+              <IconButton
+                size="small"
+                color="error"
+                aria-label={`Disconnect ${installation.accountLogin}`}
+                onClick={onDisconnect}
+                disabled={disconnecting}
+              >
+                {disconnecting ? (
+                  <CircularProgress size={16} />
+                ) : (
+                  <LinkOffIcon fontSize="small" />
+                )}
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+      </Stack>
+      {manageAccessUrl && <ManageGitHubAccessHint url={manageAccessUrl} />}
     </Stack>
   )
 }

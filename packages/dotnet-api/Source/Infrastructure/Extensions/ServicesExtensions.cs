@@ -1,6 +1,5 @@
 using Source.Infrastructure.Services.Email;
 using Source.Infrastructure.Services.FileStorage;
-using Source.Infrastructure.Services.OpenRouter;
 using Source.Features.SignalR.Diagnostics;
 using Source.Features.SignalR.Services;
 using Microsoft.AspNetCore.SignalR;
@@ -50,9 +49,6 @@ public static class ServicesExtensions
                 services.AddScoped<IFileStorageService, LocalFileStorageService>();
                 break;
         }
-
-        // AI Services
-        services.AddSingleton<OpenRouterService>();
 
         // Web Search (Tavily)
         services.AddHttpClient("TavilyClient");

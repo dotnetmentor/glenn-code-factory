@@ -5,11 +5,13 @@
 **On the managed agent platform**, the harness commits AND pushes after every turn. Do not run `git add`, `git commit`, or `git push`. Do not ask the user "want me to commit these?" — the answer is always no, because it's already going to happen.
 
 - ✅ Leave uncommitted changes alone when you finish — the harness handles it.
-- ✅ Run `git status` / `git diff` / `git log` freely for inspection.
+- ✅ Run `git status` / `git diff` / `git log` freely for **local inspection**, or use daemon-tools **`git_status`** for merge state.
+- ✅ Use daemon-tools **`git_sync_with_origin`**, **`git_start_merge`**, **`git_complete_merge`**, **`git_abort_merge`** for fetch/merge workflows (authenticated, serialized with auto-commit). Fix conflict markers with `read`/`edit`, then `git_complete_merge`.
+- ❌ Do not use shell `git fetch` / `git pull` / `git push` / `git merge` on the runtime — they lack GitHub App auth.
 - ❌ Never offer to commit "verification fixes" or "leftover files."
-- ❌ Never run `git commit` even if a subagent's output suggests it.
+- ❌ Never run `git commit` / `git push` via shell even if a subagent suggests it.
 
-**Exception:** Only run write-side git commands if the user explicitly says "commit this" or "push now."
+**Exception:** Only run write-side shell git if the user explicitly says "commit this" or "push now." Prefer the git MCP tools for sync/merge instead.
 
 This applies to EVERY subagent (@debugger, @backend, @frontend, @planning, @reviewer) — if you're reading this file, the rule is yours.
 
@@ -100,7 +102,6 @@ When the user needs specific functionality, use these skills from `.claude/skill
 
 | Need | Skill | Key Points |
 |------|-------|------------|
-| **AI Chat/Assistant** | `openrouter` | SSE streaming, class-based tools, minimal code |
 | **File Upload** | `file-upload` | R2 (prod) / Local (dev), switchable |
 | **AI Image Gen** | `gemini-image` | Generation + object replacement |
 | **Real-time** | `signalr` | Live collaboration, presence |
@@ -164,11 +165,6 @@ See `packages/dotnet-api/CLAUDE.md` for:
 ---
 
 ## Quick Reference
-
-**Add AI chat feature:**
-1. Read `.claude/skills/openrouter/SKILL.md`
-2. Backend: Create streaming endpoint using `StreamAsSseAsync()`
-3. Frontend: Use `useOpenRouterChat` hook
 
 **Add file upload:**
 1. Read `.claude/skills/file-upload/SKILL.md`

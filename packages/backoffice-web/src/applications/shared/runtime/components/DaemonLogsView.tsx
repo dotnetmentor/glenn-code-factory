@@ -13,11 +13,17 @@ import ClearAllIcon from '@mui/icons-material/ClearAll'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import PauseIcon from '@mui/icons-material/Pause'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import type { RuntimeStatusResponse } from '@/api/queries-commands'
 import type { AgentHubConnection } from '@/lib/signalr'
 import type { DaemonLogLineNotification } from '@/generated/signalr/Source.Features.SignalR.Contracts'
 import {
+  DAEMON_LOGS_UNAVAILABLE_MESSAGE,
+  isDaemonHubLikelyUnreachable,
+} from '../runtimeDaemonConnectivity'
+import {
   TerminalCursor,
   TerminalLine,
+  terminalDisconnectedHintSx,
   terminalEmptyCaptionSx,
   terminalSurfaceSx,
 } from './terminalLine'
@@ -50,6 +56,8 @@ export interface DaemonLogsViewProps {
   connection: AgentHubConnection | null
   /** Current runtime id — required for the subscribe/unsubscribe round-trip. */
   runtimeId: string | undefined
+  /** Branch-scoped runtime status — drives the disconnected hint. */
+  runtimeStatus?: RuntimeStatusResponse
 }
 
 /**
@@ -66,12 +74,17 @@ export interface DaemonLogsViewProps {
  * which drops outright — daemon-debug sessions are more likely to want a
  * "you missed N lines" indicator).</p>
  */
-export function DaemonLogsView({ connection, runtimeId }: DaemonLogsViewProps) {
+export function DaemonLogsView({
+  connection,
+  runtimeId,
+  runtimeStatus,
+}: DaemonLogsViewProps) {
   const [lines, setLines] = useState<DaemonLogLine[]>([])
   const [paused, setPaused] = useState(false)
   const [missedWhilePaused, setMissedWhilePaused] = useState(0)
   const [autoScroll, setAutoScroll] = useState(true)
   const [subscribeError, setSubscribeError] = useState<string | null>(null)
+  const [hubSubscribed, setHubSubscribed] = useState(false)
 
   const pausedRef = useRef(paused)
   pausedRef.current = paused
@@ -113,11 +126,15 @@ export function DaemonLogsView({ connection, runtimeId }: DaemonLogsViewProps) {
     let cancelled = false
     let subscribed = false
     setSubscribeError(null)
+    setHubSubscribed(false)
 
     connection
       .subscribeToDaemonLogs(runtimeId)
       .then(() => {
-        if (!cancelled) subscribed = true
+        if (!cancelled) {
+          subscribed = true
+          setHubSubscribed(true)
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -160,6 +177,7 @@ export function DaemonLogsView({ connection, runtimeId }: DaemonLogsViewProps) {
 
     return () => {
       cancelled = true
+      setHubSubscribed(false)
       unsubListener()
       if (subscribed) {
         connection.unsubscribeFromDaemonLogs(runtimeId).catch(() => {
@@ -168,6 +186,13 @@ export function DaemonLogsView({ connection, runtimeId }: DaemonLogsViewProps) {
       }
     }
   }, [connection, runtimeId])
+
+  const showDaemonDisconnectedHint =
+    hubSubscribed &&
+    !subscribeError &&
+    lines.length === 0 &&
+    !paused &&
+    isDaemonHubLikelyUnreachable(runtimeStatus)
 
   const handleScroll = useCallback(() => {
     const el = viewerRef.current
@@ -241,27 +266,50 @@ export function DaemonLogsView({ connection, runtimeId }: DaemonLogsViewProps) {
 
       {subscribeError && <Alert severity="warning">{subscribeError}</Alert>}
 
-      <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
+      <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <Box
           ref={viewerRef}
           onScroll={handleScroll}
           sx={{
-            position: 'absolute',
-            inset: 0,
+            flex: 1,
+            minHeight: 0,
             overflowY: 'auto',
+            overflowX: 'hidden',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
             p: 1.25,
             borderRadius: 1,
+            boxSizing: 'border-box',
             ...terminalSurfaceSx,
           }}
         >
           {lines.length === 0 ? (
-            <Typography variant="caption" sx={terminalEmptyCaptionSx}>
-              {paused
-                ? 'Paused. New lines are being counted but not displayed.'
-                : 'Waiting for daemon log lines…'}
-            </Typography>
+            <Box
+              sx={{
+                minHeight: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                p: 2,
+                boxSizing: 'border-box',
+              }}
+            >
+              <Typography
+                variant="caption"
+                sx={
+                  showDaemonDisconnectedHint
+                    ? terminalDisconnectedHintSx
+                    : { ...terminalEmptyCaptionSx, textAlign: 'center' }
+                }
+              >
+                {paused
+                  ? 'Paused. New lines are being counted but not displayed.'
+                  : showDaemonDisconnectedHint
+                    ? DAEMON_LOGS_UNAVAILABLE_MESSAGE
+                    : 'Waiting for daemon log lines…'}
+              </Typography>
+            </Box>
           ) : (
             <>
               {lines.map((l) => (

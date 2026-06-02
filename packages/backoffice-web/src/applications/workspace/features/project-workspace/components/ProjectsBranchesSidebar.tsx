@@ -18,26 +18,40 @@ import AddIcon from '@mui/icons-material/Add'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import ArchiveOutlinedIcon from '@mui/icons-material/ArchiveOutlined'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import BedtimeOutlinedIcon from '@mui/icons-material/BedtimeOutlined'
+import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined'
+import StopCircleOutlinedIcon from '@mui/icons-material/StopCircleOutlined'
+import MenuIcon from '@mui/icons-material/Menu'
 import BugReportIcon from '@mui/icons-material/BugReport'
 import CheckIcon from '@mui/icons-material/Check'
+import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined'
+import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import SettingsIcon from '@mui/icons-material/Settings'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
-import PaidOutlinedIcon from '@mui/icons-material/PaidOutlined'
 import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrowLeft'
 import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight'
 import { useThemeMode, instrumentAccents } from '@/themes'
+import { useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, parseISO } from 'date-fns'
 import {
   RuntimeState,
+  getGetApiProjectsProjectIdBranchesQueryKey,
+  getGetApiWorkspacesSlugProjectsQueryKey,
   useGetApiProjectsProjectIdBranches,
+  useGetApiProjectsProjectIdBranchesBranchIdRuntimeStatus,
   useGetApiWorkspacesSlugProjects,
   useGetApiWorkspacesWorkspaceIdCost,
+  usePostApiProjectsProjectIdBranchesBranchIdArchive,
   type ProjectBranchDto,
   type ProjectSummaryDto,
 } from '../../../../../api/queries-commands'
+import { useAuth } from '../../../../../auth'
+import { ApplicationRoles } from '../../../../shared/constants/roles'
+import { useNotification } from '../../../../shared/contexts/NotificationContext'
 import { useRuntimeDebugPanel } from '@/applications/shared/runtime'
-import { useShowSidebarCosts } from '@/applications/shared/hooks/useShowSidebarCosts'
 import { useSidebarCollapsed } from '@/applications/shared/hooks/useSidebarCollapsed'
 import { useWorkspace } from '../../../../shared/contexts/WorkspaceContext'
 import {
@@ -49,8 +63,11 @@ import { CopyBranchDialog } from './CopyBranchDialog'
 import { StatusDot } from './StatusDot'
 import { WorkspaceActivityLog } from './WorkspaceActivityLog'
 import { ProjectCostTag } from './ProjectCostTag'
+import { ProjectSettingsDrawer } from '../../project-settings'
 import { formatCostUsd } from './costFormat'
 import { useBranchUnreadActivityStatus } from '../hooks/useWorkspaceActivityStore'
+import { useBranchRuntimeMenuActions } from '../hooks/useBranchRuntimeMenuActions'
+import { branchWorkspaceHref } from '../hooks/branchConversationMemory'
 
 import {
   chromeTokens,
@@ -138,21 +155,19 @@ function bucketFor(
   }
 }
 
+function branchNeedsAction(
+  state: RuntimeState | string | null | undefined,
+): boolean {
+  return state === RuntimeState.Failed || state === RuntimeState.Crashed
+}
+
 export interface ProjectsBranchesSidebarProps {
   /**
-   * Per-project live runtime-state overlay. The route already owns the
-   * single SignalR subscription (now joined to both project AND workspace
-   * groups) and fans every {@code runtimeStateChanged} push into this map;
-   * the sidebar reads it per-row to override the polled list's coarser
-   * 15s value with whatever the hub said most recently.
-   *
-   * <p>For rows not present in the map we fall back to
-   * {@code project.runtimeState} from the polled
-   * {@code useGetApiWorkspacesSlugProjects} list, which refreshes every 15s
-   * so non-active rows reflect coarse-grained reality without each row
-   * owning its own SignalR subscription.</p>
+   * Per-branch live runtime-state overlay keyed by branchId. Branch rows read
+   * this to surface Failed/Crashed attention dots without waiting for the
+   * 15s branches-list poll.
    */
-  liveStatusByProjectId?: Map<string, LiveProjectStatus>
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
   /**
    * Per-project in-flight turn count delta. The polled list carries the
    * baseline {@code runningTurnCount}; this map provides the instant
@@ -290,18 +305,15 @@ function ProjectCornerDot({ sectionKey }: { sectionKey: SectionKey }) {
  * inline in {@code ChatChrome} (clickable title → popover).</p>
  */
 export function ProjectsBranchesSidebar({
-  liveStatusByProjectId,
+  liveStatusByBranchId,
   liveRunningTurnByProjectId,
 }: ProjectsBranchesSidebarProps) {
   const navigate = useNavigate()
   const { slug = '', projectId: activeProjectId = '', branchId: activeBranchId = '' } =
     useParams<{ slug: string; projectId: string; branchId: string }>()
   const debugPanel = useRuntimeDebugPanel()
-  // Persisted preference toggling the tiny workspace / per-project cost
-  // numbers in the sidebar. Default-on so first-time users see the value at
-  // a glance; survives reloads via localStorage. Threaded down to ProjectRow
-  // (which renders ProjectCostTag) so children share one source of truth.
-  const [showCosts, setShowCosts] = useShowSidebarCosts()
+  const { mode, toggleMode } = useThemeMode()
+  const isDarkMode = mode === 'dark'
   // Collapsed (icon-rail) mode for the sidebar. Persisted across reloads and
   // synced across in-tab consumers (see {@link useSidebarCollapsed}) so the
   // layout's outer width wrapper and this component always agree. When true
@@ -329,6 +341,7 @@ export function ProjectsBranchesSidebar({
   // they want to act selectively from the dialog itself.
   const [reconnectProjectId, setReconnectProjectId] = useState<string | null>(null)
   const reconnectOpen = reconnectProjectId !== null
+  const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null)
 
   const [workspaceMenuAnchor, setWorkspaceMenuAnchor] =
     useState<HTMLElement | null>(null)
@@ -367,9 +380,13 @@ export function ProjectsBranchesSidebar({
   const resolvedProjects = useMemo(() => {
     const list = projectsQuery.data ?? []
     return list.map((project) => {
-      const live = liveStatusByProjectId?.get(project.id)
+      // Project section bucketing uses the polled aggregate (worst branch
+      // state across the project). We intentionally do NOT overlay the
+      // per-project live map here — it is keyed by projectId and last-writer
+      // wins across sibling branches, which made the "Needs Action" bucket
+      // disagree with the branch the user is actually on.
       const effectiveState: RuntimeState | string | null =
-        (live?.state ?? null) ?? project.runtimeState ?? null
+        project.runtimeState ?? null
       const livePartial = liveRunningTurnByProjectId?.get(project.id)
       const effectiveRunningTurnCount = Math.max(
         project.runningTurnCount ?? 0,
@@ -382,7 +399,7 @@ export function ProjectsBranchesSidebar({
         section: bucketFor(effectiveState, effectiveRunningTurnCount),
       }
     })
-  }, [projectsQuery.data, liveStatusByProjectId, liveRunningTurnByProjectId])
+  }, [projectsQuery.data, liveRunningTurnByProjectId])
 
   // ── Group + intra-section sort (latestActivityAt desc) ───────────────────
   const sectionedProjects = useMemo(() => {
@@ -726,10 +743,8 @@ export function ProjectsBranchesSidebar({
                 </Box>
                 {/* Workspace lifetime cost — tiny muted dollar amount tucked
                     next to the chevron. Self-hides when loading or when the
-                    total is 0; gated by {@code showCosts} so the user can
-                    hush the cost chrome without losing the rest of the
-                    workspace pill. */}
-                {showCosts && currentWorkspace?.id && (
+                    total is 0. */}
+                {currentWorkspace?.id && (
                   <WorkspaceCostTag workspaceId={currentWorkspace.id} />
                 )}
                 <KeyboardArrowDownIcon
@@ -1057,6 +1072,7 @@ export function ProjectsBranchesSidebar({
                           onToggle={() => toggleExpanded(project.id)}
                           onSelect={() => onProjectRowSelect(project)}
                           onReconnect={() => setReconnectProjectId(project.id)}
+                          onOpenSettings={() => setSettingsProjectId(project.id)}
                           activeBranchId={
                             project.id === activeProjectId ? activeBranchId : ''
                           }
@@ -1065,9 +1081,9 @@ export function ProjectsBranchesSidebar({
                               ? activeRowRef
                               : null
                           }
-                          showCosts={showCosts}
                           collapsed={collapsed}
                           sectionKey={section.key}
+                          liveStatusByBranchId={liveStatusByBranchId}
                         />
                       ),
                     )}
@@ -1086,7 +1102,7 @@ export function ProjectsBranchesSidebar({
                there are no entries, so a quiet workspace doesn't get a
                permanently-empty strip. Suppressed entirely when the sidebar
                is collapsed so the 56px rail stays free of text rows.
-            2. Meta-tools row — when expanded, settings + cost-toggle + debug
+            2. Meta-tools row — when expanded, settings + theme toggle + debug
                group on the LEFT bracketed by a collapse toggle on the RIGHT
                (mirroring the reference design). When collapsed, just a
                single expand toggle centered in the 56px rail — the other
@@ -1137,7 +1153,7 @@ export function ProjectsBranchesSidebar({
           </Tooltip>
         ) : (
           <>
-            {/* Left cluster: settings + cost-toggle + debug. Reads as a
+            {/* Left cluster: settings + theme + debug. Reads as a
                 trio of "rare, configuration-level" affordances. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
               <Tooltip
@@ -1169,29 +1185,24 @@ export function ProjectsBranchesSidebar({
                   <SettingsIcon sx={{ fontSize: 16 }} />
                 </IconButton>
               </Tooltip>
-              {/* Cost-visibility toggle. The icon dims to 0.4 opacity when
-                  costs are hidden so the button's state is legible at a
-                  glance without needing to hover the tooltip. */}
               <Tooltip
-                title={showCosts ? 'Hide costs' : 'Show costs'}
+                title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
                 placement="top"
                 enterDelay={400}
               >
                 <IconButton
                   size="small"
-                  aria-label={showCosts ? 'Hide costs' : 'Show costs'}
-                  aria-pressed={showCosts}
-                  onClick={() => setShowCosts(!showCosts)}
+                  aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                  aria-pressed={isDarkMode}
+                  onClick={toggleMode}
                   sx={{
                     width: 26,
                     height: 26,
-                    color: showCosts ? tokens.accent : tokens.textMuted,
-                    opacity: showCosts ? 1 : 0.4,
+                    color: isDarkMode ? tokens.accent : tokens.textMuted,
                     transition:
-                      'color 160ms ease, background-color 160ms ease, opacity 160ms ease',
+                      'color 160ms ease, background-color 160ms ease',
                     '&:hover': {
                       color: tokens.accent,
-                      opacity: 1,
                       backgroundColor: 'transparent',
                     },
                     '&:focus-visible': {
@@ -1200,7 +1211,11 @@ export function ProjectsBranchesSidebar({
                     },
                   }}
                 >
-                  <PaidOutlinedIcon sx={{ fontSize: 16 }} />
+                  {isDarkMode ? (
+                    <LightModeOutlinedIcon sx={{ fontSize: 16 }} />
+                  ) : (
+                    <DarkModeOutlinedIcon sx={{ fontSize: 16 }} />
+                  )}
                 </IconButton>
               </Tooltip>
               <Tooltip
@@ -1275,6 +1290,20 @@ export function ProjectsBranchesSidebar({
         workspaceSlug={slug}
         presetProjectIds={reconnectProjectId ? [reconnectProjectId] : undefined}
       />
+
+      {settingsProjectId && (
+        <ProjectSettingsDrawer
+          open
+          onClose={() => setSettingsProjectId(null)}
+          projectId={settingsProjectId}
+          branchId={
+            settingsProjectId === activeProjectId && activeBranchId
+              ? activeBranchId
+              : undefined
+          }
+          slug={slug}
+        />
+      )}
     </Box>
   )
 }
@@ -1359,15 +1388,10 @@ interface ProjectRowProps {
    * name. Surfaces the reconnect dialog preset to this single project.
    */
   onReconnect: () => void
+  /** Opens project settings for this row's project. */
+  onOpenSettings: () => void
   activeBranchId: string
   activeBranchRowRef: React.RefObject<HTMLDivElement | null> | null
-  /**
-   * Mirror of the sidebar-level cost-visibility preference. Threaded through
-   * (rather than read from the hook here) so a single state value drives every
-   * cost tag in the sidebar — preventing per-row drift if multiple instances
-   * of the hook ever fell out of sync.
-   */
-  showCosts: boolean
   /**
    * When true, render the row as a single 22px avatar (with a corner status
    * dot) centered in the 56px collapsed-rail column. The chevron, name, cost
@@ -1382,6 +1406,7 @@ interface ProjectRowProps {
    * agents at a glance without the section headers being visible.
    */
   sectionKey: SectionKey
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
 }
 
 function ProjectRow({
@@ -1394,11 +1419,12 @@ function ProjectRow({
   onToggle,
   onSelect,
   onReconnect,
+  onOpenSettings,
   activeBranchId,
   activeBranchRowRef,
-  showCosts,
   collapsed,
   sectionKey,
+  liveStatusByBranchId,
 }: ProjectRowProps) {
   const isDetached = project.githubInstallationId == null
 
@@ -1457,7 +1483,16 @@ function ProjectRow({
   }
 
   return (
-    <Box component="li" sx={{ position: 'relative' }}>
+    <Box
+      component="li"
+      sx={{
+        position: 'relative',
+        '&:hover .project-row-settings-action, &:focus-within .project-row-settings-action':
+          {
+            opacity: 1,
+          },
+      }}
+    >
       <Box
         ref={activeRowRef ?? undefined}
         component={RouterLink}
@@ -1566,12 +1601,45 @@ function ProjectRow({
           />
         )}
 
+        <Tooltip title="Project settings" placement="top" enterDelay={400}>
+          <IconButton
+            className="project-row-settings-action"
+            size="small"
+            aria-label={`Project settings for ${project.name}`}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onOpenSettings()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                e.stopPropagation()
+              }
+            }}
+            sx={{
+              opacity: 0,
+              transition: 'opacity 120ms ease',
+              padding: 0.25,
+              color: tokens.textMuted,
+              flexShrink: 0,
+              ml: 'auto',
+              '&:hover': { color: tokens.textPrimary },
+              '&:focus-visible': {
+                opacity: 1,
+                outline: `2px solid ${tokens.accent}`,
+                outlineOffset: 1,
+              },
+            }}
+          >
+            <SettingsIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
+
         {/* Project lifetime cost — tiny muted number, hidden when $0. Anchors
             to the right edge as the visual full-stop of the row. Self-hides
-            when loading or when total is 0; gated by the sidebar-wide
-            {@code showCosts} preference so the user can hush the cost
-            chrome without losing the row itself. */}
-        {showCosts && <ProjectCostTag projectId={project.id} />}
+            when loading or when total is 0. */}
+        <ProjectCostTag projectId={project.id} />
 
         {/* The project-row {@link StatusDot} used to live here, encoding
             the runtime state (green=Online, amber=Booting, rust=Failed,
@@ -1592,6 +1660,7 @@ function ProjectRow({
           slug={slug}
           activeBranchId={activeBranchId}
           activeBranchRowRef={activeBranchRowRef}
+          liveStatusByBranchId={liveStatusByBranchId}
         />
       )}
     </Box>
@@ -1605,6 +1674,7 @@ interface BranchesListProps {
   slug: string
   activeBranchId: string
   activeBranchRowRef: React.RefObject<HTMLDivElement | null> | null
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
 }
 
 function BranchesList({
@@ -1612,6 +1682,7 @@ function BranchesList({
   slug,
   activeBranchId,
   activeBranchRowRef,
+  liveStatusByBranchId,
 }: BranchesListProps) {
   const branchesQuery = useGetApiProjectsProjectIdBranches(
     projectId,
@@ -1643,7 +1714,12 @@ function BranchesList({
   //    siblings (matches user expectation when a project is fresh).
   const sortedBranches = useMemo(() => {
     const list = branchesQuery.data ?? []
+    const effectiveState = (branch: ProjectBranchDto) =>
+      liveStatusByBranchId?.get(branch.id)?.state ?? branch.runtimeState ?? null
     return [...list].sort((a, b) => {
+      const aNeedsAction = branchNeedsAction(effectiveState(a)) ? 1 : 0
+      const bNeedsAction = branchNeedsAction(effectiveState(b)) ? 1 : 0
+      if (aNeedsAction !== bNeedsAction) return bNeedsAction - aNeedsAction
       const aRunning = (a.runningTurnCount ?? 0) > 0 ? 1 : 0
       const bRunning = (b.runningTurnCount ?? 0) > 0 ? 1 : 0
       if (aRunning !== bRunning) return bRunning - aRunning
@@ -1653,7 +1729,7 @@ function BranchesList({
       if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1
       return 0
     })
-  }, [branchesQuery.data])
+  }, [branchesQuery.data, liveStatusByBranchId])
 
   const existingBranchNames = useMemo(
     () => (branchesQuery.data ?? []).map((b) => b.name),
@@ -1701,6 +1777,7 @@ function BranchesList({
             active={branch.id === activeBranchId}
             activeRowRef={branch.id === activeBranchId ? activeBranchRowRef : null}
             onCopyClick={() => handleCopyClick(branch)}
+            liveStatusByBranchId={liveStatusByBranchId}
           />
         ))}
       </Box>
@@ -1726,6 +1803,7 @@ interface BranchRowProps {
   active: boolean
   activeRowRef: React.RefObject<HTMLDivElement | null> | null
   onCopyClick: () => void
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
 }
 
 function BranchRow({
@@ -1735,9 +1813,154 @@ function BranchRow({
   active,
   activeRowRef,
   onCopyClick,
+  liveStatusByBranchId,
 }: BranchRowProps) {
+  const queryClient = useQueryClient()
+  const { showSuccess, showError } = useNotification()
+  const { user } = useAuth()
+  const isSuperAdmin = !!user?.roles?.includes(ApplicationRoles.SuperAdmin)
   const isRunning = (branch.runningTurnCount ?? 0) > 0
   const relative = formatCompactRelative(branch.lastActivityAt ?? null)
+  const effectiveBranchState =
+    liveStatusByBranchId?.get(branch.id)?.state ?? branch.runtimeState ?? null
+  const needsAttention = branchNeedsAction(effectiveBranchState)
+  const attentionTooltip =
+    effectiveBranchState === RuntimeState.Crashed
+      ? 'Runtime crashed — needs restart'
+      : 'Runtime failed — needs restart'
+
+  const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [menuPosition, setMenuPosition] = useState<{
+    mouseX: number
+    mouseY: number
+  } | null>(null)
+  const branchMenuOpen = menuAnchorEl !== null || menuPosition !== null
+
+  const runtimeStatusQuery = useGetApiProjectsProjectIdBranchesBranchIdRuntimeStatus(
+    projectId,
+    branch.id,
+    {
+      query: {
+        enabled: branchMenuOpen && !!projectId && !!branch.id,
+      },
+    },
+  )
+  const runtimeState = runtimeStatusQuery.data?.state
+  const isSuspended = runtimeState === RuntimeState.Suspended
+  const isFailed =
+    runtimeState === RuntimeState.Failed ||
+    runtimeState === RuntimeState.Crashed
+  const isOnline = runtimeState === RuntimeState.Online
+  const canPutToSleep = isOnline
+
+  const archiveMut = usePostApiProjectsProjectIdBranchesBranchIdArchive()
+
+  const invalidateBranchLists = () => {
+    queryClient.invalidateQueries({
+      queryKey: getGetApiProjectsProjectIdBranchesQueryKey(projectId),
+    })
+    queryClient.invalidateQueries({
+      queryKey: getGetApiWorkspacesSlugProjectsQueryKey(slug),
+    })
+  }
+
+  const closeBranchMenu = () => {
+    setMenuAnchorEl(null)
+    setMenuPosition(null)
+  }
+
+  const runtimeMenuActions = useBranchRuntimeMenuActions({
+    projectId,
+    branchId: branch.id,
+    branchName: branch.name,
+    slug,
+    isSuspended,
+    isFailed,
+    onCloseMenu: closeBranchMenu,
+  })
+
+  const {
+    handleRestartRuntime,
+    handlePutToSleep,
+    handleForceStop,
+    handleResetFromScratch,
+    isRestartPending,
+    isSuspendPending,
+    isForceStopPending,
+    isResetFromScratchPending,
+  } = runtimeMenuActions
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setMenuAnchorEl(null)
+    setMenuPosition({ mouseX: e.clientX + 2, mouseY: e.clientY - 6 })
+  }
+
+  const handleMenuButtonClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (menuAnchorEl === e.currentTarget && branchMenuOpen) {
+      closeBranchMenu()
+      return
+    }
+    setMenuPosition(null)
+    setMenuAnchorEl(e.currentTarget)
+  }
+
+  const handleCopyFromMenu = () => {
+    closeBranchMenu()
+    onCopyClick()
+  }
+
+  const handleArchive = () => {
+    closeBranchMenu()
+    archiveMut.mutate(
+      { projectId, branchId: branch.id },
+      {
+        onSuccess: () => {
+          showSuccess(`Archived branch "${branch.name}".`)
+          invalidateBranchLists()
+        },
+        onError: (err: unknown) => {
+          const data = (err as {
+            response?: { data?: { error?: string; message?: string } }
+          })?.response?.data
+          if (data?.error === 'has_running_session') {
+            showError('Stop the running turn first to archive this branch.')
+          } else if (data?.error === 'is_default') {
+            showError('The default branch cannot be archived.')
+          } else {
+            showError(
+              `Failed to archive branch: ${data?.message ?? 'unknown error'}`,
+            )
+          }
+        },
+      },
+    )
+  }
+
+  const canArchive =
+    !branch.isDefault && !isRunning && !branch.isArchived
+  const archiveDisabledReason = branch.isDefault
+    ? 'The default branch cannot be archived'
+    : isRunning
+      ? 'Stop the running turn first'
+      : null
+  const restartLabel = isSuspended ? 'Wake runtime' : 'Restart runtime'
+  const isStuckRuntime =
+    isFailed ||
+    runtimeState === RuntimeState.Pending ||
+    needsAttention
+  const resetFromScratchDisabledReason = isRunning
+    ? 'Stop the running turn first'
+    : null
+  const sleepDisabledReason =
+    runtimeStatusQuery.isLoading || runtimeStatusQuery.isFetching
+      ? 'Checking runtime state…'
+      : !canPutToSleep
+        ? 'Only online runtimes can be put to sleep'
+        : null
 
   // ── Inbox affordance ─────────────────────────────────────────────────────
   // Subscribes to the workspace activity store and surfaces a small unread
@@ -1751,7 +1974,7 @@ function BranchRow({
   // dedup in {@code pushActivity} replaces any older entry — so the two
   // states never overlap visually.
   const unreadStatus = useBranchUnreadActivityStatus(branch.id)
-  const hasUnread = !isRunning && unreadStatus !== null
+  const hasUnread = !isRunning && !needsAttention && unreadStatus !== null
   const unreadDotColor =
     unreadStatus === 'failed' ? tokens.unreadDotFailed : tokens.unreadDotIdle
   const unreadTooltip =
@@ -1761,15 +1984,32 @@ function BranchRow({
         ? 'Turn started — unread'
         : 'Turn completed — unread'
 
+  const branchMenuItemSx = {
+    fontSize: '0.75rem',
+    color: tokens.textPrimary,
+    letterSpacing: '-0.005em',
+    py: 0.375,
+    px: 1,
+    gap: 0.75,
+    minHeight: 28,
+    '&:hover': { backgroundColor: tokens.rowHover },
+    '&.Mui-disabled': { opacity: 0.45 },
+  } as const
+
+  const branchMenuIconSx = { fontSize: 14, flexShrink: 0 } as const
+
+  const branchMenuDividerSx = { my: 0.25, borderColor: tokens.hairline } as const
+
   return (
     <Box
       component="li"
+      onContextMenu={handleContextMenu}
       sx={{
         position: 'relative',
-        // Hover-only reveal for the inline copy button — keeps the calm scan
-        // intact, but the action becomes discoverable the moment the user
+        // Hover-only reveal for the branch actions menu — keeps the calm scan
+        // intact, but the menu becomes discoverable the moment the user
         // gestures at a row.
-        '&:hover .branch-row-copy-action, &:focus-within .branch-row-copy-action':
+        '&:hover .branch-row-menu-action, &:focus-within .branch-row-menu-action':
           {
             opacity: 1,
           },
@@ -1778,7 +2018,7 @@ function BranchRow({
       <Box
         ref={activeRowRef ?? undefined}
         component={RouterLink}
-        to={`/w/${slug}/projects/${projectId}/branches/${branch.id}`}
+        to={branchWorkspaceHref(slug, projectId, branch.id)}
         sx={{
           position: 'relative',
           display: 'flex',
@@ -1832,6 +2072,14 @@ function BranchRow({
           </Box>
         )}
 
+        {!isRunning && needsAttention && (
+          <Tooltip title={attentionTooltip} placement="right" enterDelay={400}>
+            <Box sx={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}>
+              <StatusDot state={effectiveBranchState} size={6} />
+            </Box>
+          </Tooltip>
+        )}
+
         {/* Unread terminal-event indicator. Inbox semantics: the dot
             appears when the most recent terminal turn on this branch is
             still unacknowledged, and clears the moment the user opens the
@@ -1859,53 +2107,16 @@ function BranchRow({
           placement="right"
           sx={{
             fontSize: '0.75rem',
-            fontWeight: active ? 500 : 400,
-            color: active ? tokens.textPrimary : tokens.textMuted,
+            fontWeight: active || needsAttention ? 500 : 400,
+            color: active
+              ? tokens.textPrimary
+              : needsAttention
+                ? tokens.attention
+                : tokens.textMuted,
             letterSpacing: '-0.005em',
             fontFamily: workspaceFontFamily.mono,
           }}
         />
-
-        {/* Inline copy action — hover- or focus-revealed so the resting row
-            stays visually quiet. The parent row is now a real {@code <a>}
-            anchor (so {@code ⌘+click} opens in a new tab), so we MUST
-            {@code preventDefault} as well as {@code stopPropagation} — the
-            browser's native anchor-follow behaviour ignores propagation and
-            navigates on any click inside the anchor unless explicitly
-            cancelled. */}
-        <Tooltip title="Copy branch" placement="top" enterDelay={400}>
-          <IconButton
-            className="branch-row-copy-action"
-            size="small"
-            aria-label={`Copy branch ${branch.name}`}
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onCopyClick()
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                e.stopPropagation()
-              }
-            }}
-            sx={{
-              opacity: 0,
-              transition: 'opacity 120ms ease',
-              padding: 0.25,
-              color: tokens.textMuted,
-              flexShrink: 0,
-              '&:hover': { color: tokens.textPrimary },
-              '&:focus-visible': {
-                opacity: 1,
-                outline: `2px solid ${tokens.accent}`,
-                outlineOffset: 1,
-              },
-            }}
-          >
-            <ContentCopyIcon sx={{ fontSize: 14 }} />
-          </IconButton>
-        </Tooltip>
 
         {branch.isDefault && !relative && (
           <Tooltip title="Default branch" placement="left" enterDelay={500}>
@@ -1944,7 +2155,162 @@ function BranchRow({
             </Box>
           </Tooltip>
         )}
+
+        {/* Branch actions — hover- or focus-revealed hamburger opens the same
+            menu as right-click (copy, sleep, restart, archive, …). */}
+        <Tooltip title="Branch actions" placement="top" enterDelay={400}>
+          <IconButton
+            className="branch-row-menu-action"
+            size="small"
+            aria-label={`Branch actions for ${branch.name}`}
+            aria-haspopup="menu"
+            aria-expanded={branchMenuOpen && menuAnchorEl !== null}
+            onClick={handleMenuButtonClick}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                e.stopPropagation()
+              }
+            }}
+            sx={{
+              opacity: 0,
+              transition: 'opacity 120ms ease',
+              padding: 0.25,
+              color: tokens.textMuted,
+              flexShrink: 0,
+              ml: 0.25,
+              '&:hover': { color: tokens.textPrimary },
+              '&:focus-visible': {
+                opacity: 1,
+                outline: `2px solid ${tokens.accent}`,
+                outlineOffset: 1,
+              },
+            }}
+          >
+            <MenuIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
       </Box>
+
+      <Menu
+        open={branchMenuOpen}
+        onClose={closeBranchMenu}
+        anchorReference={menuAnchorEl ? 'anchorEl' : 'anchorPosition'}
+        anchorEl={menuAnchorEl ?? undefined}
+        anchorPosition={
+          menuPosition
+            ? { top: menuPosition.mouseY, left: menuPosition.mouseX }
+            : undefined
+        }
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        slotProps={{
+          paper: {
+            sx: {
+              minWidth: 168,
+              border: `1px solid ${tokens.hairline}`,
+              borderRadius: 1.5,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.07)',
+              backgroundColor: tokens.canvasBg,
+            },
+          },
+          list: { dense: true, sx: { py: 0.25 } },
+        }}
+      >
+        <MenuItem dense onClick={handleCopyFromMenu} sx={branchMenuItemSx}>
+          <ContentCopyIcon sx={branchMenuIconSx} />
+          Copy branch
+        </MenuItem>
+        <Divider sx={branchMenuDividerSx} />
+        <Tooltip
+          title={sleepDisabledReason ?? ''}
+          placement="right"
+          disableHoverListener={canPutToSleep && !isSuspendPending}
+        >
+          <span>
+            <MenuItem
+              dense
+              onClick={handlePutToSleep}
+              disabled={
+                !canPutToSleep ||
+                isSuspendPending ||
+                runtimeStatusQuery.isLoading
+              }
+              sx={branchMenuItemSx}
+            >
+              <BedtimeOutlinedIcon sx={branchMenuIconSx} />
+              Put to sleep
+            </MenuItem>
+          </span>
+        </Tooltip>
+        <MenuItem
+          dense
+          onClick={handleRestartRuntime}
+          disabled={isRestartPending}
+          sx={branchMenuItemSx}
+        >
+          <RestartAltIcon sx={branchMenuIconSx} />
+          {restartLabel}
+        </MenuItem>
+        <Tooltip
+          title={resetFromScratchDisabledReason ?? ''}
+          placement="right"
+          disableHoverListener={!resetFromScratchDisabledReason}
+        >
+          <span>
+            <MenuItem
+              dense
+              onClick={handleResetFromScratch}
+              disabled={
+                isRunning ||
+                isResetFromScratchPending ||
+                runtimeStatusQuery.isLoading
+              }
+              sx={[
+                branchMenuItemSx,
+                isStuckRuntime && {
+                  color: tokens.unreadDotFailed,
+                },
+              ]}
+            >
+              <DeleteSweepOutlinedIcon sx={branchMenuIconSx} />
+              Start from scratch
+            </MenuItem>
+          </span>
+        </Tooltip>
+        <Divider sx={branchMenuDividerSx} />
+        <Tooltip
+          title={archiveDisabledReason ?? ''}
+          placement="right"
+          disableHoverListener={canArchive}
+        >
+          <span>
+            <MenuItem
+              dense
+              onClick={handleArchive}
+              disabled={!canArchive || archiveMut.isPending}
+              sx={branchMenuItemSx}
+            >
+              <ArchiveOutlinedIcon sx={branchMenuIconSx} />
+              Archive branch
+            </MenuItem>
+          </span>
+        </Tooltip>
+        {isSuperAdmin && (
+          <>
+            <Divider sx={branchMenuDividerSx} />
+            <MenuItem
+              dense
+              onClick={handleForceStop}
+              disabled={isForceStopPending}
+              sx={branchMenuItemSx}
+            >
+              <StopCircleOutlinedIcon sx={branchMenuIconSx} />
+              Force stop
+            </MenuItem>
+          </>
+        )}
+      </Menu>
     </Box>
   )
 }

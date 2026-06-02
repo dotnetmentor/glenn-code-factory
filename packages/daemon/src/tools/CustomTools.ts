@@ -27,6 +27,7 @@ import { bootstrapEnv } from '../runtime/BootstrapEnvironment.js'
 import type { CustomTool, ToolContext, ToolResult } from '../turn/types.js'
 
 import type { ToolDescriptionResponse } from './fetchToolDescription.js'
+import { buildGitCustomTools, type GitModuleAccessor } from './GitCustomTools.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -571,7 +572,81 @@ function buildGetBootIssues(deps: {
 }
 
 // ============================================================================
-// Tool 6 — request_rebootstrap  (ESCAPE HATCH — last resort)
+// Tool 6 — get_preview_url  (read-only, no approval)
+// ============================================================================
+//
+// Returns the public HTTPS URL the user sees in the Preview tab. Sourced from
+// PREVIEW_HOSTNAME (and PREVIEW_PORT for local target context) stamped on the
+// Fly machine by RuntimeProvisionerJob when a tunnel is allocated.
+
+const getPreviewUrlSchema = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  type: 'object',
+  properties: {},
+  additionalProperties: false,
+} as const
+
+export type PreviewEnvSnapshot = {
+  hostname?: string
+  previewPort?: string
+}
+
+export function readPreviewEnvFromProcess(): PreviewEnvSnapshot {
+  const rawHostname = process.env['PREVIEW_HOSTNAME']?.trim()
+  const rawPort = process.env['PREVIEW_PORT']?.trim()
+  return {
+    ...(rawHostname !== undefined && rawHostname !== '' ? { hostname: rawHostname } : {}),
+    ...(rawPort !== undefined && rawPort !== '' ? { previewPort: rawPort } : {}),
+  }
+}
+
+function buildGetPreviewUrl(deps: {
+  logger: Logger
+  getPreviewEnv?: () => PreviewEnvSnapshot
+}): CustomTool {
+  const getPreviewEnv = deps.getPreviewEnv ?? readPreviewEnvFromProcess
+  return {
+    name: 'get_preview_url',
+    description:
+      'Return the public HTTPS preview URL for this runtime (the same link the user ' +
+      'opens in the Preview tab). Read-only — no approval, no side effects.\n' +
+      '\n' +
+      'Returns `{ ok, available, previewUrl?, hostname?, previewPort? }`. ' +
+      '`available:false` when no Cloudflare preview tunnel is allocated for this ' +
+      'branch/runtime. The URL does not guarantee the app is up — only that a tunnel ' +
+      'hostname was provisioned.',
+    inputSchema: getPreviewUrlSchema,
+    async run(_args: unknown, _ctx: ToolContext): Promise<ToolResult> {
+      let env: PreviewEnvSnapshot
+      try {
+        env = getPreviewEnv()
+      } catch (err) {
+        deps.logger.warn({ err }, 'get_preview_url: failed to read preview env')
+        env = {}
+      }
+      const hostname = env.hostname?.trim()
+      if (hostname === undefined || hostname === '') {
+        return {
+          ok: true,
+          available: false,
+          message:
+            'No preview tunnel is allocated for this runtime (PREVIEW_HOSTNAME is unset).',
+        }
+      }
+      const previewPort = env.previewPort?.trim() || '5173'
+      return {
+        ok: true,
+        available: true,
+        previewUrl: `https://${hostname}`,
+        hostname,
+        previewPort,
+      }
+    },
+  }
+}
+
+// ============================================================================
+// Tool 7 — request_rebootstrap  (ESCAPE HATCH — last resort)
 // ============================================================================
 //
 // Triggers a full re-bootstrap via the EXISTING force-rebootstrap path (the same
@@ -721,11 +796,18 @@ export interface BuildCustomToolsDeps {
    */
   listBootIssues?: () => BootIssue[]
   /**
+   * Snapshot `PREVIEW_HOSTNAME` / `PREVIEW_PORT` for `get_preview_url`. Defaults
+   * to `readPreviewEnvFromProcess()`; tests inject a stub.
+   */
+  getPreviewEnv?: () => PreviewEnvSnapshot
+  /**
    * Reuse of the EXISTING force-rebootstrap teardown (same callback the
    * composition root wires to `signalr.onForceRebootstrap`). Invoked by
    * `request_rebootstrap`.
    */
   triggerRebootstrap?: (reason: string) => void | Promise<void>
+  /** Lazy ref — wired after GitModule boots; tools return unavailable until set. */
+  getGitModule?: GitModuleAccessor
 }
 
 export function buildCustomTools(deps: BuildCustomToolsDeps): CustomTool[] {
@@ -785,13 +867,21 @@ export function buildCustomTools(deps: BuildCustomToolsDeps): CustomTool[] {
       )
     })
 
+  const getGitModule = deps.getGitModule ?? ((): undefined => undefined)
+  const gitTools = buildGitCustomTools({ logger: childLogger, getGitModule })
+
   return [
     buildProposeRuntimeSpec(proposeOpts),
     buildRestartService(restartOpts),
     buildDryRunInstall(dryRunOpts),
     buildGetRuntimeSpec({ logger: childLogger, getRuntimeSpec }),
     buildGetBootIssues({ logger: childLogger, listBootIssues }),
+    buildGetPreviewUrl({
+      logger: childLogger,
+      ...(deps.getPreviewEnv !== undefined ? { getPreviewEnv: deps.getPreviewEnv } : {}),
+    }),
     buildRequestRebootstrap({ logger: childLogger, triggerRebootstrap }),
+    ...gitTools,
   ]
 }
 

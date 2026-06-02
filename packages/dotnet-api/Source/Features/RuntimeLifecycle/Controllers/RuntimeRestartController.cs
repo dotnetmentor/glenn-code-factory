@@ -1,7 +1,10 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Source.Features.RuntimeLifecycle.Commands.ForceStopRuntime;
+using Source.Features.RuntimeLifecycle.Commands.ResetRuntimeFromScratch;
 using Source.Features.RuntimeLifecycle.Commands.RestartRuntime;
+using Source.Features.RuntimeLifecycle.Commands.SuspendRuntime;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
 using Source.Infrastructure.Extensions;
@@ -58,13 +61,10 @@ public class RuntimeRestartController : BaseApiController
 
     /// <summary>
     /// Restart the most-recent (non-deleted) runtime for the
-    /// <c>(projectId, branchId)</c> pair. Legal from <see cref="RuntimeState.Suspended"/>
-    /// (wake), <see cref="RuntimeState.Failed"/>, or <see cref="RuntimeState.Crashed"/>
-    /// (full restart on the existing volume); any other state returns 409 with the
-    /// current state in the error so the UI can stay coherent without a
-    /// reload. Returns the <see cref="RuntimeStatusResponse"/> snapshot
-    /// immediately so the frontend can re-render to <c>Pending</c> / <c>Waking</c>
-    /// without a follow-up GET — the SignalR runtime-state channel takes it from there.
+    /// <c>(projectId, branchId)</c> pair. Suspended runtimes wake; Online,
+    /// mid-boot, Failed, and Crashed runtimes hard-reboot on the existing
+    /// volume (Fly machine stopped first when attached). Returns the
+    /// <see cref="RuntimeStatusResponse"/> snapshot immediately.
     /// </summary>
     [HttpPost("restart")]
     [ProducesResponseType(typeof(RuntimeStatusResponse), StatusCodes.Status200OK)]
@@ -122,6 +122,170 @@ public class RuntimeRestartController : BaseApiController
         Logger.LogWarning(
             "RestartRuntime failed: project {ProjectId}, branch {BranchId}, user {UserId} — {Error}",
             projectId, branchId, userId, result.Error);
+        return BadRequest(new { error = result.Error });
+    }
+
+    /// <summary>
+    /// Park the most-recent (non-deleted) runtime for the
+    /// <c>(projectId, branchId)</c> pair. Legal only from
+    /// <see cref="RuntimeState.Online"/> — mid-boot parking remains on the
+    /// operator <see cref="RuntimeAdminController.ForceStop"/> surface.
+    /// Returns the <see cref="RuntimeStatusResponse"/> snapshot immediately
+    /// so the frontend can re-render to <c>Suspending</c> without a follow-up GET.
+    /// </summary>
+    [HttpPost("suspend")]
+    [ProducesResponseType(typeof(RuntimeStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RuntimeStatusResponse>> Suspend(
+        Guid projectId,
+        Guid branchId,
+        CancellationToken ct)
+    {
+        var userIdRaw = GetCurrentUserId();
+        if (string.IsNullOrEmpty(userIdRaw) || !Guid.TryParse(userIdRaw, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        if (!await _db.CallerOwnsProjectAsync(User, projectId, ct))
+        {
+            return NotFound();
+        }
+
+        var result = await Mediator.Send(
+            new SuspendRuntimeCommand(projectId, branchId, userId),
+            ct);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        if (result.Error?.StartsWith(SuspendRuntimeHandler.NotFoundPrefix, StringComparison.Ordinal) == true)
+        {
+            Logger.LogInformation(
+                "SuspendRuntime 404: project {ProjectId}, branch {BranchId}, user {UserId} — {Error}",
+                projectId, branchId, userId, result.Error);
+            return NotFound(new { error = result.Error });
+        }
+
+        if (result.Error?.StartsWith(SuspendRuntimeHandler.ConflictPrefix, StringComparison.Ordinal) == true)
+        {
+            Logger.LogInformation(
+                "SuspendRuntime 409: project {ProjectId}, branch {BranchId}, user {UserId} — {Error}",
+                projectId, branchId, userId, result.Error);
+            return Conflict(new { error = result.Error });
+        }
+
+        Logger.LogWarning(
+            "SuspendRuntime failed: project {ProjectId}, branch {BranchId}, user {UserId} — {Error}",
+            projectId, branchId, userId, result.Error);
+        return BadRequest(new { error = result.Error });
+    }
+
+    /// <summary>
+    /// Force-stop the most-recent (non-deleted) runtime for the
+    /// <c>(projectId, branchId)</c> pair. Accepts <see cref="RuntimeState.Online"/>
+    /// and mid-boot states — parks the Fly machine to <see cref="RuntimeState.Suspending"/>.
+    /// </summary>
+    [HttpPost("force-stop")]
+    [ProducesResponseType(typeof(RuntimeStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RuntimeStatusResponse>> ForceStop(
+        Guid projectId,
+        Guid branchId,
+        CancellationToken ct)
+    {
+        var userIdRaw = GetCurrentUserId();
+        if (string.IsNullOrEmpty(userIdRaw) || !Guid.TryParse(userIdRaw, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        if (!await _db.CallerOwnsProjectAsync(User, projectId, ct))
+        {
+            return NotFound();
+        }
+
+        var result = await Mediator.Send(
+            new ForceStopRuntimeCommand(projectId, branchId, userId),
+            ct);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        if (result.Error?.StartsWith(ForceStopRuntimeHandler.NotFoundPrefix, StringComparison.Ordinal) == true)
+        {
+            Logger.LogInformation(
+                "ForceStopRuntime 404: project {ProjectId}, branch {BranchId}, user {UserId} — {Error}",
+                projectId, branchId, userId, result.Error);
+            return NotFound(new { error = result.Error });
+        }
+
+        if (result.Error?.StartsWith(ForceStopRuntimeHandler.ConflictPrefix, StringComparison.Ordinal) == true)
+        {
+            Logger.LogInformation(
+                "ForceStopRuntime 409: project {ProjectId}, branch {BranchId}, user {UserId} — {Error}",
+                projectId, branchId, userId, result.Error);
+            return Conflict(new { error = result.Error });
+        }
+
+        Logger.LogWarning(
+            "ForceStopRuntime failed: project {ProjectId}, branch {BranchId}, user {UserId} — {Error}",
+            projectId, branchId, userId, result.Error);
+        return BadRequest(new { error = result.Error });
+    }
+
+    /// <summary>
+    /// Wipe Fly machine + volume references and reprovision from a clean disk.
+    /// Use when restart keeps failing (e.g. volume not found, pending_destroy).
+    /// </summary>
+    [HttpPost("reset-from-scratch")]
+    [ProducesResponseType(typeof(RuntimeStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RuntimeStatusResponse>> ResetFromScratch(
+        Guid projectId,
+        Guid branchId,
+        CancellationToken ct)
+    {
+        var userIdRaw = GetCurrentUserId();
+        if (string.IsNullOrEmpty(userIdRaw) || !Guid.TryParse(userIdRaw, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        if (!await _db.CallerOwnsProjectAsync(User, projectId, ct))
+        {
+            return NotFound();
+        }
+
+        var result = await Mediator.Send(
+            new ResetRuntimeFromScratchCommand(projectId, branchId, userId),
+            ct);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        if (result.Error?.StartsWith(ResetRuntimeFromScratchHandler.NotFoundPrefix, StringComparison.Ordinal) == true)
+        {
+            return NotFound(new { error = result.Error });
+        }
+
+        if (result.Error?.StartsWith(ResetRuntimeFromScratchHandler.ConflictPrefix, StringComparison.Ordinal) == true)
+        {
+            return Conflict(new { error = result.Error });
+        }
+
         return BadRequest(new { error = result.Error });
     }
 }

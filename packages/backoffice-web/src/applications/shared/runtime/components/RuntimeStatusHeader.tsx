@@ -19,6 +19,7 @@ import {
   formatDuration,
   formatRelativeTime,
 } from '@/applications/super-admin/features/project-runtime/utils/runtimeEventDisplay'
+import { isDaemonMidBootConnected } from '@/applications/shared/runtime/runtimeDaemonConnectivity'
 import {
   workspaceRuntime,
   workspaceText,
@@ -220,6 +221,15 @@ export function RuntimeStatusHeader({
       // Only meaningful once a status row has been fetched. While the row is
       // still loading we render nothing rather than flashing "never".
       if (!status) return null
+      if (isDaemonMidBootConnected(status)) {
+        return {
+          text: 'Connected (bootstrapping)',
+          tint: 'normal' as const,
+          tooltip:
+            'Daemon is on RuntimeHub and installing. Heartbeats start after bootstrap finishes.',
+          showDot: true,
+        }
+      }
       return {
         text: 'Heartbeat: never',
         tint: 'error' as const,

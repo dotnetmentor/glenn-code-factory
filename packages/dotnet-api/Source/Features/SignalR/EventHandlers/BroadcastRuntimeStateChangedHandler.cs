@@ -52,6 +52,7 @@ public class BroadcastRuntimeStateChangedHandler : IEventHandler<RuntimeStateCha
         var payload = new RuntimeStateChangedNotification(
             RuntimeId: notification.RuntimeId,
             ProjectId: notification.ProjectId,
+            BranchId: notification.BranchId,
             FromState: notification.FromState?.ToString(),
             ToState: notification.ToState.ToString(),
             Reason: notification.Reason,

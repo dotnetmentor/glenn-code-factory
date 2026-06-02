@@ -39,7 +39,9 @@ const FALLBACK: ToolDescriptionResponse = {
     'Propose a runtime spec for this project. The full preset list could ' +
     'not be loaded at daemon startup — try again later or contact an ' +
     'operator. Shape: { proposedSpec: { version: 3, services: [{ kind, ' +
-    'name, values }], install?, setup? }, reason }.',
+    'name, values, requiredEnv? }], install?, setup? }, reason }. ' +
+    'Inspect the repo (.env.example, README, framework config) and declare ' +
+    'project-specific required env vars per service via requiredEnv (keys only, never values).',
   inputSchema: {
     type: 'object',
     properties: {

@@ -57,8 +57,7 @@ public static class DevSeedData
     /// matching <c>RuntimeSpecV3</c>'s schema (validated at seed time by
     /// <c>DevSeedService</c>). Empty and Rails 8 carry <see cref="StarterDefinition.RuntimeSpec"/>
     /// of <c>null</c> — the runtime then boots with the default/empty spec,
-    /// which is correct for both (Empty has nothing to install, Rails 8 V1 has
-    /// the user run <c>rails s</c> manually).</para>
+    /// which is correct for Empty; Rails 8 uses the <c>ruby-rails</c> preset.</para>
     /// </summary>
     public static readonly StarterDefinition[] Starters =
     [
@@ -114,9 +113,20 @@ public static class DevSeedData
             IconKey = "code",
             SourceRepoOwner = "glenncode-starters",
             SourceRepoName = "rails-8",
-            // No auto-boot in V1 per spec — the user runs `rails s` manually
-            // until a curated Rails runtime spec lands.
-            RuntimeSpec = null,
+            RuntimeSpec = """
+                {
+                  "version": 3,
+                  "services": [
+                    {
+                      "kind": "ruby-rails",
+                      "name": "web",
+                      "values": {
+                        "project": "."
+                      }
+                    }
+                  ]
+                }
+                """,
             IsActive = true,
             IsDefault = false,
             SortOrder = 20,

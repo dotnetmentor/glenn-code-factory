@@ -466,7 +466,7 @@ public class RuntimeHubRequestSelfHealContinuationTests : IDisposable
         // GetSecrets / GetRepoAccessToken aren't reached in these tests;
         // null! for the unused SecretEncryptionService and
         // IGithubAppTokenService keeps the harness lean.
-        var hub = new RuntimeHub(_db, _mediator.Object, _agentHub.Object, _turnDispatcher.Object, new HealthSnapshotBuffer(), new ServiceDownDetector(), null!, null!, null!, null!, new Api.Tests.Infrastructure.FakeClock(), NullLogger<RuntimeHub>.Instance)
+        var hub = new RuntimeHub(_db, _mediator.Object, _agentHub.Object, _turnDispatcher.Object, new HealthSnapshotBuffer(), new ServiceDownDetector(), null!, null!, null!, null!, null!, new Api.Tests.Infrastructure.FakeClock(), NullLogger<RuntimeHub>.Instance)
         {
             Context = context,
             Groups = groups.Object,

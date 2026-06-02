@@ -168,4 +168,106 @@ public class ProjectRuntimeTransitionTests : HandlerTestBase
         var secondEvent = events.Single(e => e.ToState == RuntimeState.Bootstrapping);
         secondEvent.FromState.Should().Be(RuntimeState.Booting);
     }
+
+    [Fact]
+    public async Task TransitionTo_to_Booting_clears_stale_LastBootstrapActivityAt()
+    {
+        var runtime = SeedRuntime(RuntimeState.Crashed);
+        runtime.LastBootstrapActivityAt = DateTime.UtcNow.AddHours(-5);
+        await Context.SaveChangesAsync();
+
+        var result = runtime.TransitionTo(
+            RuntimeState.Booting,
+            reason: "respawn:created",
+            triggeredBy: "system:respawn");
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.LastBootstrapActivityAt.Should().BeNull(
+            "a fresh boot must not inherit bootstrap activity from a prior Online run");
+    }
+
+    [Fact]
+    public async Task TransitionTo_to_Bootstrapping_preserves_LastBootstrapActivityAt()
+    {
+        var runtime = SeedRuntime(RuntimeState.Booting);
+        var activityAt = DateTime.UtcNow.AddMinutes(-2);
+        runtime.LastBootstrapActivityAt = activityAt;
+        await Context.SaveChangesAsync();
+
+        var result = runtime.TransitionTo(
+            RuntimeState.Bootstrapping,
+            reason: "daemon:connected",
+            triggeredBy: "system:bootstrap_daemon");
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.LastBootstrapActivityAt.Should().Be(activityAt,
+            "mid-boot progress must keep the activity timestamp set by bootstrap events");
+    }
+
+    [Fact]
+    public async Task Restart_clears_stale_LastBootstrapActivityAt()
+    {
+        var runtime = SeedRuntime(RuntimeState.Failed);
+        runtime.LastBootstrapActivityAt = DateTime.UtcNow.AddHours(-5);
+        await Context.SaveChangesAsync();
+
+        var result = runtime.Restart(Guid.NewGuid());
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.State.Should().Be(RuntimeState.Pending);
+        runtime.LastBootstrapActivityAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Restart_fromOnline_succeeds()
+    {
+        var runtime = SeedRuntime(RuntimeState.Online);
+        await Context.SaveChangesAsync();
+
+        var result = runtime.Restart(Guid.NewGuid());
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.State.Should().Be(RuntimeState.Pending);
+    }
+
+    [Fact]
+    public void ReprovisionAfterSpecChange_updates_snapshot_and_walks_to_Pending()
+    {
+        var runtime = SeedRuntime(RuntimeState.Suspended);
+        runtime.MemoryMb = 2048;
+        runtime.Cpus = 1;
+
+        var result = runtime.ReprovisionAfterSpecChange(
+            "performance",
+            cpus: 2,
+            memoryMb: 4096,
+            volumeSizeGb: 15,
+            userId: Guid.NewGuid());
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.State.Should().Be(RuntimeState.Pending);
+        runtime.MemoryMb.Should().Be(4096);
+        runtime.Cpus.Should().Be(2);
+        runtime.VolumeSizeGb.Should().Be(15);
+        runtime.HardwareSpecMatches("performance", 2, 4096, 15).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ResetFromScratch_clears_fly_refs_and_walks_to_Pending()
+    {
+        var runtime = SeedRuntime(RuntimeState.Failed);
+        runtime.FlyMachineId = "machine-old";
+        runtime.FlyVolumeId = "vol-old";
+        runtime.RespawnRetries = 2;
+
+        var result = runtime.ResetFromScratch(Guid.NewGuid());
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.State.Should().Be(RuntimeState.Pending);
+        runtime.FlyMachineId.Should().BeNull();
+        runtime.FlyVolumeId.Should().BeNull();
+        runtime.RespawnRetries.Should().Be(0);
+        runtime.LastHeartbeatAt.Should().BeNull();
+        runtime.LastBootstrapActivityAt.Should().BeNull();
+    }
 }

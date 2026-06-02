@@ -22,6 +22,7 @@ import {
   useGetApiProjectsProjectIdRuntimeSpec,
 } from '@/api/queries-commands'
 import { useAgentHub } from '@/lib/signalr'
+import { useBranchRuntimeStatus } from '@/applications/shared/runtime/hooks/useBranchRuntimeStatus'
 import { useProposalSignalR } from '../hooks/useProposalSignalR'
 import { RuntimeProposalCard } from '../components/RuntimeProposalCard'
 import { RuntimeDrawer } from '../components/RuntimeDrawer'
@@ -80,6 +81,11 @@ export function RuntimeWorkspacePage() {
 
   const specQuery = useGetApiProjectsProjectIdRuntimeSpec(projectId, {
     query: { enabled: !!projectId },
+  })
+
+  const defaultBranchId = projectQuery.data?.defaultBranchId ?? ''
+  const { runtimeId } = useBranchRuntimeStatus(projectId, defaultBranchId, {
+    enabled: !!projectId && !!defaultBranchId,
   })
 
   const pendingQuery = useGetApiProjectsProjectIdProposals(
@@ -225,8 +231,8 @@ export function RuntimeWorkspacePage() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         projectId={projectId}
-        branchId={projectQuery.data?.defaultBranchId}
-        runtimeId={specQuery.data?.runtimeId ?? undefined}
+        branchId={defaultBranchId}
+        runtimeId={runtimeId}
         connection={connection}
       />
     </Container>

@@ -62,6 +62,7 @@ import {
 } from './TurnPhaseChrome'
 import type { TerminalRunStatus } from './TurnFooter'
 import { readAgentModelOverride } from '../hooks/useAgentModelOverride'
+import { clearLastBranchConversationId } from '../hooks/branchConversationMemory'
 import {
   RuntimeProposalCard,
   useProposalSignalR,
@@ -2909,10 +2910,11 @@ export function ChatCanvas({
     conversationError instanceof AxiosError &&
     conversationError.response?.status === 404
   const clearStaleConversationParam = useCallback(() => {
+    clearLastBranchConversationId(branchId)
     const nextParams = new URLSearchParams(searchParams)
     nextParams.delete('c')
     setSearchParams(nextParams, { replace: true })
-  }, [searchParams, setSearchParams])
+  }, [branchId, searchParams, setSearchParams])
   void slug // currently unused but kept for parity with sibling components.
 
   // Bundle of attachment wiring threaded down to the Composer (both the

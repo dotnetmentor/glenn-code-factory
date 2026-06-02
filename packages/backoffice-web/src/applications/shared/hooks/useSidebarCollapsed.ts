@@ -37,9 +37,9 @@ function broadcast(next: boolean) {
  * Persisted boolean controlling whether the workspace sidebar renders in its
  * compact 56px icon-rail mode (collapsed) or its full 256px navigator mode.
  *
- * <p>Mirrors {@link useShowSidebarCosts} in shape but adds in-tab cross-
- * component synchronisation so the {@link WorkspaceShellLayout} wrapper and
- * the {@link ProjectsBranchesSidebar} itself always agree on the current
+ * <p>Uses in-tab cross-component synchronisation so the
+ * {@link WorkspaceShellLayout} wrapper and the
+ * {@link ProjectsBranchesSidebar} itself always agree on the current
  * value — flipping it from inside the sidebar reactively resizes the
  * layout column without waiting for a remount.</p>
  *

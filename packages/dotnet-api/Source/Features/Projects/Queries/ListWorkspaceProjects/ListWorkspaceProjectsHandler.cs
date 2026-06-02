@@ -20,13 +20,11 @@ namespace Source.Features.Projects.Queries.ListWorkspaceProjects;
 /// Sort is "newest activity first" so the recently-worked-on projects float to
 /// the top of the list view.</para>
 ///
-/// <para>Runtime state and the optional failure metadata are pulled from the
-/// <see cref="ProjectRuntime"/> pinned to the project's default
-/// <see cref="Source.Features.Projects.Models.ProjectBranch"/> (the same row
-/// the single-project <c>GetProject</c> handler selects). Both columns are
-/// surfaced via correlated subqueries so the projection still resolves in a
-/// single database round-trip — the sidebar polls this endpoint every 15s and
-/// can't afford an N+1.</para>
+/// <para>Runtime state and the optional failure metadata are aggregated across
+/// all non-archived branch runtimes so the sidebar's "Needs Action" bucket
+/// reflects any branch that needs attention. Both columns are surfaced via
+/// correlated subqueries so the projection still resolves in a single
+/// database round-trip.</para>
 /// </summary>
 public sealed class ListWorkspaceProjectsHandler
     : IQueryHandler<ListWorkspaceProjectsQuery, Result<List<ProjectSummaryDto>>>
@@ -66,24 +64,28 @@ public sealed class ListWorkspaceProjectsHandler
                 // "at least 1" invariant the sidebar relies on.
                 p.Branches.Count(b => !b.IsArchived),
                 (DateTime?)p.UpdatedAt,
-                // Runtime state of the default-branch runtime. Mirrors the
-                // selection in GetProjectHandler — newest-first so a re-
-                // provisioned project surfaces the live runtime, not a stale
-                // tombstoned one. Soft-deleted runtimes are filtered out by
-                // the global query filter on ProjectRuntime.
+                // Highest-priority runtime state across non-archived branches.
+                // Failed/Crashed wins so the sidebar "Needs Action" section
+                // fires when ANY branch needs attention, not just the default.
+                p.Runtimes.Any(r => !r.Branch.IsArchived
+                    && (r.State == RuntimeState.Failed || r.State == RuntimeState.Crashed))
+                    ? RuntimeState.Failed
+                    : p.Runtimes.Any(r => !r.Branch.IsArchived
+                        && (r.State == RuntimeState.Pending
+                            || r.State == RuntimeState.Booting
+                            || r.State == RuntimeState.Bootstrapping
+                            || r.State == RuntimeState.Waking))
+                        ? RuntimeState.Booting
+                        : p.Runtimes.Any(r => !r.Branch.IsArchived && r.State == RuntimeState.Online)
+                            ? RuntimeState.Online
+                            : p.Runtimes.Any(r => !r.Branch.IsArchived
+                                && (r.State == RuntimeState.Suspended
+                                    || r.State == RuntimeState.Suspending))
+                                ? RuntimeState.Suspended
+                                : (RuntimeState?)null,
+                // Failure metadata from the newest Failed runtime on any branch.
                 p.Runtimes
-                    .Where(r => r.Branch.IsDefault)
-                    .OrderByDescending(r => r.CreatedAt)
-                    .Select(r => (RuntimeState?)r.State)
-                    .FirstOrDefault(),
-                // RuntimeErrorMessage — only meaningful when the runtime is in
-                // the Failed state, sourced from the Metadata of the most
-                // recent transition into Failed. Mirrors RuntimeStatusController.
-                // RuntimeStateEvents has no FK to ProjectRuntime by design
-                // (audit must outlive the runtime row), so we join through
-                // RuntimeId rather than a navigation collection.
-                p.Runtimes
-                    .Where(r => r.Branch.IsDefault && r.State == RuntimeState.Failed)
+                    .Where(r => !r.Branch.IsArchived && r.State == RuntimeState.Failed)
                     .OrderByDescending(r => r.CreatedAt)
                     .Take(1)
                     .SelectMany(r => _db.RuntimeStateEvents

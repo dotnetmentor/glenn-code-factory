@@ -1,42 +1,28 @@
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using Source.Features.Projects.Models;
+using Source.Features.RuntimeLifecycle.Jobs;
+using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
 
 namespace Source.Features.Projects.Commands.UpdateRuntimeSpec;
 
-/// <summary>
-/// Handles <see cref="UpdateProjectRuntimeSpecCommand"/>. Two-line pipeline:
-///
-/// <list type="number">
-///   <item><b>Load + delegate.</b> Tracked load of the project (global IsDeleted
-///         filter excludes tombstones), call <c>Project.SetRuntimeSpec(...)</c>
-///         which validates every field, enforces the Fly performance-class
-///         memory floor, and either mutates + raises a domain event or returns
-///         a sentinel error for the controller to map to 400.</item>
-///   <item><b>Save.</b> Single SaveChanges; the rich method already short-circuits
-///         on no-op so re-submitting the same values is a true no-op (no
-///         StoredDomainEvents row, no UpdatedAt touch).</item>
-/// </list>
-///
-/// <para><b>No Cloudflare fan-out, no SignalR push.</b> Unlike preview-port
-/// changes, runtime-spec changes do not affect live infrastructure. They take
-/// effect on the next <c>ProjectRuntime</c> creation (new branch / fork /
-/// attach / AI onboarding) — there is nothing to propagate elsewhere. If we
-/// later want other tabs to live-update, a SignalR push can be added without
-/// changing the handler's contract.</para>
-/// </summary>
 public sealed class UpdateProjectRuntimeSpecHandler
     : ICommandHandler<UpdateProjectRuntimeSpecCommand, Result<UpdateProjectRuntimeSpecResponse>>
 {
     private readonly ApplicationDbContext _db;
+    private readonly IBackgroundJobClient _backgroundJobs;
     private readonly ILogger<UpdateProjectRuntimeSpecHandler> _logger;
 
     public UpdateProjectRuntimeSpecHandler(
         ApplicationDbContext db,
+        IBackgroundJobClient backgroundJobs,
         ILogger<UpdateProjectRuntimeSpecHandler> logger)
     {
         _db = db;
+        _backgroundJobs = backgroundJobs;
         _logger = logger;
     }
 
@@ -63,20 +49,111 @@ public sealed class UpdateProjectRuntimeSpecHandler
             return Result.Failure<UpdateProjectRuntimeSpecResponse>(setResult.Error!);
         }
 
-        // SaveChanges is a no-op (no tracked changes) when SetRuntimeSpec
-        // short-circuits because every field already matched. Still cheap and
-        // keeps the pipeline uniform.
-        await _db.SaveChangesAsync(cancellationToken);
+        var restartedBranchNames = new List<string>();
+        string? volumeSizeNote = null;
+
+        if (request.ApplyToExistingBranches)
+        {
+            var runtimes = await _db.ProjectRuntimes
+                .Where(r => r.ProjectId == request.ProjectId)
+                .Join(
+                    _db.ProjectBranches.Where(b => !b.IsArchived),
+                    r => r.BranchId,
+                    b => b.Id,
+                    (r, b) => new { Runtime = r, b.Name })
+                .OrderByDescending(x => x.Runtime.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            var seenBranches = new HashSet<Guid>();
+            var reprovisionedRuntimeIds = new List<Guid>();
+            var anyVolumeSizeDrift = false;
+
+            foreach (var row in runtimes)
+            {
+                var runtime = row.Runtime;
+                if (!seenBranches.Add(runtime.BranchId))
+                {
+                    continue;
+                }
+
+                if (runtime.HardwareSpecMatches(
+                        request.CpuKind,
+                        request.Cpus,
+                        request.MemoryMb,
+                        request.VolumeSizeGb))
+                {
+                    continue;
+                }
+
+                if (runtime.VolumeSizeGb != request.VolumeSizeGb)
+                {
+                    anyVolumeSizeDrift = true;
+                }
+
+                var reprovision = runtime.ReprovisionAfterSpecChange(
+                    request.CpuKind,
+                    request.Cpus,
+                    request.MemoryMb,
+                    request.VolumeSizeGb,
+                    request.UserId);
+
+                if (reprovision.IsFailure)
+                {
+                    _logger.LogWarning(
+                        "Apply runtime spec: skipped runtime {RuntimeId} on branch {BranchName}: {Error}",
+                        runtime.Id, row.Name, reprovision.Error);
+                    continue;
+                }
+
+                restartedBranchNames.Add(row.Name);
+                reprovisionedRuntimeIds.Add(runtime.Id);
+            }
+
+            if (anyVolumeSizeDrift)
+            {
+                volumeSizeNote =
+                    "Disk size on existing branches is unchanged on the live Fly volume until reset from scratch; CPU and RAM will update after restart.";
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+
+            foreach (var runtimeId in reprovisionedRuntimeIds)
+            {
+                _backgroundJobs.Enqueue<RuntimeProvisionerJob>(
+                    j => j.ProvisionOne(runtimeId, JobCancellationToken.Null));
+            }
+
+            if (restartedBranchNames.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Applied runtime spec to {Count} existing branch(es) on project {ProjectId}: {Branches}",
+                    restartedBranchNames.Count,
+                    request.ProjectId,
+                    string.Join(", ", restartedBranchNames));
+            }
+        }
+        else
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
 
         _logger.LogInformation(
-            "Updated runtime spec for project {ProjectId}: cpuKind={CpuKind} cpus={Cpus} memoryMb={MemoryMb} volumeSizeGb={VolumeSizeGb}",
-            request.ProjectId, project.RuntimeCpuKind, project.RuntimeCpus, project.RuntimeMemoryMb, project.RuntimeVolumeSizeGb);
+            "Updated runtime spec for project {ProjectId}: cpuKind={CpuKind} cpus={Cpus} memoryMb={MemoryMb} volumeSizeGb={VolumeSizeGb} applyExisting={ApplyExisting}",
+            request.ProjectId,
+            project.RuntimeCpuKind,
+            project.RuntimeCpus,
+            project.RuntimeMemoryMb,
+            project.RuntimeVolumeSizeGb,
+            request.ApplyToExistingBranches);
 
         return Result.Success(new UpdateProjectRuntimeSpecResponse(
             ProjectId: project.Id,
             CpuKind: project.RuntimeCpuKind,
             Cpus: project.RuntimeCpus,
             MemoryMb: project.RuntimeMemoryMb,
-            VolumeSizeGb: project.RuntimeVolumeSizeGb));
+            VolumeSizeGb: project.RuntimeVolumeSizeGb,
+            AppliedToExistingBranchCount: restartedBranchNames.Count,
+            RestartedBranchNames: restartedBranchNames,
+            VolumeSizeNote: volumeSizeNote));
     }
 }

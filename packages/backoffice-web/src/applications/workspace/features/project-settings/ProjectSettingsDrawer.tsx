@@ -59,9 +59,8 @@ const TAB_DESCRIPTORS: readonly TabDescriptor[] = [
   { value: 'general', label: 'General' },
   { value: 'permissions', label: 'Agent permissions' },
   { value: 'byok', label: 'Credentials' },
-  // Environment — branch-scoped env vars with required-vs-present status. Sits
-  // next to Credentials (both are per-branch config knobs) and before Runtime,
-  // since the runtime's services consume these values.
+  // Environment — project-default env vars with optional per-branch overrides.
+  // Sits next to Credentials and before Runtime, since services consume these values.
   { value: 'environment', label: 'Environment' },
   { value: 'runtime', label: 'Runtime' },
   // Sits intentionally next to Runtime — they're siblings, not nested.
@@ -411,13 +410,14 @@ export function ProjectSettingsDrawer({
               <Box sx={{ p: { xs: 3, md: 4 }, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 <ServicesTabContainer
                   projectId={projectId}
+                  branchId={branchId ?? ''}
                   onViewLogs={handleViewLogs}
                 />
               </Box>
             )}
             {selectedTab === 'activity' && (
               <Box sx={{ p: { xs: 3, md: 4 }, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                <ActivityTab projectId={projectId} />
+                <ActivityTab projectId={projectId} branchId={branchId ?? ''} />
               </Box>
             )}
           </Box>

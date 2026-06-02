@@ -1,24 +1,21 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   getGetApiProjectsProjectIdBranchesBranchIdEnvQueryKey,
   getGetApiProjectsProjectIdBranchesBranchIdEnvStatusQueryKey,
+  getGetApiProjectsProjectIdSecretsQueryKey,
   useDeleteApiProjectsProjectIdBranchesBranchIdEnvKey,
   useGetApiProjectsProjectIdBranchesBranchIdEnv,
   useGetApiProjectsProjectIdBranchesBranchIdEnvStatus,
   usePostApiProjectsProjectIdBranchesBranchIdEnv,
   usePutApiProjectsProjectIdBranchesBranchIdEnvKey,
 } from '../../../../../../api/queries-commands'
+import { readEnvVarApiErrorCode } from './envVarApiError'
+import type { EnvVarListItem } from './envVarTypes'
 
 /**
- * Branch-scoped environment variable management.
- *
- * <p>Wraps the four generated Orval hooks (list, status, add, update, delete)
- * and centralises the dual-invalidation rule: every mutation invalidates BOTH
- * the list query AND the status query, so the "missing required" badge clears
- * the moment a required var is filled. The backend kicks off a real-time
- * service restart when a missing required var lands — the UI doesn't need to do
- * anything special beyond refetching status.</p>
+ * Branch override env vars and branch-effective status. Writes always create or
+ * rotate branch-specific rows; project defaults live in {@link useProjectEnvVars}.
  */
 export function useBranchEnvVars(projectId: string, branchId: string, enabled: boolean) {
   const queryClient = useQueryClient()
@@ -36,8 +33,8 @@ export function useBranchEnvVars(projectId: string, branchId: string, enabled: b
   const addMutation = usePostApiProjectsProjectIdBranchesBranchIdEnv()
   const updateMutation = usePutApiProjectsProjectIdBranchesBranchIdEnvKey()
   const deleteMutation = useDeleteApiProjectsProjectIdBranchesBranchIdEnvKey()
+  const [isImporting, setIsImporting] = useState(false)
 
-  /** Invalidate both the list and the status queries after any mutation. */
   const invalidateBoth = useCallback(() => {
     queryClient.invalidateQueries({
       queryKey: getGetApiProjectsProjectIdBranchesBranchIdEnvQueryKey(projectId, branchId),
@@ -47,6 +44,9 @@ export function useBranchEnvVars(projectId: string, branchId: string, enabled: b
         projectId,
         branchId,
       ),
+    })
+    queryClient.invalidateQueries({
+      queryKey: getGetApiProjectsProjectIdSecretsQueryKey(projectId),
     })
   }, [queryClient, projectId, branchId])
 
@@ -83,8 +83,67 @@ export function useBranchEnvVars(projectId: string, branchId: string, enabled: b
     [deleteMutation, projectId, branchId, invalidateBoth],
   )
 
+  const importVars = useCallback(
+    async (
+      entries: ReadonlyArray<{ key: string; value: string; isSecret: boolean }>,
+      branchOverrideKeys: ReadonlySet<string>,
+    ) => {
+      setIsImporting(true)
+      try {
+        const branchKeys = new Set(branchOverrideKeys)
+        for (const entry of entries) {
+          if (branchKeys.has(entry.key)) {
+            await updateMutation.mutateAsync({
+              projectId,
+              branchId,
+              key: entry.key,
+              data: { value: entry.value, isSecret: entry.isSecret },
+            })
+            continue
+          }
+
+          try {
+            await addMutation.mutateAsync({
+              projectId,
+              branchId,
+              data: { key: entry.key, value: entry.value, isSecret: entry.isSecret },
+            })
+            branchKeys.add(entry.key)
+          } catch (err) {
+            if (readEnvVarApiErrorCode(err) !== 'key_already_exists') {
+              throw err
+            }
+            await updateMutation.mutateAsync({
+              projectId,
+              branchId,
+              key: entry.key,
+              data: { value: entry.value, isSecret: entry.isSecret },
+            })
+            branchKeys.add(entry.key)
+          }
+        }
+        invalidateBoth()
+      } finally {
+        setIsImporting(false)
+      }
+    },
+    [addMutation, updateMutation, projectId, branchId, invalidateBoth],
+  )
+
   return {
     items: listQuery.data ?? [],
+    overrideItems: (listQuery.data ?? [])
+      .filter((item) => item.scope === 'branch')
+      .map(
+        (item): EnvVarListItem => ({
+          key: item.key,
+          isSecret: item.isSecret,
+          version: item.version,
+          updatedAt: item.updatedAt,
+          scope: 'branch',
+          value: item.value,
+        }),
+      ),
     status: statusQuery.data,
     isLoading: listQuery.isLoading || statusQuery.isLoading,
     isError: listQuery.isError || statusQuery.isError,
@@ -95,8 +154,10 @@ export function useBranchEnvVars(projectId: string, branchId: string, enabled: b
     addVar,
     updateVar,
     deleteVar,
+    importVars,
     isAdding: addMutation.isPending,
     isUpdating: updateMutation.isPending,
     isDeleting: deleteMutation.isPending,
+    isImporting,
   }
 }
