@@ -146,9 +146,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # /usr/local/bin/cloudflared (symlinked from /usr/bin/cloudflared by the .deb)
 # is what supervisord exec's directly.
 #
-# Bump the URL to update the version.
+# Bump CLOUDFLARED_VERSION when releasing a new tunnel client.
+ARG CLOUDFLARED_VERSION=2026.5.2
 RUN curl -fsSL -o /tmp/cloudflared.deb \
-        https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
+        "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64.deb" \
     && dpkg -i /tmp/cloudflared.deb \
     && rm /tmp/cloudflared.deb \
     && cloudflared --version
@@ -244,6 +245,13 @@ RUN mkdir -p ${PLAYWRIGHT_BROWSERS_PATH} \
     && npm install -g playwright@latest \
     && npx playwright install --with-deps chromium \
     && npm cache clean --force
+
+# ----------------------- Layer 7b: Debian security updates --------------------------
+# Apply security fixes after all apt layers (playwright --with-deps, postgres, gh, …).
+# CI Trivy fails on CRITICAL OS CVEs with published fixes (e.g. libgnutls30 deb12u7).
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 # ----------------------- Layer 8: Bootstrap + entrypoint + supervisord --------------
 # bootstrap-daemon.sh is what supervisord [program:agent] now runs in place of

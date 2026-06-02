@@ -14,6 +14,10 @@
 # Local-only runs (--no-push) do not touch the catalog — use the admin UI to
 # register/activate manually if you are not going through CI.
 #
+# Trivy (when pushing): CRITICAL OS packages only (--pkg-types os). Vendor Go binaries
+# (e.g. cloudflared) are not gated here — patch via CLOUDFLARED_VERSION / upstream releases.
+# CI is the security gate; publish-runtime-image-remote.sh does not run Trivy.
+#
 # Usage:
 #   scripts/publish-runtime-image.sh                       # full pipeline
 #   scripts/publish-runtime-image.sh --no-push             # build + smoke-test only
@@ -220,10 +224,11 @@ fi
 # ---------- Trivy scan --------------------------------------------------------------
 if $DO_TRIVY && $DO_PUSH; then
     if command -v trivy >/dev/null 2>&1; then
-        echo "🛡️  Trivy scan ($FULL_REF)"
+        echo "🛡️  Trivy scan ($FULL_REF) — OS packages only"
         trivy image \
             --severity CRITICAL \
             --ignore-unfixed \
+            --pkg-types os \
             --exit-code 1 \
             "$FULL_REF"
     else
