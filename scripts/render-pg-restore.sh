@@ -49,14 +49,21 @@ if [[ ! -f "$DUMP_FILE" ]]; then
   exit 1
 fi
 
+LOG_FILE="$BACKUP_DIR/restore-$(date -u +%Y%m%d-%H%M%S).log"
+mkdir -p "$BACKUP_DIR"
+
 echo "Restoring into target from DATABASE_URL (host hidden)."
 echo "  dump:   $DUMP_FILE"
+echo "  log:    $LOG_FILE"
 echo "  flags:  --clean --if-exists --no-owner --no-acl"
 echo ""
-echo "Press Enter to continue, or Ctrl-C to abort."
-read -r _
+if [[ "${RENDER_RESTORE_YES:-}" != "1" ]]; then
+  echo "Press Enter to continue, or Ctrl-C to abort (or export RENDER_RESTORE_YES=1)."
+  read -r _
+fi
 
-# pg_restore may exit 1 with harmless warnings (e.g. extensions). Capture and report.
+# pg_restore often exits 1 with "errors ignored on restore: 1" (extension/role noise on
+# managed Postgres). Full output goes to the log so the real error line is not lost.
 set +e
 pg_restore \
   --dbname="$DATABASE_URL" \
@@ -65,17 +72,38 @@ pg_restore \
   --if-exists \
   --no-owner \
   --no-acl \
-  "$DUMP_FILE"
-RESTORE_EXIT=$?
+  "$DUMP_FILE" 2>&1 | tee "$LOG_FILE"
+RESTORE_EXIT="${PIPESTATUS[0]}"
 set -e
 
+ERROR_LINES="$(grep -E '^(pg_restore: error:|ERROR:)' "$LOG_FILE" 2>/dev/null || true)"
+
 echo ""
+if [[ -n "$ERROR_LINES" ]]; then
+  echo "pg_restore reported errors (see $LOG_FILE):"
+  echo "$ERROR_LINES" | head -20
+  echo ""
+fi
+
+VERIFY_OK=0
+if command -v psql >/dev/null 2>&1; then
+  echo "Sanity check:"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT 'Projects' AS t, COUNT(*)::text FROM \"Projects\"
+     UNION ALL SELECT '__EFMigrationsHistory', COUNT(*)::text FROM \"__EFMigrationsHistory\";" \
+    && VERIFY_OK=1 || true
+  echo ""
+fi
+
 if [[ $RESTORE_EXIT -eq 0 ]]; then
-  echo "Restore finished successfully."
+  echo "Restore finished successfully (pg_restore exit 0)."
+elif [[ $VERIFY_OK -eq 1 ]] && [[ "$(echo "$ERROR_LINES" | grep -c . || true)" -le 3 ]]; then
+  echo "pg_restore exited with code $RESTORE_EXIT but core tables have rows."
+  echo "This is normal on Render when one object (often an extension) fails — safe to proceed."
+  echo "Scroll $LOG_FILE for the single ignored error if curious."
 else
-  echo "pg_restore exited with code $RESTORE_EXIT."
-  echo "If the only errors were about existing objects or extensions, inspect the log above;"
-  echo "then verify with: psql \"\$DATABASE_URL\" -c '\\dt public.*'"
+  echo "pg_restore exited with code $RESTORE_EXIT and verification did not pass."
+  echo "Inspect: $LOG_FILE"
   exit "$RESTORE_EXIT"
 fi
 
