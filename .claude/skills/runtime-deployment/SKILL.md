@@ -89,14 +89,17 @@ Critical invariants: keep `@cursor/sdk` **external** in esbuild; run `publish-da
 
 ## Ship a new runtime base image
 
-### Path A — Agent / no local Docker
+### Path A — CI / agent / no local Docker (preferred)
+
+GitHub Actions (`.github/workflows/runtime-base-image.yml`) and local CLI both use:
 
 ```bash
 ./scripts/publish-runtime-image-remote.sh
-# Flags: --use-db-token, --no-activate, --tag X
+# CI: --no-activate --enforce-size-budget --trivy (then register-runtime-image.sh)
+# Local: registers via SuperAdmin JWT unless --no-activate
 ```
 
-Build takes ~5–10 min. Registry default: `registry.fly.io/<your-runtime-base-image>`.
+Fly token in CI comes from `GET /api/ci/registry-credentials` (`CONTROL_PLANE_PUBLISH_API_KEY`). Build takes ~5–15 min on Fly's remote builder.
 
 ### Path B — Host with Docker
 

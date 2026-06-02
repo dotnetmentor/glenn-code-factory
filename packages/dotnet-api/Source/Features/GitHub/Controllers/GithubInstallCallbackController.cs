@@ -33,10 +33,9 @@ public class GithubInstallCallbackController : BaseApiController
 
     /// <summary>
     /// GitHub install callback. Validates the signed state, persists the installation row,
-    /// kicks off the initial repo sync, and bounces the user back to the workspace's
-    /// projects page (which is the workspace home — Integrations was folded into the
-    /// settings drawer and no longer has its own route). The {@code ?install=success|pending|cancelled}
-    /// query param is read by ProjectsPage to surface a one-time snackbar.
+    /// kicks off the initial repo sync, and bounces the user back to the workspace
+    /// home at <c>/w/{slug}</c>. The {@code ?install=success|pending|cancelled}
+    /// query param is read by WorkspaceLandingView to surface a one-time snackbar.
     /// </summary>
     [HttpGet("install/callback")]
     [ProducesResponseType(302)]
@@ -75,11 +74,9 @@ public class GithubInstallCallbackController : BaseApiController
 
         var slug = result.Value.WorkspaceSlug;
         var status = result.Value.Pending ? "pending" : "success";
-        // Land on the workspace projects view — that's the workspace home now,
-        // and the integrations standalone route was removed when the surface
-        // was folded into the settings drawer. The `?install=` flag drives a
-        // one-time snackbar in ProjectsPage, then it strips itself from the URL.
-        var path = $"/w/{slug}/projects?install={status}";
+        // Land on the workspace home. The `?install=` flag drives a one-time
+        // snackbar in WorkspaceLandingView, then it strips itself from the URL.
+        var path = WorkspaceFrontendRoutes.HomeWithQuery(slug, "install", status);
 
         // Build an ABSOLUTE redirect against the deployment's canonical public host
         // (Runtime:PublicApiUrl SystemSetting — live-editable from Super Admin). The

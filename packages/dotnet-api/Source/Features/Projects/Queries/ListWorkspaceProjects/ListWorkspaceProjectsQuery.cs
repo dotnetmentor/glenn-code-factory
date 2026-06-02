@@ -6,8 +6,8 @@ namespace Source.Features.Projects.Queries.ListWorkspaceProjects;
 
 /// <summary>
 /// Read query for <c>GET /api/workspaces/{slug}/projects</c> — returns the flat
-/// list of <see cref="ProjectSummaryDto"/> rows the workspace projects list view
-/// needs to render at <c>/w/:slug/projects</c>.
+/// list of <see cref="ProjectSummaryDto"/> rows the workspace shell sidebar and
+/// landing page need.
 ///
 /// <para>The endpoint is gated by <c>[RequireWorkspaceRole(Member)]</c> — the
 /// attribute resolves the workspace from the route <c>{slug}</c>, validates the

@@ -174,7 +174,7 @@ export function ProjectGeneralTab({
           queryClient.invalidateQueries({ queryKey: getGetApiMeWorkspacesQueryKey() })
           setConfirmOpen(false)
           onDeleted()
-          navigate(`/w/${slug}/projects`)
+          navigate(`/w/${slug}`)
         },
         onError: () => {
           showError('Could not delete the project.')

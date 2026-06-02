@@ -120,8 +120,8 @@ public class GithubAuthController : BaseApiController
 
             var installSlug = installResult.Value.WorkspaceSlug;
             var installRedirect = installResult.Value.Pending
-                ? $"/w/{installSlug}/projects?install=pending"
-                : $"/w/{installSlug}/projects?install=success";
+                ? WorkspaceFrontendRoutes.HomeWithQuery(installSlug, "install", "pending")
+                : WorkspaceFrontendRoutes.HomeWithQuery(installSlug, "install", "success");
             return Redirect(installRedirect);
         }
 

@@ -13,7 +13,9 @@
 #            packages/dotnet-api/Source/Features/CiPublish/**,
 #            packages/dotnet-api/Source/Features/RuntimeImages/**,
 #            scripts/publish-runtime-image.sh, scripts/publish-runtime-image-remote.sh,
-#            scripts/ci/**, .image-size.last, .github/workflows/runtime-base-image.yml
+#            scripts/ci/**, scripts/lib/runtime-image-size-budget.sh,
+#            scripts/lib/runtime-image-trivy.sh,
+#            .image-size.last, .github/workflows/runtime-base-image.yml
 
 matches_daemon_publish_path() {
   local path="$1"
@@ -38,6 +40,8 @@ matches_runtime_publish_path() {
   [[ "$path" == scripts/publish-runtime-image.sh ]] && return 0
   [[ "$path" == scripts/publish-runtime-image-remote.sh ]] && return 0
   [[ "$path" == scripts/ci/* ]] && return 0
+  [[ "$path" == scripts/lib/runtime-image-size-budget.sh ]] && return 0
+  [[ "$path" == scripts/lib/runtime-image-trivy.sh ]] && return 0
   [[ "$path" == .image-size.last ]] && return 0
   [[ "$path" == .github/workflows/runtime-base-image.yml ]] && return 0
   return 1

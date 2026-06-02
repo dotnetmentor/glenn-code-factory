@@ -10,9 +10,8 @@ import { NewSessionRoute } from './features/new-session'
 import { PlaygroundRoute } from './features/playground'
 import { ProjectWorkspaceRoute } from './features/project-workspace'
 import {
-  ProjectsPage,
   ProjectRedirectPage,
-  IntegrationsLegacyRedirect,
+  WorkspaceHomeLegacyRedirect,
 } from './features/projects'
 import { WorkspaceLandingRoute } from './features/workspace-landing'
 import { WorkspaceSettingsRoute } from './features/workspace-settings'
@@ -21,8 +20,8 @@ import { WorkspaceSettingsRoute } from './features/workspace-settings'
  * Workspace app routes. The dashboard, members, integrations, repositories,
  * and settings pages were folded into the {@code WorkspaceSettingsDrawer} —
  * see {@code features/workspace-settings}. Project-level agent permissions
- * and BYOK live behind the {@code ProjectSettingsDrawer}. Projects is now
- * the home of a workspace.
+ * and BYOK live behind the {@code ProjectSettingsDrawer}. {@code /w/:slug}
+ * is the workspace home; {@code /w/:slug/projects} redirects there.
  */
 export const workspaceRoutes: RouteDefinition[] = [
   {
@@ -38,10 +37,15 @@ export const workspaceRoutes: RouteDefinition[] = [
     chromeless: true,
   },
   {
+    // Legacy redirect — the projects index used to be the workspace home.
+    // Bookmarks and stale GitHub callback URLs may still land here; bounce
+    // to /w/:slug and preserve ?install= / ?reauth= for the landing snackbar.
     path: '/w/:slug/projects',
     label: 'Projects',
     icon: WorkspacesIcon,
-    component: withWorkspaceProvider(ProjectsPage),
+    component: withWorkspaceProvider(WorkspaceHomeLegacyRedirect),
+    hideInNavigation: true,
+    chromeless: true,
   },
   {
     path: '/w/:slug/projects/new',
@@ -64,13 +68,12 @@ export const workspaceRoutes: RouteDefinition[] = [
   {
     // Legacy redirect — the standalone Integrations page was folded into the
     // settings drawer, but the GitHub App's Setup URL used to bounce users
-    // here. Keep the path mounted as a silent <Navigate> to /projects so old
-    // bookmarks / external references don't 404. The backend's install
-    // callback now redirects to /projects directly; this is belt-and-braces.
+    // here. Keep the path mounted as a silent <Navigate> to the workspace
+    // home so old bookmarks / external references don't 404.
     path: '/w/:slug/integrations',
     label: 'Integrations',
     icon: SettingsIcon,
-    component: withWorkspaceProvider(IntegrationsLegacyRedirect),
+    component: withWorkspaceProvider(WorkspaceHomeLegacyRedirect),
     hideInNavigation: true,
     chromeless: true,
   },
