@@ -1,4 +1,15 @@
-import { RuntimeState, type RuntimeStatusResponse } from '@/api/queries-commands'
+import { RuntimeState } from '@/api/queries-commands'
+
+/** Status fields consumed by runtime observability hooks and connectivity helpers. */
+export type RuntimeConnectivityStatus = {
+  state?: RuntimeState | string | null
+  lastHeartbeatAt?: string | null
+  lastDiskUsedBytes?: number | null
+  lastDiskTotalBytes?: number | null
+  lastDiskSampledAt?: string | null
+  lastSysstatsSnapshot?: string | null
+  lastSupervisordSnapshot?: string | null
+}
 
 /** Empty-state caption when the runtime daemon is not on RuntimeHub yet. */
 export const DAEMON_LOGS_UNAVAILABLE_MESSAGE =
@@ -13,10 +24,10 @@ const MID_BOOT_HUB_CONNECTED: ReadonlySet<RuntimeState> = new Set([
 
 /** True when the daemon has connected to RuntimeHub but not sent its first heartbeat. */
 export function isDaemonMidBootConnected(
-  status: RuntimeStatusResponse | undefined,
+  status: RuntimeConnectivityStatus | undefined,
 ): boolean {
   if (!status?.state) return false
-  return MID_BOOT_HUB_CONNECTED.has(status.state)
+  return MID_BOOT_HUB_CONNECTED.has(status.state as RuntimeState)
 }
 
 /**
@@ -29,7 +40,7 @@ export function isDaemonMidBootConnected(
  * after bootstrap completes — so {@code lastHeartbeatAt} stays null until Online.
  */
 export function isDaemonHubLikelyUnreachable(
-  status: RuntimeStatusResponse | undefined,
+  status: RuntimeConnectivityStatus | undefined,
 ): boolean {
   if (!status) return true
   if (status.lastHeartbeatAt) return false

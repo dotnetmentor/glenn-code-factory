@@ -10,11 +10,12 @@ import {
 } from '@mui/material'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import ForkRightIcon from '@mui/icons-material/ForkRight'
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined'
 import {
-  type BranchEnvVarItem,
   useGetApiProjectsProjectIdBranchesBranchIdEnvKeyReveal,
+  useGetApiProjectsProjectIdSecretsKeyReveal,
 } from '../../../../../../api/queries-commands'
 import {
   chromeTokens,
@@ -22,6 +23,7 @@ import {
   surfaceTokens,
   workspaceFontFamily,
 } from '../../../../shared/designTokens'
+import type { EnvVarListItem, EnvVarScope } from './envVarTypes'
 
 const tokens = {
   primary: surfaceTokens.textPrimary,
@@ -48,34 +50,55 @@ function formatUpdatedAt(iso: string): string {
 }
 
 export interface EnvVarRowProps {
-  item: BranchEnvVarItem
+  item: EnvVarListItem
   projectId: string
-  branchId: string
-  onEdit: (item: BranchEnvVarItem) => void
-  onDelete: (item: BranchEnvVarItem) => void
+  branchId?: string
+  onEdit: (item: EnvVarListItem) => void
+  onDelete: (item: EnvVarListItem) => void
+  /** When set, shows an action to create a branch-specific override for this key. */
+  onOverride?: (item: EnvVarListItem) => void
 }
 
-/**
- * One env-var row in the list. Non-secret values render inline. Secret values
- * mask to {@code ••••••} with a Reveal toggle — the plaintext is fetched on
- * demand via the reveal query (enabled only after the user clicks), and hidden
- * again on a second toggle.
- */
-export function EnvVarRow({ item, projectId, branchId, onEdit, onDelete }: EnvVarRowProps) {
-  const [revealed, setRevealed] = useState(false)
-
-  // Lazy reveal — the query stays disabled until the user clicks Reveal once.
-  // We keep it mounted so toggling hide/show doesn't refetch unnecessarily.
-  const revealQuery = useGetApiProjectsProjectIdBranchesBranchIdEnvKeyReveal(
+function useRevealQuery(
+  projectId: string,
+  branchId: string | undefined,
+  scope: EnvVarScope,
+  key: string,
+  enabled: boolean,
+) {
+  const projectReveal = useGetApiProjectsProjectIdSecretsKeyReveal(projectId, key, {
+    query: { enabled: enabled && scope === 'project', staleTime: 30_000 },
+  })
+  const branchReveal = useGetApiProjectsProjectIdBranchesBranchIdEnvKeyReveal(
     projectId,
-    branchId,
-    item.key,
+    branchId ?? '',
+    key,
     {
       query: {
-        enabled: revealed && item.isSecret,
+        enabled: enabled && scope === 'branch' && !!branchId,
         staleTime: 30_000,
       },
     },
+  )
+  return scope === 'project' ? projectReveal : branchReveal
+}
+
+export function EnvVarRow({
+  item,
+  projectId,
+  branchId,
+  onEdit,
+  onDelete,
+  onOverride,
+}: EnvVarRowProps) {
+  const [revealed, setRevealed] = useState(false)
+
+  const revealQuery = useRevealQuery(
+    projectId,
+    branchId,
+    item.scope,
+    item.key,
+    revealed && item.isSecret,
   )
 
   const plaintext = revealQuery.data?.plaintext
@@ -138,6 +161,9 @@ export function EnvVarRow({ item, projectId, branchId, onEdit, onDelete }: EnvVa
     )
   }
 
+  const scopeLabel =
+    item.scope === 'project' ? 'Project default' : 'Branch override'
+
   return (
     <Box
       sx={{
@@ -152,7 +178,6 @@ export function EnvVarRow({ item, projectId, branchId, onEdit, onDelete }: EnvVa
         '&:hover': { backgroundColor: tokens.rowHover },
       }}
     >
-      {/* Key + scope + updatedAt */}
       <Stack spacing={0.5} sx={{ minWidth: 0 }}>
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
           <Box
@@ -171,7 +196,7 @@ export function EnvVarRow({ item, projectId, branchId, onEdit, onDelete }: EnvVa
             {item.key}
           </Box>
           <Chip
-            label={item.scope === 'project' ? 'Project' : 'Branch'}
+            label={scopeLabel}
             size="small"
             variant="outlined"
             sx={{
@@ -189,7 +214,6 @@ export function EnvVarRow({ item, projectId, branchId, onEdit, onDelete }: EnvVa
         </Typography>
       </Stack>
 
-      {/* Value */}
       <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
         <Box sx={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>{renderValue()}</Box>
         {item.isSecret && (
@@ -210,8 +234,19 @@ export function EnvVarRow({ item, projectId, branchId, onEdit, onDelete }: EnvVa
         )}
       </Stack>
 
-      {/* Actions */}
       <Stack direction="row" spacing={0.5} sx={{ justifySelf: { xs: 'start', sm: 'end' } }}>
+        {onOverride && (
+          <Tooltip title="Override for this branch">
+            <IconButton
+              size="small"
+              aria-label={`Override ${item.key} for this branch`}
+              onClick={() => onOverride(item)}
+              sx={{ color: tokens.muted, '&:hover': { color: tokens.primary } }}
+            >
+              <ForkRightIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        )}
         <Tooltip title="Edit">
           <IconButton
             size="small"

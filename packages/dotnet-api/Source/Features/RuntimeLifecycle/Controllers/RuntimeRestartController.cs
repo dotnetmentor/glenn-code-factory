@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Source.Features.RuntimeLifecycle.Commands.ForceStopRuntime;
+using Source.Features.RuntimeLifecycle.Commands.ResetRuntimeFromScratch;
 using Source.Features.RuntimeLifecycle.Commands.RestartRuntime;
 using Source.Features.RuntimeLifecycle.Commands.SuspendRuntime;
 using Source.Features.RuntimeLifecycle.Models;
@@ -238,6 +239,53 @@ public class RuntimeRestartController : BaseApiController
         Logger.LogWarning(
             "ForceStopRuntime failed: project {ProjectId}, branch {BranchId}, user {UserId} — {Error}",
             projectId, branchId, userId, result.Error);
+        return BadRequest(new { error = result.Error });
+    }
+
+    /// <summary>
+    /// Wipe Fly machine + volume references and reprovision from a clean disk.
+    /// Use when restart keeps failing (e.g. volume not found, pending_destroy).
+    /// </summary>
+    [HttpPost("reset-from-scratch")]
+    [ProducesResponseType(typeof(RuntimeStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RuntimeStatusResponse>> ResetFromScratch(
+        Guid projectId,
+        Guid branchId,
+        CancellationToken ct)
+    {
+        var userIdRaw = GetCurrentUserId();
+        if (string.IsNullOrEmpty(userIdRaw) || !Guid.TryParse(userIdRaw, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        if (!await _db.CallerOwnsProjectAsync(User, projectId, ct))
+        {
+            return NotFound();
+        }
+
+        var result = await Mediator.Send(
+            new ResetRuntimeFromScratchCommand(projectId, branchId, userId),
+            ct);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        if (result.Error?.StartsWith(ResetRuntimeFromScratchHandler.NotFoundPrefix, StringComparison.Ordinal) == true)
+        {
+            return NotFound(new { error = result.Error });
+        }
+
+        if (result.Error?.StartsWith(ResetRuntimeFromScratchHandler.ConflictPrefix, StringComparison.Ordinal) == true)
+        {
+            return Conflict(new { error = result.Error });
+        }
+
         return BadRequest(new { error = result.Error });
     }
 }

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Source.Features.Cloudflare.Commands;
 using Source.Features.Conversations.Models;
 using Source.Features.Projects.Models;
+using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
@@ -162,7 +163,12 @@ public sealed class AssignBranchSubdomainHandler
                         || s.Status == AgentSessionStatus.Running)),
                 b.AssignedSubdomain != null ? b.AssignedSubdomain.Hostname : null,
                 b.IsArchived,
-                b.ArchivedAt))
+                b.ArchivedAt,
+                _db.ProjectRuntimes
+                    .Where(r => r.BranchId == b.Id)
+                    .OrderByDescending(r => r.CreatedAt)
+                    .Select(r => (RuntimeState?)r.State)
+                    .FirstOrDefault()))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (dto is null)

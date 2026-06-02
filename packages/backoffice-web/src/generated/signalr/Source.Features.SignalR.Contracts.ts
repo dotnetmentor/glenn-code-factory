@@ -11,6 +11,8 @@ export type RuntimeStateChangedNotification = {
     runtimeId: string;
     /** Transpiled from System.Guid */
     projectId: string;
+    /** Transpiled from System.Guid */
+    branchId: string;
     /** Transpiled from string? */
     fromState?: string;
     /** Transpiled from string */
@@ -312,6 +314,20 @@ export type StartTurnPayload = {
     pullBeforeStart: boolean;
 }
 
+/** Transpiled from Source.Features.SignalR.Contracts.StageAttachmentPayload */
+export type StageAttachmentPayload = {
+    /** Transpiled from System.Guid */
+    attachmentId: string;
+    /** Transpiled from System.Guid */
+    conversationId: string;
+    /** Transpiled from string */
+    fileName: string;
+    /** Transpiled from string */
+    downloadUrl: string;
+    /** Transpiled from string */
+    localPath: string;
+}
+
 /** Transpiled from Source.Features.SignalR.Contracts.CancelTurnPayload */
 export type CancelTurnPayload = {
     /** Transpiled from System.Guid */
@@ -558,14 +574,5 @@ export type LiveSupervisordSnapshotPayload = {
     sampledAt: (Date | string);
     /** Transpiled from System.Collections.Generic.IReadOnlyList<Source.Features.SignalR.Contracts.LiveSupervisordSnapshotProcess> */
     processes: LiveSupervisordSnapshotProcess[];
-}
-
-/** Transpiled from Source.Features.SignalR.Contracts.AttachmentStateChangedPayload */
-export type AttachmentStateChangedPayload = {
-    attachmentId: string;
-    conversationId: string;
-    branchId: string;
-    state: string;       // "Ready" | "Failed"
-    error?: string;
 }
 

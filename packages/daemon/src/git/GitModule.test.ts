@@ -730,6 +730,52 @@ describe('GitModule', () => {
     })
   })
 
+  describe('agent workflow (mergeLeaveConflicts / completeMerge / abortMerge)', () => {
+    it('mergeLeaveConflicts does not abort — leaves conflict state for the agent', async () => {
+      const { module, runner } = buildModule()
+      runner.enqueue({ exitCode: 1, outputTail: 'CONFLICT (content): Merge conflict in src/a.ts\nAutomatic merge failed; fix conflicts and then commit the result.\n' })
+
+      const result = await module.mergeLeaveConflicts('feature')
+
+      expect(result.ok).toBe(false)
+      expect(result.conflict).toBe(true)
+      expect(result.files).toEqual(['src/a.ts'])
+      expect(runner.runs.some((r) => r.args.includes('--abort'))).toBe(false)
+    })
+
+    it('merge() still aborts on conflict (UI path)', async () => {
+      const { module, runner } = buildModule()
+      runner.enqueue({ exitCode: 1, outputTail: 'CONFLICT (content): Merge conflict in b.ts\n' })
+      runner.enqueue({ exitCode: 0, outputTail: '' })
+
+      const result = await module.merge('feature')
+
+      expect(result.conflict).toBe(true)
+      expect(runner.runs.some((r) => r.args.includes('--abort'))).toBe(true)
+    })
+
+    it('completeMerge runs add then merge --continue', async () => {
+      const { module, runner } = buildModule()
+      // MERGE_HEAD check uses fs.access — use real temp dir or mock?
+      // buildModule uses cwd /tmp/test-repo - MERGE_HEAD won't exist
+      const result = await module.completeMerge(['src/a.ts'])
+      expect(result.ok).toBe(false)
+      expect(result.outputTail).toContain('MERGE_HEAD')
+    })
+
+    it('syncWithOrigin returns ok:false without throwing on pull failure', async () => {
+      const { module, runner } = buildModule({ withAuth: true })
+      runner.enqueue({ exitCode: 0, outputTail: 'main\n' })
+      runner.enqueue({ exitCode: 128, outputTail: 'fatal: fetch failed\n' })
+
+      const result = await module.syncWithOrigin('main')
+
+      expect(result.ok).toBe(false)
+      expect(result.branch).toBe('main')
+      expect(result.message).toContain('fetch failed')
+    })
+  })
+
   describe('createBranch / fetch', () => {
     it('createBranch invokes `git checkout -b <name>` and returns the GitResult', async () => {
       const { module, runner } = buildModule()

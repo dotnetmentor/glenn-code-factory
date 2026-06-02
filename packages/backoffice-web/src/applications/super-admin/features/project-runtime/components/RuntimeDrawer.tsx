@@ -227,6 +227,8 @@ export function RuntimeDrawer(props: RuntimeDrawerProps) {
               events={stream.events}
               supervisordSnapshot={stream.supervisordSnapshot}
               heartbeatSnapshot={stream.heartbeatSnapshot}
+              runtimeState={statusQuery.data?.state}
+              isLive={stream.isLive}
               onViewLogs={handleViewLogs}
             />
           )}

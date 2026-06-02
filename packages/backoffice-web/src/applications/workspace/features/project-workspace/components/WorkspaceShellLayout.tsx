@@ -20,12 +20,10 @@ const WORKSPACE_SIDEBAR_COLLAPSED_WIDTH = 56
 
 export interface WorkspaceShellLayoutProps {
   /**
-   * Per-project live runtime-state overlay forwarded into the sidebar so
-   * non-active rows reflect freshest hub state. Optional — surfaces that
-   * aren't watching runtimes (e.g. the New Session route) pass nothing and
-   * the sidebar degrades to the polled-list values.
+   * Per-branch live runtime-state overlay forwarded into the sidebar so
+   * branch rows reflect freshest hub state for Failed/Crashed affordances.
    */
-  liveStatusByProjectId?: Map<string, LiveProjectStatus>
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
   /** Per-project in-flight turn count delta forwarded into the sidebar. */
   liveRunningTurnByProjectId?: Map<string, number>
   /** The right-side canvas content. */
@@ -68,7 +66,7 @@ export interface WorkspaceShellLayoutProps {
  * New Session route can opt out of them entirely.</p>
  */
 export function WorkspaceShellLayout({
-  liveStatusByProjectId,
+  liveStatusByBranchId,
   liveRunningTurnByProjectId,
   children,
   drawerOpen: controlledDrawerOpen,
@@ -135,7 +133,7 @@ export function WorkspaceShellLayout({
       }}
     >
       <ProjectsBranchesSidebar
-        liveStatusByProjectId={liveStatusByProjectId}
+        liveStatusByBranchId={liveStatusByBranchId}
         liveRunningTurnByProjectId={liveRunningTurnByProjectId}
       />
     </Box>
@@ -190,7 +188,7 @@ export function WorkspaceShellLayout({
         >
           <Box sx={{ width: workspaceSidebarWidth, height: '100%' }}>
             <ProjectsBranchesSidebar
-              liveStatusByProjectId={liveStatusByProjectId}
+              liveStatusByBranchId={liveStatusByBranchId}
               liveRunningTurnByProjectId={liveRunningTurnByProjectId}
             />
           </Box>

@@ -22,6 +22,7 @@ namespace Source.Features.SignalR.Contracts;
 public record RuntimeStateChangedNotification(
     Guid RuntimeId,
     Guid ProjectId,
+    Guid BranchId,
     string? FromState,
     string ToState,
     string Reason,

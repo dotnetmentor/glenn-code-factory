@@ -40,8 +40,8 @@
 # Optional env:
 #   API               Default: http://localhost:5338
 #   PG_URL            Default: postgresql://postgres@localhost:43594/app
-#   APP               Default: glenn-runtime-base (Fly app that owns the
-#                     `registry.fly.io/<app>` namespace; must already exist).
+#   APP               Default: glenn-runtime-base (Fly app for remote build;
+#                     must already exist — script lists your apps if missing).
 #   IMAGE_NAME        Default: glenn-runtime-base
 #   REGISTRY          Default: registry.fly.io/glenn-runtime-base  — this is
 #                     the value stored in RuntimeImages.Registry. It must be
@@ -106,6 +106,81 @@ done
 log()  { printf '\033[36m[publish-remote]\033[0m %s\n' "$*"; }
 fail() { printf '\033[31m[publish-remote FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# Returns 0 when $1 appears in `fly apps list --json`.
+fly_app_exists() {
+    local want="$1"
+    flyctl apps list --json 2>/dev/null | WANT="$want" python3 -c "
+import json, os, sys
+want = os.environ['WANT']
+try:
+    apps = json.load(sys.stdin)
+except json.JSONDecodeError:
+    sys.exit(2)
+for row in apps:
+    name = row.get('Name') or row.get('name') or ''
+    if name == want:
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null
+}
+
+fly_list_app_names() {
+    flyctl apps list --json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    apps = json.load(sys.stdin)
+except json.JSONDecodeError:
+    sys.exit(1)
+names = sorted({(a.get('Name') or a.get('name') or '') for a in apps} - {''})
+for n in names:
+    print(n)
+" 2>/dev/null || {
+        flyctl apps list 2>/dev/null | awk 'NR>1 && $1 !~ /^NAME$/ { print $1 }'
+    }
+}
+
+# Fail fast with actionable hints instead of a cryptic flyctl deploy error.
+fly_app_preflight() {
+    local app="$1"
+    if fly_app_exists "$app"; then
+        log "Fly app \"$app\" found in this account"
+        return 0
+    fi
+
+    local flyctl_bin="flyctl"
+    command -v flyctl >/dev/null 2>&1 || flyctl_bin="$HOME/.fly/bin/flyctl"
+
+    printf '\033[31m[publish-remote FAIL]\033[0m Fly app "%s" does not exist in this account.\n\n' "$app" >&2
+    printf '\033[33mApps in this account\033[0m:\n' >&2
+    local listed=0 first_app=""
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        printf '  • %s\n' "$name" >&2
+        [[ -z "$first_app" ]] && first_app="$name"
+        listed=1
+    done < <(fly_list_app_names || true)
+    if [[ "$listed" -eq 0 ]]; then
+        printf '  (none listed — run \033[1m%s apps list\033[0m)\n' "$flyctl_bin" >&2
+    fi
+    printf '\n' >&2
+    printf '\033[33mUse an existing app\033[0m (this script uses \033[1mflyctl\033[0m, not the \033[1mfly\033[0m alias):\n' >&2
+    if [[ -n "$first_app" ]]; then
+        printf '  APP=%s IMAGE_NAME=%s REGISTRY=%s/%s %s\n' \
+            "$first_app" "$first_app" "$PUSH_REGISTRY_HOST" "$first_app" "$0" >&2
+    else
+        printf '  APP=<app-name> IMAGE_NAME=<app-name> REGISTRY=%s/<app-name> %s\n' \
+            "$PUSH_REGISTRY_HOST" "$0" >&2
+    fi
+    printf '\n' >&2
+    printf '\033[33mOr create a new app\033[0m (then re-run this script):\n' >&2
+    printf '  %s apps create %s\n' "$flyctl_bin" "$app" >&2
+    printf '  %s\n' "$0" >&2
+    printf '\n' >&2
+    printf 'Tip: \033[1mfly\033[0m is often not on PATH; use \033[1m%s\033[0m or re-run this script (it installs flyctl to ~/.fly/bin).\n' \
+        "$flyctl_bin" >&2
+    exit 1
+}
+
 cd "$REPO_ROOT"
 
 # ---------- 1. flyctl install + PATH -----------------------------------------------
@@ -160,7 +235,10 @@ export FLY_API_TOKEN
 # Verify token works
 flyctl auth whoami >/dev/null 2>&1 || fail "FLY_API_TOKEN is not accepted by Fly"
 
-# ---------- 3. Compute tag ---------------------------------------------------------
+# ---------- 3. Fly app must exist (deploy --build-only targets APP in fly.toml) ---
+fly_app_preflight "$APP"
+
+# ---------- 4. Compute tag ---------------------------------------------------------
 if [[ -n "$TAG_OVERRIDE" ]]; then
     TAG="$TAG_OVERRIDE"
 else
@@ -171,7 +249,7 @@ fi
 FULL_REF="${PUSH_REGISTRY_HOST}/${IMAGE_NAME}:${TAG}"
 log "target: $FULL_REF"
 
-# ---------- 4. Minimal fly.toml for the build -------------------------------------
+# ---------- 5. Minimal fly.toml for the build -------------------------------------
 # flyctl deploy --build-only needs a config file; resolve dockerfile path relative
 # to it, so the toml MUST live next to the Dockerfile (i.e. in the repo root).
 TOML="$REPO_ROOT/.fly.runtime-base.toml"
@@ -184,7 +262,7 @@ primary_region = "iad"
 EOF
 trap 'rm -f "$TOML"' EXIT
 
-# ---------- 5. Remote build + push -------------------------------------------------
+# ---------- 6. Remote build + push -------------------------------------------------
 log "building remotely (Fly builder)... → $FULL_REF"
 log "  build log: /tmp/fly-runtime-build.log"
 
@@ -198,7 +276,7 @@ flyctl deploy \
     --no-public-ips \
     2>&1 | tee /tmp/fly-runtime-build.log
 
-# ---------- 6. Extract digest from build log --------------------------------------
+# ---------- 7. Extract digest from build log --------------------------------------
 # flyctl prints lines like:
 #   #18 pushing manifest for registry.fly.io/glenn-runtime-base:TAG@sha256:DIGEST ...
 DIGEST="$(grep -oE "${PUSH_REGISTRY_HOST}/${IMAGE_NAME}:${TAG}@sha256:[0-9a-f]{64}" /tmp/fly-runtime-build.log \
@@ -215,7 +293,7 @@ log "size: ${SIZE_MB} MB"
 FULL_SHA="$(git rev-parse HEAD)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# ---------- 7. Tag :latest as well (opt-in) ---------------------------------------
+# ---------- 8. Tag :latest as well (opt-in) ---------------------------------------
 # flyctl can only push the labelled tag, so doing :latest means a second remote
 # build (slow). Skip by default — the API stores a sha-pinned full ref in the
 # RuntimeImages row, so nothing in the runtime path needs :latest.
@@ -232,7 +310,7 @@ if $DO_LATEST; then
         2>&1 | tee -a /tmp/fly-runtime-build.log >/dev/null || log "⚠️  :latest push failed (non-fatal)"
 fi
 
-# ---------- 8. Register + Activate via API ----------------------------------------
+# ---------- 9. Register + Activate via API ----------------------------------------
 if $DO_ACTIVATE; then
     log "minting SuperAdmin JWT from .env + bootstrap user..."
     JWT="$(platform_auth_jwt)" || fail "could not mint JWT — ensure API has bootstrapped SuperAdmin and .env has Jwt__Key + Bootstrap__SuperAdminEmail"
@@ -284,7 +362,7 @@ for r in d['items']:
     log "✅ $TAG is the sole Active runtime image."
 fi
 
-# ---------- 9. Outputs -------------------------------------------------------------
+# ---------- 10. Outputs ------------------------------------------------------------
 echo
 echo "TAG=$TAG"
 echo "DIGEST=$DIGEST"

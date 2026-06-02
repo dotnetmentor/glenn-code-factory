@@ -6,6 +6,8 @@ import {
   RuntimeState,
   getGetApiConversationsIdQueryKey,
   getGetApiProjectsProjectIdConversationsQueryKey,
+  getGetApiProjectsProjectIdBranchesQueryKey,
+  getGetApiWorkspacesSlugProjectsQueryKey,
   useGetApiProjectsProjectId,
   useGetApiProjectsProjectIdBranchesBranchIdRuntimeStatus,
   useGetApiProjectsProjectIdConversations,
@@ -225,6 +227,10 @@ export function ProjectWorkspaceRoute() {
     Map<string, LiveProjectStatus>
   >(() => new Map())
 
+  const [liveStatusByBranchId, setLiveStatusByBranchId] = useState<
+    Map<string, LiveProjectStatus>
+  >(() => new Map())
+
   // Parallel map for the in-flight turn count delta. The polled list carries
   // {@code runningTurnCount} on every refetch (every 15s); this map provides
   // the instant-feedback delta between refetches so a TurnStarted lifts a
@@ -255,23 +261,34 @@ export function ProjectWorkspaceRoute() {
   useEffect(() => {
     if (!connection) return
     const unsubscribe = connection.onRuntimeStateChanged((payload) => {
+      const liveEntry: LiveProjectStatus = {
+        state: payload.toState,
+        errorMessage: payload.errorMessage ?? null,
+        runtimeId: payload.runtimeId ?? null,
+      }
+      setLiveStatusByBranchId((prev) => {
+        const next = new Map(prev)
+        next.set(payload.branchId, liveEntry)
+        return next
+      })
       setLiveStatusByProjectId((prev) => {
         const next = new Map(prev)
-        next.set(payload.projectId, {
-          state: payload.toState,
-          errorMessage: payload.errorMessage ?? null,
-          // Carry the runtime id so per-branch consumers can verify this
-          // event was for THEIR runtime — without it, sibling branches in
-          // the same project silently overwrite each other's status.
-          runtimeId: payload.runtimeId ?? null,
-        })
+        next.set(payload.projectId, liveEntry)
         return next
+      })
+      if (slug) {
+        void queryClient.invalidateQueries({
+          queryKey: getGetApiWorkspacesSlugProjectsQueryKey(slug),
+        })
+      }
+      void queryClient.invalidateQueries({
+        queryKey: getGetApiProjectsProjectIdBranchesQueryKey(payload.projectId),
       })
     })
     return () => {
       unsubscribe()
     }
-  }, [connection])
+  }, [connection, slug, queryClient])
 
   // Turn lifecycle fan-out: bump / decrement the live delta for the active
   // project. We attribute events to {@code projectId} because the
@@ -488,7 +505,7 @@ export function ProjectWorkspaceRoute() {
 
   return (
     <ProjectWorkspaceShell
-      liveStatusByProjectId={liveStatusByProjectId}
+      liveStatusByBranchId={liveStatusByBranchId}
       liveRunningTurnByProjectId={liveRunningTurnByProjectId}
       chrome={({ isNarrow, onOpenMobileSidebar }) =>
         projectId && branchId ? (

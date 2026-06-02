@@ -403,6 +403,59 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     ///         <c>RuntimeStateEvents</c> attributes the action to the right user.</item>
     /// </list>
     /// </summary>
+    public bool HardwareSpecMatches(string cpuKind, int cpus, int memoryMb, int volumeSizeGb) =>
+        string.Equals(CpuKind, cpuKind, StringComparison.Ordinal)
+        && Cpus == cpus
+        && MemoryMb == memoryMb
+        && VolumeSizeGb == volumeSizeGb;
+
+    /// <summary>
+    /// Snapshots new hardware sizing onto this row and walks to
+    /// <see cref="RuntimeState.Pending"/> so <see cref="Jobs.RuntimeProvisionerJob"/>
+    /// destroys the old Fly machine and creates a replacement with the updated
+    /// guest config. Reuses <see cref="FlyVolumeId"/> — disk bytes on the volume
+    /// are unchanged even when <paramref name="volumeSizeGb"/> differs from the
+    /// live Fly volume's provisioned size.
+    /// </summary>
+    public Result ReprovisionAfterSpecChange(
+        string cpuKind,
+        int cpus,
+        int memoryMb,
+        int volumeSizeGb,
+        Guid userId)
+    {
+        if (State is RuntimeState.Deleting or RuntimeState.Deleted or RuntimeState.Suspending)
+        {
+            return Result.Failure(
+                $"Cannot apply spec to runtime in state {State}; wait for the current operation to finish.");
+        }
+
+        CpuKind = cpuKind;
+        Cpus = cpus;
+        MemoryMb = memoryMb;
+        VolumeSizeGb = volumeSizeGb;
+
+        var fromState = State;
+        State = RuntimeState.Pending;
+        RespawnRetries = 0;
+        StateChangedAt = DateTime.UtcNow;
+        LastHeartbeatAt = null;
+        LastBootstrapActivityAt = null;
+
+        RaiseDomainEvent(new RuntimeStateChanged(
+            RuntimeId: Id,
+            ProjectId: ProjectId,
+            BranchId: BranchId,
+            FromState: fromState,
+            ToState: State,
+            Reason: "spec:apply_to_existing",
+            TriggeredBy: $"user:{userId}",
+            Metadata: null,
+            OccurredAt: StateChangedAt));
+
+        return Result.Success();
+    }
+
     public Result Restart(Guid userId)
     {
         if (State is not (
@@ -440,6 +493,45 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
             FromState: fromState,
             ToState: State,
             Reason: "user_restart",
+            TriggeredBy: $"user:{userId}",
+            Metadata: null,
+            OccurredAt: StateChangedAt));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// User-initiated full reprovision: drop Fly machine + volume references and
+    /// walk to <see cref="RuntimeState.Pending"/> so
+    /// <see cref="Jobs.RuntimeProvisionerJob"/> creates fresh infrastructure.
+    /// Unlike <see cref="Restart"/>, this clears <see cref="FlyVolumeId"/> —
+    /// the escape hatch when the volume is gone, pending_destroy, or otherwise
+    /// unusable.
+    /// </summary>
+    public Result ResetFromScratch(Guid userId)
+    {
+        if (State is RuntimeState.Deleting or RuntimeState.Deleted or RuntimeState.Suspending)
+        {
+            return Result.Failure(
+                $"Cannot reset runtime in state {State}; wait for the current operation to finish.");
+        }
+
+        var fromState = State;
+        State = RuntimeState.Pending;
+        FlyMachineId = null;
+        FlyVolumeId = null;
+        RespawnRetries = 0;
+        StateChangedAt = DateTime.UtcNow;
+        LastHeartbeatAt = null;
+        LastBootstrapActivityAt = null;
+
+        RaiseDomainEvent(new RuntimeStateChanged(
+            RuntimeId: Id,
+            ProjectId: ProjectId,
+            BranchId: BranchId,
+            FromState: fromState,
+            ToState: State,
+            Reason: "user_reset_from_scratch",
             TriggeredBy: $"user:{userId}",
             Metadata: null,
             OccurredAt: StateChangedAt));

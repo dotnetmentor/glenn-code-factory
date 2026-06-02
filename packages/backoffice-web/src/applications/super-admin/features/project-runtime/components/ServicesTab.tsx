@@ -19,6 +19,7 @@ import type {
   LiveSupervisordSnapshotPayload,
   LiveSupervisordSnapshotProcess,
 } from '@/generated/signalr/Source.Features.SignalR.Contracts'
+import { isDaemonMidBootConnected } from '@/applications/shared/runtime/runtimeDaemonConnectivity'
 import { formatBytes } from '@/lib/format/formatBytes'
 import {
   monoNumberSx,
@@ -67,6 +68,10 @@ export interface ServicesTabProps {
    * heartbeat lands.
    */
   heartbeatSnapshot: HeartbeatSnapshot | null
+  /** Current runtime state from the polled status endpoint. */
+  runtimeState?: RuntimeState | string | null
+  /** True when SignalR is joined to runtime-events and pushes are flowing. */
+  isLive?: boolean
   /**
    * Called when the user clicks "View logs" on a row. May be omitted, in
    * which case the button renders disabled.
@@ -286,10 +291,77 @@ function colorForState(state: string): string {
   }
 }
 
+function canUseEventFallback(
+  runtimeState: RuntimeState | string | null | undefined,
+  isLive: boolean,
+): boolean {
+  if (!isLive) return false
+  if (!runtimeState) return false
+  if (
+    runtimeState === RuntimeState.Online ||
+    runtimeState === RuntimeState.Booting ||
+    runtimeState === RuntimeState.Bootstrapping ||
+    runtimeState === RuntimeState.Waking
+  ) {
+    return true
+  }
+  return isDaemonMidBootConnected(
+    runtimeState ? { state: runtimeState } : undefined,
+  )
+}
+
+function emptyServicesMessage(
+  runtimeState: RuntimeState | string | null | undefined,
+  isLive: boolean,
+): { title: string; detail: string } {
+  if (
+    runtimeState === RuntimeState.Failed ||
+    runtimeState === RuntimeState.Crashed
+  ) {
+    return {
+      title: 'Live service status unavailable',
+      detail:
+        'The runtime is in a failed state. Restart or start from scratch, then reopen this tab once the daemon reconnects.',
+    }
+  }
+  if (runtimeState === RuntimeState.Pending) {
+    return {
+      title: 'Provisioning runtime…',
+      detail:
+        'Service rows appear once supervisord starts and the daemon pushes its first poll (≤10s after boot).',
+    }
+  }
+  if (
+    runtimeState === RuntimeState.Booting ||
+    runtimeState === RuntimeState.Bootstrapping ||
+    runtimeState === RuntimeState.Waking
+  ) {
+    return {
+      title: 'Waiting for live supervisord poll…',
+      detail:
+        'Boot is in progress. The table fills in once the daemon connects and pushes its first snapshot.',
+    }
+  }
+  if (!isLive) {
+    return {
+      title: 'Daemon not connected',
+      detail:
+        'Service status is not live. Historical bootstrap events are hidden so stale RUNNING rows do not mislead.',
+    }
+  }
+  return {
+    title: 'No services observed yet',
+    detail:
+      'Once supervisord pushes its first poll (≤10s) or the daemon emits a Service* event, the table will populate.',
+  }
+}
+
 export function ServicesTab({
   events,
   supervisordSnapshot,
   heartbeatSnapshot,
+  runtimeState = null,
+  isLive = false,
   onViewLogs,
 }: ServicesTabProps) {
   const crashHistory = useMemo(() => buildCrashHistory(events), [events])
@@ -298,8 +370,11 @@ export function ServicesTab({
     if (supervisordSnapshot && supervisordSnapshot.processes.length > 0) {
       return buildLiveRows(supervisordSnapshot.processes, crashHistory)
     }
+    if (!canUseEventFallback(runtimeState, isLive)) {
+      return []
+    }
     return buildFallbackRows(events, crashHistory)
-  }, [supervisordSnapshot, events, crashHistory])
+  }, [supervisordSnapshot, events, crashHistory, runtimeState, isLive])
 
   // Index heartbeat processes by name once per render so per-row lookups
   // are O(1) — there can be up to 50 supervised processes per snapshot.
@@ -322,18 +397,20 @@ export function ServicesTab({
   }, [])
 
   if (rows.length === 0) {
+    const empty = emptyServicesMessage(runtimeState, isLive)
     return (
       <Stack spacing={1.5} sx={{ py: 2 }}>
-        <Typography
-          sx={{ fontSize: 13.5, color: workspaceText.muted }}
-        >
-          No services observed yet.
+        <Typography sx={{ fontSize: 13.5, color: workspaceText.primary }}>
+          {empty.title}
         </Typography>
         <Typography
-          sx={{ fontSize: 12, color: workspaceText.faint, fontFamily: workspaceFontFamily.mono }}
+          sx={{
+            fontSize: 12,
+            color: workspaceText.faint,
+            fontFamily: workspaceFontFamily.mono,
+          }}
         >
-          Once supervisord pushes its first poll (≤10s) or the daemon emits a
-          Service* event, the table will populate.
+          {empty.detail}
         </Typography>
       </Stack>
     )

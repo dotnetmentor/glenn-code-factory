@@ -33,6 +33,9 @@
 //   - SshKeyHandler: GitRunner already injects GIT_SSH_COMMAND; we layer no
 //     extra ssh handling here.
 
+import { access } from 'node:fs/promises'
+import path from 'node:path'
+
 import type { Logger } from 'pino'
 
 import type { SignalRClient } from '../signalr/SignalRClient.js'
@@ -97,6 +100,20 @@ export interface MergeResult {
   /** Populated on conflict; parsed from `git merge` output. */
   files?: string[]
   outputTail?: string
+}
+
+export interface GitWorkflowStatus {
+  branch: string
+  mergeInProgress: boolean
+  conflictedFiles: string[]
+  /** First ~2 KB of `git status --porcelain` for agent context. */
+  porcelain: string
+}
+
+export interface SyncWithOriginResult {
+  ok: boolean
+  branch: string
+  message: string
 }
 
 export interface GitModuleOpts {
@@ -418,7 +435,73 @@ export class GitModule {
   }
 
   async merge(branch: string, ctx: TurnCtx = {}): Promise<MergeResult> {
-    return this.#enqueue(() => this.#mergeImpl(branch, ctx))
+    return this.#enqueue(() =>
+      this.#mergeImpl(branch, ctx, { abortOnConflict: true }),
+    )
+  }
+
+  /**
+   * Merge another branch and leave conflict markers in the working tree so the
+   * agent can resolve files, then call {@link completeMerge} or
+   * {@link abortMerge}. Unlike {@link merge}, does not run `merge --abort`.
+   */
+  async mergeLeaveConflicts(branch: string, ctx: TurnCtx = {}): Promise<MergeResult> {
+    return this.#enqueue(() =>
+      this.#mergeImpl(branch, ctx, { abortOnConflict: false }),
+    )
+  }
+
+  async getWorkflowStatus(): Promise<GitWorkflowStatus> {
+    return this.#enqueue(() => this.#getWorkflowStatusImpl())
+  }
+
+  /**
+   * Fast-forward sync with `origin/<current-branch>`. Surfaces failures as a
+   * result object (does not throw) so MCP tools can return actionable errors.
+   */
+  async syncWithOrigin(
+    branch?: string,
+    ctx: TurnCtx = {},
+  ): Promise<SyncWithOriginResult> {
+    return this.#enqueue(async () => {
+      let resolvedBranch = branch?.trim() ?? ''
+      if (resolvedBranch.length === 0) {
+        try {
+          resolvedBranch = await this.currentBranch()
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          return { ok: false, branch: '', message }
+        }
+      }
+      try {
+        await this.#pullFastForwardImpl(resolvedBranch, ctx)
+        return {
+          ok: true,
+          branch: resolvedBranch,
+          message: `Fast-forwarded ${resolvedBranch} with origin/${resolvedBranch}.`,
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { ok: false, branch: resolvedBranch, message }
+      }
+    })
+  }
+
+  /**
+   * Stage resolved paths (or all tracked changes when omitted) and finish an
+   * in-progress merge via `git merge --continue`.
+   */
+  async completeMerge(paths: string[] | undefined, ctx: TurnCtx = {}): Promise<{
+    ok: boolean
+    outputTail?: string
+    exitCode?: number | null
+  }> {
+    return this.#enqueue(() => this.#completeMergeImpl(paths, ctx))
+  }
+
+  /** Abort an in-progress merge when `.git/MERGE_HEAD` exists. */
+  async abortMerge(ctx: TurnCtx = {}): Promise<{ ok: boolean; outputTail?: string }> {
+    return this.#enqueue(() => this.#abortMergeImpl(ctx))
   }
 
   /**
@@ -876,7 +959,11 @@ export class GitModule {
     )
   }
 
-  async #mergeImpl(branch: string, ctx: TurnCtx): Promise<MergeResult> {
+  async #mergeImpl(
+    branch: string,
+    ctx: TurnCtx,
+    opts: { abortOnConflict: boolean },
+  ): Promise<MergeResult> {
     let result = await this.#runWithCtx(
       { op: 'Merge', args: ['merge', '--no-ff', branch] },
       ctx,
@@ -929,23 +1016,19 @@ export class GitModule {
       if (captured !== undefined) files.push(captured.trim())
     }
 
-    // Resolve the target branch BEFORE aborting — once the abort completes
-    // the working tree is back at the branch we started from, but we want
-    // the name we were on when the merge was attempted.
     let targetBranch = ''
     try {
       targetBranch = await this.currentBranch()
     } catch {
-      // currentBranch can throw on detached HEAD or transient issues;
-      // surface an empty string rather than failing the whole merge call.
+      // currentBranch can throw on detached HEAD or transient issues.
     }
 
-    // Abort to leave the working tree clean. This is a separate audit emitted
-    // as op=Merge with --abort args; treated as ordinary fan-out.
-    await this.#runWithCtx(
-      { op: 'Merge', args: ['merge', '--abort'] },
-      ctx,
-    )
+    if (opts.abortOnConflict) {
+      await this.#runWithCtx(
+        { op: 'Merge', args: ['merge', '--abort'] },
+        ctx,
+      )
+    }
 
     const payload: MergeConflictWire = {
       operationId: mergeOpId,
@@ -960,6 +1043,73 @@ export class GitModule {
     })
 
     return { ok: false, conflict: true, files, outputTail: tail }
+  }
+
+  async #getWorkflowStatusImpl(): Promise<GitWorkflowStatus> {
+    const branch = await this.currentBranch()
+    const mergeInProgress = await this.#mergeHeadExists()
+    const status = await this.#runWithCtx(
+      { op: 'BranchList', args: ['status', '--porcelain'] },
+      {},
+    )
+    const porcelain =
+      status.exitCode === 0 ? status.outputTail.slice(0, 2048) : status.outputTail
+    const conflictedFiles = parseConflictedPathsFromPorcelain(status.outputTail)
+    return { branch, mergeInProgress, conflictedFiles, porcelain }
+  }
+
+  async #completeMergeImpl(
+    paths: string[] | undefined,
+    ctx: TurnCtx,
+  ): Promise<{ ok: boolean; outputTail?: string; exitCode?: number | null }> {
+    if (!(await this.#mergeHeadExists())) {
+      return {
+        ok: false,
+        outputTail: 'No merge in progress (.git/MERGE_HEAD missing).',
+        exitCode: null,
+      }
+    }
+
+    const addArgs =
+      paths !== undefined && paths.length > 0
+        ? ['add', ...paths]
+        : ['add', '-u']
+    const add = await this.#runWithCtx({ op: 'Add', args: addArgs }, ctx)
+    if (add.exitCode !== 0) {
+      return { ok: false, outputTail: add.outputTail, exitCode: add.exitCode }
+    }
+
+    const cont = await this.#runWithCtx(
+      { op: 'Merge', args: ['merge', '--continue'] },
+      ctx,
+    )
+    if (cont.exitCode !== 0) {
+      return { ok: false, outputTail: cont.outputTail, exitCode: cont.exitCode }
+    }
+    return { ok: true, outputTail: cont.outputTail }
+  }
+
+  async #abortMergeImpl(ctx: TurnCtx): Promise<{ ok: boolean; outputTail?: string }> {
+    if (!(await this.#mergeHeadExists())) {
+      return { ok: true, outputTail: 'No merge in progress.' }
+    }
+    const result = await this.#runWithCtx(
+      { op: 'Merge', args: ['merge', '--abort'] },
+      ctx,
+    )
+    return {
+      ok: result.exitCode === 0,
+      outputTail: result.outputTail,
+    }
+  }
+
+  async #mergeHeadExists(): Promise<boolean> {
+    try {
+      await access(path.join(this.#cwd, '.git', 'MERGE_HEAD'))
+      return true
+    } catch {
+      return false
+    }
   }
 
   // ============================================================================
@@ -1221,4 +1371,26 @@ export class GitModule {
     )
     return await this.#lazyFetchBranchRef(repoFullName, branch)
   }
+}
+
+const UNMERGED_PORCELAIN_PREFIXES = new Set([
+  'UU',
+  'AA',
+  'DD',
+  'AU',
+  'UA',
+  'DU',
+  'UD',
+])
+
+function parseConflictedPathsFromPorcelain(porcelain: string): string[] {
+  const files: string[] = []
+  for (const line of porcelain.split('\n')) {
+    if (line.length < 4) continue
+    if (!UNMERGED_PORCELAIN_PREFIXES.has(line.slice(0, 2))) continue
+    const rest = line.slice(3).trim()
+    const pathPart = rest.includes(' -> ') ? (rest.split(' -> ').pop() ?? rest) : rest
+    if (pathPart.length > 0) files.push(pathPart)
+  }
+  return files
 }

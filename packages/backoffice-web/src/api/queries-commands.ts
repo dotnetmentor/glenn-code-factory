@@ -1983,6 +1983,7 @@ export interface ProjectBranchDto {
   isArchived: boolean;
   /** @nullable */
   archivedAt?: string | null;
+  runtimeState: RuntimeState;
 }
 
 export interface ProjectBranchSnapshot {
@@ -2454,22 +2455,14 @@ export interface RequiredEnvStatusItem {
   satisfied: boolean;
 }
 
-export interface SuggestedEnvStatusItem {
-  service: string;
-  key: string;
-  /** @nullable */
-  description?: string | null;
-  /** @nullable */
-  secret?: boolean | null;
-  satisfied: boolean;
-}
-
 export interface RequiredEnvVar {
   key: string;
   /** @nullable */
   description?: string | null;
   /** @nullable */
   secret?: boolean | null;
+  /** @nullable */
+  required?: boolean | null;
 }
 
 export interface ResetBranchStateResponse {
@@ -3135,6 +3128,16 @@ export interface SubmitUrgentPromptResponse {
   queuePosition?: number | null;
 }
 
+export interface SuggestedEnvStatusItem {
+  service: string;
+  key: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  secret?: boolean | null;
+  satisfied: boolean;
+}
+
 export interface SyncGithubRepositoriesResponse {
   added: number;
   updated: number;
@@ -3425,6 +3428,10 @@ export interface UpdateProjectRuntimeSpecResponse {
   cpus: number;
   memoryMb: number;
   volumeSizeGb: number;
+  appliedToExistingBranchCount: number;
+  restartedBranchNames: string[];
+  /** @nullable */
+  volumeSizeNote?: string | null;
 }
 
 export interface UpdateProjectTemplateRequest {
@@ -3476,6 +3483,17 @@ export interface UpdateRuntimeSpecRequest {
   cpus: number;
   memoryMb: number;
   volumeSizeGb: number;
+  applyToExistingBranches?: boolean;
+}
+
+export interface BranchRuntimeHardwareSnapshotDto {
+  branchId: string;
+  branchName: string;
+  cpuKind: string;
+  cpus: number;
+  memoryMb: number;
+  volumeSizeGb: number;
+  state: string;
 }
 
 export interface UpdateSecretRequest {
@@ -18315,6 +18333,64 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPostApiProjectsProjectIdBranchesBranchIdRuntimeForceStopMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    
+export const postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch = (
+    projectId: string,
+    branchId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customClient<RuntimeStatusResponse>(
+      {url: `/api/projects/${projectId}/branches/${branchId}/runtime/reset-from-scratch`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratchMutationOptions = <TError = ErrorType<ProblemDetails>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch>>, TError,{projectId: string;branchId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch>>, TError,{projectId: string;branchId: string}, TContext> => {
+
+const mutationKey = ['postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch>>, {projectId: string;branchId: string}> = (props) => {
+          const {projectId,branchId} = props ?? {};
+
+          return  postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch(projectId,branchId,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratchMutationResult = NonNullable<Awaited<ReturnType<typeof postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch>>>
+    
+    export type PostApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratchMutationError = ErrorType<ProblemDetails>
+
+    export const usePostApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch = <TError = ErrorType<ProblemDetails>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch>>, TError,{projectId: string;branchId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratch>>,
+        TError,
+        {projectId: string;branchId: string},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratchMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

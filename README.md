@@ -1,6 +1,6 @@
-# Agent Template
+# GlennCode Factory
 
-Open-source full-stack template for building AI-powered business applications with a spec-driven agent workflow, workspace UI, and Fly.io agent runtimes powered by the Cursor SDK.
+Open-source software factory with a spec-driven agent workflow, workspace UI, and Fly.io agent runtimes powered by the Cursor SDK.
 
 **Stack:** .NET 9 · React 19 · PostgreSQL 16 · SignalR · Hangfire · Orval-generated API client
 
@@ -12,8 +12,7 @@ Open-source full-stack template for building AI-powered business applications wi
 |-------|----------------|
 | **Orchestrator API** (`packages/dotnet-api`) | Auth, projects, workspaces, kanban, specs, runtime provisioning, SignalR hubs |
 | **Backoffice UI** (`packages/backoffice-web`) | Super Admin console + per-workspace project UI |
-| **Agent daemon** (`packages/daemon`) | Runs on Fly machines; connects to the API via SignalR, executes agent turns with the **Cursor SDK**, applies runtime specs |
-| **Local Postgres** (`packages/local-db`) | Docker database for development |
+| **Agent daemon** (`packages/daemon`) | Runs on Fly machines; connects to the API via SignalR, executes agent turns with the **Cursor SDK**, applies runtime specs 
 
 Use it as:
 

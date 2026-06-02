@@ -66,13 +66,11 @@ interface ProjectWorkspaceShellProps {
    */
   chrome?: ReactNode | ((args: ChatChromeRenderArgs) => ReactNode)
   /**
-   * Per-project live runtime-state overlay keyed by projectId. The route
-   * owns the single AgentHub connection (joined to both the project AND
-   * workspace groups) and fans every {@code runtimeStateChanged} into this
-   * map; the sidebar reads it to overlay the freshest live state on top of
-   * the polled list value for every row.
+   * Per-branch live runtime-state overlay keyed by branchId. The route fans
+   * every {@code runtimeStateChanged} push into this map so branch rows can
+   * surface Failed/Crashed attention dots immediately.
    */
-  liveStatusByProjectId?: Map<string, LiveProjectStatus>
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
   /**
    * Per-project in-flight turn count delta keyed by projectId. The polled
    * list provides the baseline {@code runningTurnCount}; this map carries
@@ -105,7 +103,7 @@ export function ProjectWorkspaceShell(props: ProjectWorkspaceShellProps) {
 function ProjectWorkspaceShellInner({
   children,
   chrome,
-  liveStatusByProjectId,
+  liveStatusByBranchId,
   liveRunningTurnByProjectId,
 }: ProjectWorkspaceShellProps) {
   const { projectId = '', branchId = '' } = useParams<RouteParams>()
@@ -127,7 +125,7 @@ function ProjectWorkspaceShellInner({
   return (
     <ShellChromeContext.Provider value={resolvedChrome}>
       <WorkspaceShellLayout
-        liveStatusByProjectId={liveStatusByProjectId}
+        liveStatusByBranchId={liveStatusByBranchId}
         liveRunningTurnByProjectId={liveRunningTurnByProjectId}
         drawerOpen={drawerOpen}
         onDrawerClose={() => setDrawerOpen(false)}

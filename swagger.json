@@ -102,6 +102,26 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -11515,6 +11535,45 @@
         }
       }
     },
+    "/api/projects/{projectId}/runtime-spec/branch-hardware": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BranchRuntimeHardwareSnapshotDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/projects/{projectId}/cursor-model": {
       "patch": {
         "tags": [
@@ -17801,6 +17860,333 @@
       }
     },
     "/api/projects/{projectId}/branches/{branchId}/runtime/restart": {
+      "post": {
+        "tags": [
+          "RuntimeRestart"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branchId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/branches/{branchId}/runtime/suspend": {
+      "post": {
+        "tags": [
+          "RuntimeRestart"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branchId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/branches/{branchId}/runtime/force-stop": {
+      "post": {
+        "tags": [
+          "RuntimeRestart"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branchId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/branches/{branchId}/runtime/reset-from-scratch": {
       "post": {
         "tags": [
           "RuntimeRestart"
@@ -25675,7 +26061,9 @@
         "required": [
           "missing",
           "present",
-          "required"
+          "required",
+          "suggested",
+          "warnings"
         ],
         "type": "object",
         "properties": {
@@ -25691,7 +26079,19 @@
               "$ref": "#/components/schemas/RequiredEnvStatusItem"
             }
           },
+          "suggested": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SuggestedEnvStatusItem"
+            }
+          },
           "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warnings": {
             "type": "array",
             "items": {
               "type": "string"
@@ -28590,7 +28990,8 @@
           "isDefault",
           "name",
           "projectId",
-          "runningTurnCount"
+          "runningTurnCount",
+          "runtimeState"
         ],
         "type": "object",
         "properties": {
@@ -28632,6 +29033,9 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "runtimeState": {
+            "$ref": "#/components/schemas/RuntimeState"
           }
         },
         "additionalProperties": false
@@ -30126,6 +30530,10 @@
             "nullable": true
           },
           "secret": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "required": {
             "type": "boolean",
             "nullable": true
           }
@@ -31988,6 +32396,34 @@
         },
         "additionalProperties": false
       },
+      "SuggestedEnvStatusItem": {
+        "required": [
+          "key",
+          "satisfied",
+          "service"
+        ],
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "secret": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "satisfied": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "SyncGithubRepositoriesResponse": {
         "required": [
           "added",
@@ -32704,10 +33140,12 @@
       },
       "UpdateProjectRuntimeSpecResponse": {
         "required": [
+          "appliedToExistingBranchCount",
           "cpuKind",
           "cpus",
           "memoryMb",
           "projectId",
+          "restartedBranchNames",
           "volumeSizeGb"
         ],
         "type": "object",
@@ -32730,6 +33168,20 @@
           "volumeSizeGb": {
             "type": "integer",
             "format": "int32"
+          },
+          "appliedToExistingBranchCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "restartedBranchNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "volumeSizeNote": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -32830,6 +33282,49 @@
           "volumeSizeGb": {
             "type": "integer",
             "format": "int32"
+          },
+          "applyToExistingBranches": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BranchRuntimeHardwareSnapshotDto": {
+        "required": [
+          "branchId",
+          "branchName",
+          "cpuKind",
+          "cpus",
+          "memoryMb",
+          "volumeSizeGb",
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "branchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": "string"
+          },
+          "cpuKind": {
+            "type": "string"
+          },
+          "cpus": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memoryMb": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "volumeSizeGb": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RuntimeState"
           }
         },
         "additionalProperties": false

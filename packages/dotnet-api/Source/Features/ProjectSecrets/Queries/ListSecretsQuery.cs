@@ -57,7 +57,7 @@ public class ListSecretsQueryHandler : IQueryHandler<ListSecretsQuery, Result<Li
         // fall back to UserName then Email for display.
         var rows = await (
             from secret in _db.ProjectSecrets
-            where secret.ProjectId == request.ProjectId
+            where secret.ProjectId == request.ProjectId && secret.BranchId == null
             join u in _db.Users on secret.CreatedBy equals u.Id into users
             from user in users.DefaultIfEmpty()
             orderby secret.Key

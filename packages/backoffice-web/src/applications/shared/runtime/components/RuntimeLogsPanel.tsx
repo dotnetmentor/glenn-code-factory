@@ -18,11 +18,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PauseIcon from '@mui/icons-material/Pause'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
-import {
-  useGetApiProjectsProjectIdRuntimeSpec,
-  useGetApiProjectsProjectIdBranchesBranchIdRuntimeStatus,
-  type RuntimeStatusResponse,
-} from '@/api/queries-commands'
+import { type RuntimeStatusResponse } from '@/api/queries-commands'
 import { useAgentHub } from '@/lib/signalr'
 import type { ServiceLogLineNotification } from '@/generated/signalr/Source.Features.SignalR.Contracts'
 import {
@@ -32,6 +28,7 @@ import {
   workspaceText,
 } from '@/applications/workspace/shared/designTokens'
 import { useRuntimeEventStream } from '@/applications/super-admin/features/project-runtime/hooks/useRuntimeEventStream'
+import { useBranchRuntimeStatus } from '@/applications/shared/runtime/hooks/useBranchRuntimeStatus'
 import { LogViewer, type LogViewerLine } from './LogViewer'
 import { ServicesTabContainer } from './ServicesTabContainer'
 import { ActivityTab } from './ActivityTab'
@@ -224,6 +221,7 @@ export function RuntimeLogsPanel({
       />
 
       <RuntimeDebugPanelBody
+        key={`${projectId}-${branchId}`}
         projectId={projectId}
         branchId={branchId}
         initialServiceName={initialServiceName}
@@ -289,31 +287,11 @@ function RuntimeDebugPanelBody({
   }, [])
   const isNarrow = panelWidth > 0 && panelWidth < 600
 
-  // ── Logs state (lifted out of the inner LogViewer wrapper) ─────────────
-  const specQuery = useGetApiProjectsProjectIdRuntimeSpec(projectId, {
-    query: { enabled: !!projectId },
+  // Branch-scoped runtime status + id (see useBranchRuntimeStatus).
+  const branchRuntime = useBranchRuntimeStatus(projectId, branchId, {
+    refetchInterval: 5_000,
   })
-  // DTO field is nullable now (project-level spec — no live runtime means
-  // null). Collapse to undefined so downstream string|undefined props are
-  // happy without spreading ?? undefined everywhere.
-  const runtimeId = specQuery.data?.runtimeId ?? undefined
-
-  // Branch-scoped runtime status drives the header strip (state chip,
-  // time-in-state, last-heartbeat, respawn pill, error message on terminal
-  // states). Refetch every 5s while the panel is open. Status is also passed
-  // into useRuntimeEventStream so SysstatsView gets a fresh disk + sysstats
-  // snapshot on every poll.
-  const statusQuery = useGetApiProjectsProjectIdBranchesBranchIdRuntimeStatus(
-    projectId,
-    branchId,
-    {
-      query: {
-        enabled: !!projectId && !!branchId,
-        refetchInterval: 5_000,
-        refetchIntervalInBackground: false,
-      },
-    },
-  )
+  const { status: runtimeStatus, runtimeId } = branchRuntime
 
   // Match the parent workspace's hub key (projectId + branchId) so this panel
   // shares the same pooled connection rather than opening a second negotiate
@@ -331,7 +309,7 @@ function RuntimeDebugPanelBody({
   const stream = useRuntimeEventStream({
     connection,
     runtimeId,
-    status: statusQuery.data,
+    status: runtimeStatus,
     enabled: !!runtimeId,
   })
 
@@ -503,7 +481,7 @@ function RuntimeDebugPanelBody({
   )
 
   const daemonDisconnected =
-    isDaemonHubLikelyUnreachable(statusQuery.data) && !!runtimeId
+    isDaemonHubLikelyUnreachable(runtimeStatus) && !!runtimeId
 
   return (
     <Box
@@ -522,7 +500,7 @@ function RuntimeDebugPanelBody({
           variant — the {@link RuntimeStatusHeader} drops phase under
           ~600px panel width to avoid wrapping. */}
       <PanelStatusStrip
-        status={statusQuery.data}
+        status={runtimeStatus}
         runtimeId={runtimeId}
         supervisordSnapshot={stream.supervisordSnapshot}
         events={stream.events}
@@ -565,7 +543,7 @@ function RuntimeDebugPanelBody({
             selectedService={selectedService}
             connection={connection}
             runtimeId={runtimeId}
-            runtimeStatus={statusQuery.data}
+            runtimeStatus={runtimeStatus}
             daemonDisconnected={daemonDisconnected}
           />
         </ViewLayer>
@@ -573,14 +551,18 @@ function RuntimeDebugPanelBody({
           <Box sx={{ height: '100%', minHeight: 0, overflowY: 'auto', px: 2, py: 1 }}>
             <ServicesTabContainer
               projectId={projectId}
+              branchId={branchId}
+              runtimeStatus={runtimeStatus}
               onViewLogs={handleViewLogsFromServices}
               stream={stream}
+              runtimeState={runtimeStatus?.state}
+              isLive={stream.isLive}
             />
           </Box>
         </ViewLayer>
         <ViewLayer active={activeView === 'timeline'}>
           <Box sx={{ height: '100%', minHeight: 0, overflowY: 'auto', px: 2, py: 1 }}>
-            <ActivityTab projectId={projectId} stream={stream} />
+            <ActivityTab projectId={projectId} branchId={branchId} stream={stream} />
           </Box>
         </ViewLayer>
         <ViewLayer active={activeView === 'sysstats'}>

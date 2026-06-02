@@ -121,6 +121,40 @@ public class RuntimeSuspendControllerTests : IntegrationTestBase
         body!.State.Should().Be(RuntimeState.Suspending);
     }
 
+    [Fact]
+    public async Task ResetFromScratch_FailedRuntime_ClearsFlyRefsAndTransitionsToPending()
+    {
+        var (client, userId) = await RegisterUserAsync();
+        var projectId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+
+        await SeedOwnedProjectAsync(projectId, userId);
+        var runtime = await SeedRuntimeAsync(RuntimeState.Failed, projectId, branchId);
+
+        using (var scope = CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var row = await db.ProjectRuntimes.SingleAsync(r => r.Id == runtime.Id);
+            row.FlyVolumeId = "vol_stale_test";
+            await db.SaveChangesAsync();
+        }
+
+        var response = await client.PostAsync(
+            $"/api/projects/{projectId}/branches/{branchId}/runtime/reset-from-scratch",
+            content: null);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+
+        var body = await response.Content.ReadFromJsonAsync<RuntimeStatusResponse>(JsonOptions);
+        body!.State.Should().Be(RuntimeState.Pending);
+        body.FlyMachineId.Should().BeNull();
+
+        using var verifyScope = CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var refreshed = await verifyDb.ProjectRuntimes.SingleAsync(r => r.Id == runtime.Id);
+        refreshed.FlyVolumeId.Should().BeNull();
+        refreshed.FlyMachineId.Should().BeNull();
+    }
+
     private async Task<ProjectRuntime> SeedRuntimeAsync(
         RuntimeState state,
         Guid projectId,

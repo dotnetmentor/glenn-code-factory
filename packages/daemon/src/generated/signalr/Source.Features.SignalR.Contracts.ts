@@ -11,6 +11,8 @@ export type RuntimeStateChangedNotification = {
     runtimeId: string;
     /** Transpiled from System.Guid */
     projectId: string;
+    /** Transpiled from System.Guid */
+    branchId: string;
     /** Transpiled from string? */
     fromState?: string;
     /** Transpiled from string */

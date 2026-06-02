@@ -229,4 +229,45 @@ public class ProjectRuntimeTransitionTests : HandlerTestBase
         result.IsSuccess.Should().BeTrue();
         runtime.State.Should().Be(RuntimeState.Pending);
     }
+
+    [Fact]
+    public void ReprovisionAfterSpecChange_updates_snapshot_and_walks_to_Pending()
+    {
+        var runtime = SeedRuntime(RuntimeState.Suspended);
+        runtime.MemoryMb = 2048;
+        runtime.Cpus = 1;
+
+        var result = runtime.ReprovisionAfterSpecChange(
+            "performance",
+            cpus: 2,
+            memoryMb: 4096,
+            volumeSizeGb: 15,
+            userId: Guid.NewGuid());
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.State.Should().Be(RuntimeState.Pending);
+        runtime.MemoryMb.Should().Be(4096);
+        runtime.Cpus.Should().Be(2);
+        runtime.VolumeSizeGb.Should().Be(15);
+        runtime.HardwareSpecMatches("performance", 2, 4096, 15).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ResetFromScratch_clears_fly_refs_and_walks_to_Pending()
+    {
+        var runtime = SeedRuntime(RuntimeState.Failed);
+        runtime.FlyMachineId = "machine-old";
+        runtime.FlyVolumeId = "vol-old";
+        runtime.RespawnRetries = 2;
+
+        var result = runtime.ResetFromScratch(Guid.NewGuid());
+
+        result.IsSuccess.Should().BeTrue();
+        runtime.State.Should().Be(RuntimeState.Pending);
+        runtime.FlyMachineId.Should().BeNull();
+        runtime.FlyVolumeId.Should().BeNull();
+        runtime.RespawnRetries.Should().Be(0);
+        runtime.LastHeartbeatAt.Should().BeNull();
+        runtime.LastBootstrapActivityAt.Should().BeNull();
+    }
 }

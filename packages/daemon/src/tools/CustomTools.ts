@@ -27,6 +27,7 @@ import { bootstrapEnv } from '../runtime/BootstrapEnvironment.js'
 import type { CustomTool, ToolContext, ToolResult } from '../turn/types.js'
 
 import type { ToolDescriptionResponse } from './fetchToolDescription.js'
+import { buildGitCustomTools, type GitModuleAccessor } from './GitCustomTools.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -805,6 +806,8 @@ export interface BuildCustomToolsDeps {
    * `request_rebootstrap`.
    */
   triggerRebootstrap?: (reason: string) => void | Promise<void>
+  /** Lazy ref — wired after GitModule boots; tools return unavailable until set. */
+  getGitModule?: GitModuleAccessor
 }
 
 export function buildCustomTools(deps: BuildCustomToolsDeps): CustomTool[] {
@@ -864,6 +867,9 @@ export function buildCustomTools(deps: BuildCustomToolsDeps): CustomTool[] {
       )
     })
 
+  const getGitModule = deps.getGitModule ?? ((): undefined => undefined)
+  const gitTools = buildGitCustomTools({ logger: childLogger, getGitModule })
+
   return [
     buildProposeRuntimeSpec(proposeOpts),
     buildRestartService(restartOpts),
@@ -875,6 +881,7 @@ export function buildCustomTools(deps: BuildCustomToolsDeps): CustomTool[] {
       ...(deps.getPreviewEnv !== undefined ? { getPreviewEnv: deps.getPreviewEnv } : {}),
     }),
     buildRequestRebootstrap({ logger: childLogger, triggerRebootstrap }),
+    ...gitTools,
   ]
 }
 

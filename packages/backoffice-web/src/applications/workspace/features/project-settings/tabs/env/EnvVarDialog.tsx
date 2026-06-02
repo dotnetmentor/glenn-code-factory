@@ -19,6 +19,7 @@ import {
 } from '../../../../shared/designTokens'
 import { ENV_KEY_PATTERN, invalidEnvKeyMessage } from './envVarKey'
 import { humaniseEnvVarApiError } from './envVarApiError'
+import type { EnvVarScope } from './envVarTypes'
 
 export { ENV_KEY_PATTERN } from './envVarKey'
 
@@ -44,6 +45,8 @@ export interface EnvVarDialogProps {
   open: boolean
   /** 'add' allows editing the key; 'edit' locks it. */
   mode: 'add' | 'edit'
+  /** Where the value is stored — project default or branch override. */
+  scope?: EnvVarScope
   /**
    * Seed values. For the "Set value" flow on a missing required var, pass the
    * key prefilled and {@code lockKey} true so the user only fills the value.
@@ -65,6 +68,7 @@ export interface EnvVarDialogProps {
 export function EnvVarDialog({
   open,
   mode,
+  scope = 'project',
   initial,
   lockKey,
   isSubmitting,
@@ -88,6 +92,15 @@ export function EnvVarDialog({
   }, [open, initial?.key, initial?.value, initial?.isSecret])
 
   const keyLocked = mode === 'edit' || !!lockKey
+  const isBranchOverride = scope === 'branch'
+  const title =
+    mode === 'edit'
+      ? isBranchOverride
+        ? 'Edit branch override'
+        : 'Edit variable'
+      : isBranchOverride
+        ? 'Add branch override'
+        : 'Add variable'
   const trimmedKey = key.trim()
   const trimmedValue = value
   const keyValid = ENV_KEY_PATTERN.test(trimmedKey)
@@ -142,7 +155,7 @@ export function EnvVarDialog({
             lineHeight: 1.4,
           }}
         >
-          {mode === 'edit' ? 'Edit variable' : 'Add variable'}
+          {title}
         </DialogTitle>
 
         <DialogContent sx={{ px: 3, pb: 2.5, pt: 0 }}>
@@ -192,13 +205,15 @@ export function EnvVarDialog({
                 <Switch
                   checked={isSecret}
                   onChange={(_, checked) => setIsSecret(checked)}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !isBranchOverride}
                   size="small"
                 />
               }
               label={
                 <Typography sx={{ fontSize: '0.8125rem', color: tokens.primary }}>
-                  Secret — value is encrypted and masked
+                  {isBranchOverride
+                    ? 'Secret — value is encrypted and masked'
+                    : 'Project variables are always stored as secrets'}
                 </Typography>
               }
               sx={{ mx: 0 }}

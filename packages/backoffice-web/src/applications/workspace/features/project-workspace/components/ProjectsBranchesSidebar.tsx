@@ -21,6 +21,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import ArchiveOutlinedIcon from '@mui/icons-material/ArchiveOutlined'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import BedtimeOutlinedIcon from '@mui/icons-material/BedtimeOutlined'
+import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined'
 import StopCircleOutlinedIcon from '@mui/icons-material/StopCircleOutlined'
 import MenuIcon from '@mui/icons-material/Menu'
 import BugReportIcon from '@mui/icons-material/BugReport'
@@ -37,7 +38,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, parseISO } from 'date-fns'
 import {
   RuntimeState,
-  getGetApiProjectsProjectIdBranchesBranchIdRuntimeStatusQueryKey,
   getGetApiProjectsProjectIdBranchesQueryKey,
   getGetApiWorkspacesSlugProjectsQueryKey,
   useGetApiProjectsProjectIdBranches,
@@ -45,9 +45,6 @@ import {
   useGetApiWorkspacesSlugProjects,
   useGetApiWorkspacesWorkspaceIdCost,
   usePostApiProjectsProjectIdBranchesBranchIdArchive,
-  usePostApiProjectsProjectIdBranchesBranchIdRuntimeRestart,
-  usePostApiProjectsProjectIdBranchesBranchIdRuntimeSuspend,
-  usePostApiProjectsProjectIdBranchesBranchIdRuntimeForceStop,
   type ProjectBranchDto,
   type ProjectSummaryDto,
 } from '../../../../../api/queries-commands'
@@ -69,6 +66,7 @@ import { ProjectCostTag } from './ProjectCostTag'
 import { ProjectSettingsDrawer } from '../../project-settings'
 import { formatCostUsd } from './costFormat'
 import { useBranchUnreadActivityStatus } from '../hooks/useWorkspaceActivityStore'
+import { useBranchRuntimeMenuActions } from '../hooks/useBranchRuntimeMenuActions'
 import { branchWorkspaceHref } from '../hooks/branchConversationMemory'
 
 import {
@@ -157,21 +155,19 @@ function bucketFor(
   }
 }
 
+function branchNeedsAction(
+  state: RuntimeState | string | null | undefined,
+): boolean {
+  return state === RuntimeState.Failed || state === RuntimeState.Crashed
+}
+
 export interface ProjectsBranchesSidebarProps {
   /**
-   * Per-project live runtime-state overlay. The route already owns the
-   * single SignalR subscription (now joined to both project AND workspace
-   * groups) and fans every {@code runtimeStateChanged} push into this map;
-   * the sidebar reads it per-row to override the polled list's coarser
-   * 15s value with whatever the hub said most recently.
-   *
-   * <p>For rows not present in the map we fall back to
-   * {@code project.runtimeState} from the polled
-   * {@code useGetApiWorkspacesSlugProjects} list, which refreshes every 15s
-   * so non-active rows reflect coarse-grained reality without each row
-   * owning its own SignalR subscription.</p>
+   * Per-branch live runtime-state overlay keyed by branchId. Branch rows read
+   * this to surface Failed/Crashed attention dots without waiting for the
+   * 15s branches-list poll.
    */
-  liveStatusByProjectId?: Map<string, LiveProjectStatus>
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
   /**
    * Per-project in-flight turn count delta. The polled list carries the
    * baseline {@code runningTurnCount}; this map provides the instant
@@ -309,7 +305,7 @@ function ProjectCornerDot({ sectionKey }: { sectionKey: SectionKey }) {
  * inline in {@code ChatChrome} (clickable title → popover).</p>
  */
 export function ProjectsBranchesSidebar({
-  liveStatusByProjectId,
+  liveStatusByBranchId,
   liveRunningTurnByProjectId,
 }: ProjectsBranchesSidebarProps) {
   const navigate = useNavigate()
@@ -384,9 +380,13 @@ export function ProjectsBranchesSidebar({
   const resolvedProjects = useMemo(() => {
     const list = projectsQuery.data ?? []
     return list.map((project) => {
-      const live = liveStatusByProjectId?.get(project.id)
+      // Project section bucketing uses the polled aggregate (worst branch
+      // state across the project). We intentionally do NOT overlay the
+      // per-project live map here — it is keyed by projectId and last-writer
+      // wins across sibling branches, which made the "Needs Action" bucket
+      // disagree with the branch the user is actually on.
       const effectiveState: RuntimeState | string | null =
-        (live?.state ?? null) ?? project.runtimeState ?? null
+        project.runtimeState ?? null
       const livePartial = liveRunningTurnByProjectId?.get(project.id)
       const effectiveRunningTurnCount = Math.max(
         project.runningTurnCount ?? 0,
@@ -399,7 +399,7 @@ export function ProjectsBranchesSidebar({
         section: bucketFor(effectiveState, effectiveRunningTurnCount),
       }
     })
-  }, [projectsQuery.data, liveStatusByProjectId, liveRunningTurnByProjectId])
+  }, [projectsQuery.data, liveRunningTurnByProjectId])
 
   // ── Group + intra-section sort (latestActivityAt desc) ───────────────────
   const sectionedProjects = useMemo(() => {
@@ -1083,6 +1083,7 @@ export function ProjectsBranchesSidebar({
                           }
                           collapsed={collapsed}
                           sectionKey={section.key}
+                          liveStatusByBranchId={liveStatusByBranchId}
                         />
                       ),
                     )}
@@ -1405,6 +1406,7 @@ interface ProjectRowProps {
    * agents at a glance without the section headers being visible.
    */
   sectionKey: SectionKey
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
 }
 
 function ProjectRow({
@@ -1422,6 +1424,7 @@ function ProjectRow({
   activeBranchRowRef,
   collapsed,
   sectionKey,
+  liveStatusByBranchId,
 }: ProjectRowProps) {
   const isDetached = project.githubInstallationId == null
 
@@ -1657,6 +1660,7 @@ function ProjectRow({
           slug={slug}
           activeBranchId={activeBranchId}
           activeBranchRowRef={activeBranchRowRef}
+          liveStatusByBranchId={liveStatusByBranchId}
         />
       )}
     </Box>
@@ -1670,6 +1674,7 @@ interface BranchesListProps {
   slug: string
   activeBranchId: string
   activeBranchRowRef: React.RefObject<HTMLDivElement | null> | null
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
 }
 
 function BranchesList({
@@ -1677,6 +1682,7 @@ function BranchesList({
   slug,
   activeBranchId,
   activeBranchRowRef,
+  liveStatusByBranchId,
 }: BranchesListProps) {
   const branchesQuery = useGetApiProjectsProjectIdBranches(
     projectId,
@@ -1708,7 +1714,12 @@ function BranchesList({
   //    siblings (matches user expectation when a project is fresh).
   const sortedBranches = useMemo(() => {
     const list = branchesQuery.data ?? []
+    const effectiveState = (branch: ProjectBranchDto) =>
+      liveStatusByBranchId?.get(branch.id)?.state ?? branch.runtimeState ?? null
     return [...list].sort((a, b) => {
+      const aNeedsAction = branchNeedsAction(effectiveState(a)) ? 1 : 0
+      const bNeedsAction = branchNeedsAction(effectiveState(b)) ? 1 : 0
+      if (aNeedsAction !== bNeedsAction) return bNeedsAction - aNeedsAction
       const aRunning = (a.runningTurnCount ?? 0) > 0 ? 1 : 0
       const bRunning = (b.runningTurnCount ?? 0) > 0 ? 1 : 0
       if (aRunning !== bRunning) return bRunning - aRunning
@@ -1718,7 +1729,7 @@ function BranchesList({
       if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1
       return 0
     })
-  }, [branchesQuery.data])
+  }, [branchesQuery.data, liveStatusByBranchId])
 
   const existingBranchNames = useMemo(
     () => (branchesQuery.data ?? []).map((b) => b.name),
@@ -1766,6 +1777,7 @@ function BranchesList({
             active={branch.id === activeBranchId}
             activeRowRef={branch.id === activeBranchId ? activeBranchRowRef : null}
             onCopyClick={() => handleCopyClick(branch)}
+            liveStatusByBranchId={liveStatusByBranchId}
           />
         ))}
       </Box>
@@ -1791,6 +1803,7 @@ interface BranchRowProps {
   active: boolean
   activeRowRef: React.RefObject<HTMLDivElement | null> | null
   onCopyClick: () => void
+  liveStatusByBranchId?: Map<string, LiveProjectStatus>
 }
 
 function BranchRow({
@@ -1800,6 +1813,7 @@ function BranchRow({
   active,
   activeRowRef,
   onCopyClick,
+  liveStatusByBranchId,
 }: BranchRowProps) {
   const queryClient = useQueryClient()
   const { showSuccess, showError } = useNotification()
@@ -1807,6 +1821,13 @@ function BranchRow({
   const isSuperAdmin = !!user?.roles?.includes(ApplicationRoles.SuperAdmin)
   const isRunning = (branch.runningTurnCount ?? 0) > 0
   const relative = formatCompactRelative(branch.lastActivityAt ?? null)
+  const effectiveBranchState =
+    liveStatusByBranchId?.get(branch.id)?.state ?? branch.runtimeState ?? null
+  const needsAttention = branchNeedsAction(effectiveBranchState)
+  const attentionTooltip =
+    effectiveBranchState === RuntimeState.Crashed
+      ? 'Runtime crashed — needs restart'
+      : 'Runtime failed — needs restart'
 
   const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [menuPosition, setMenuPosition] = useState<{
@@ -1833,18 +1854,6 @@ function BranchRow({
   const canPutToSleep = isOnline
 
   const archiveMut = usePostApiProjectsProjectIdBranchesBranchIdArchive()
-  const restartMut = usePostApiProjectsProjectIdBranchesBranchIdRuntimeRestart()
-  const suspendMut = usePostApiProjectsProjectIdBranchesBranchIdRuntimeSuspend()
-  const forceStopMut = usePostApiProjectsProjectIdBranchesBranchIdRuntimeForceStop()
-
-  const invalidateRuntimeStatus = () => {
-    void queryClient.invalidateQueries({
-      queryKey: getGetApiProjectsProjectIdBranchesBranchIdRuntimeStatusQueryKey(
-        projectId,
-        branch.id,
-      ),
-    })
-  }
 
   const invalidateBranchLists = () => {
     queryClient.invalidateQueries({
@@ -1859,6 +1868,27 @@ function BranchRow({
     setMenuAnchorEl(null)
     setMenuPosition(null)
   }
+
+  const runtimeMenuActions = useBranchRuntimeMenuActions({
+    projectId,
+    branchId: branch.id,
+    branchName: branch.name,
+    slug,
+    isSuspended,
+    isFailed,
+    onCloseMenu: closeBranchMenu,
+  })
+
+  const {
+    handleRestartRuntime,
+    handlePutToSleep,
+    handleForceStop,
+    handleResetFromScratch,
+    isRestartPending,
+    isSuspendPending,
+    isForceStopPending,
+    isResetFromScratchPending,
+  } = runtimeMenuActions
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -1910,62 +1940,6 @@ function BranchRow({
     )
   }
 
-  const handleRestartRuntime = () => {
-    closeBranchMenu()
-    restartMut.mutate(
-      { projectId, branchId: branch.id },
-      {
-        onSuccess: () => {
-          showSuccess(
-            isSuspended
-              ? `Waking runtime for "${branch.name}".`
-              : isFailed
-                ? `Restarting runtime for "${branch.name}".`
-                : `Restart requested for "${branch.name}".`,
-          )
-          invalidateRuntimeStatus()
-        },
-        onError: (err: unknown) => {
-          showError(mapBranchRuntimeActionError(err))
-        },
-      },
-    )
-  }
-
-  const handlePutToSleep = () => {
-    closeBranchMenu()
-    suspendMut.mutate(
-      { projectId, branchId: branch.id },
-      {
-        onSuccess: () => {
-          showSuccess(`Putting "${branch.name}" to sleep.`)
-          invalidateRuntimeStatus()
-          invalidateBranchLists()
-        },
-        onError: (err: unknown) => {
-          showError(mapBranchRuntimeActionError(err))
-        },
-      },
-    )
-  }
-
-  const handleForceStop = () => {
-    closeBranchMenu()
-    forceStopMut.mutate(
-      { projectId, branchId: branch.id },
-      {
-        onSuccess: () => {
-          showSuccess(`Force-stopping runtime for "${branch.name}".`)
-          invalidateRuntimeStatus()
-          invalidateBranchLists()
-        },
-        onError: (err: unknown) => {
-          showError(mapBranchRuntimeActionError(err))
-        },
-      },
-    )
-  }
-
   const canArchive =
     !branch.isDefault && !isRunning && !branch.isArchived
   const archiveDisabledReason = branch.isDefault
@@ -1974,6 +1948,13 @@ function BranchRow({
       ? 'Stop the running turn first'
       : null
   const restartLabel = isSuspended ? 'Wake runtime' : 'Restart runtime'
+  const isStuckRuntime =
+    isFailed ||
+    runtimeState === RuntimeState.Pending ||
+    needsAttention
+  const resetFromScratchDisabledReason = isRunning
+    ? 'Stop the running turn first'
+    : null
   const sleepDisabledReason =
     runtimeStatusQuery.isLoading || runtimeStatusQuery.isFetching
       ? 'Checking runtime state…'
@@ -1993,7 +1974,7 @@ function BranchRow({
   // dedup in {@code pushActivity} replaces any older entry — so the two
   // states never overlap visually.
   const unreadStatus = useBranchUnreadActivityStatus(branch.id)
-  const hasUnread = !isRunning && unreadStatus !== null
+  const hasUnread = !isRunning && !needsAttention && unreadStatus !== null
   const unreadDotColor =
     unreadStatus === 'failed' ? tokens.unreadDotFailed : tokens.unreadDotIdle
   const unreadTooltip =
@@ -2091,6 +2072,14 @@ function BranchRow({
           </Box>
         )}
 
+        {!isRunning && needsAttention && (
+          <Tooltip title={attentionTooltip} placement="right" enterDelay={400}>
+            <Box sx={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}>
+              <StatusDot state={effectiveBranchState} size={6} />
+            </Box>
+          </Tooltip>
+        )}
+
         {/* Unread terminal-event indicator. Inbox semantics: the dot
             appears when the most recent terminal turn on this branch is
             still unacknowledged, and clears the moment the user opens the
@@ -2118,8 +2107,12 @@ function BranchRow({
           placement="right"
           sx={{
             fontSize: '0.75rem',
-            fontWeight: active ? 500 : 400,
-            color: active ? tokens.textPrimary : tokens.textMuted,
+            fontWeight: active || needsAttention ? 500 : 400,
+            color: active
+              ? tokens.textPrimary
+              : needsAttention
+                ? tokens.attention
+                : tokens.textMuted,
             letterSpacing: '-0.005em',
             fontFamily: workspaceFontFamily.mono,
           }}
@@ -2232,7 +2225,7 @@ function BranchRow({
         <Tooltip
           title={sleepDisabledReason ?? ''}
           placement="right"
-          disableHoverListener={canPutToSleep && !suspendMut.isPending}
+          disableHoverListener={canPutToSleep && !isSuspendPending}
         >
           <span>
             <MenuItem
@@ -2240,7 +2233,7 @@ function BranchRow({
               onClick={handlePutToSleep}
               disabled={
                 !canPutToSleep ||
-                suspendMut.isPending ||
+                isSuspendPending ||
                 runtimeStatusQuery.isLoading
               }
               sx={branchMenuItemSx}
@@ -2253,12 +2246,38 @@ function BranchRow({
         <MenuItem
           dense
           onClick={handleRestartRuntime}
-          disabled={restartMut.isPending}
+          disabled={isRestartPending}
           sx={branchMenuItemSx}
         >
           <RestartAltIcon sx={branchMenuIconSx} />
           {restartLabel}
         </MenuItem>
+        <Tooltip
+          title={resetFromScratchDisabledReason ?? ''}
+          placement="right"
+          disableHoverListener={!resetFromScratchDisabledReason}
+        >
+          <span>
+            <MenuItem
+              dense
+              onClick={handleResetFromScratch}
+              disabled={
+                isRunning ||
+                isResetFromScratchPending ||
+                runtimeStatusQuery.isLoading
+              }
+              sx={[
+                branchMenuItemSx,
+                isStuckRuntime && {
+                  color: tokens.unreadDotFailed,
+                },
+              ]}
+            >
+              <DeleteSweepOutlinedIcon sx={branchMenuIconSx} />
+              Start from scratch
+            </MenuItem>
+          </span>
+        </Tooltip>
         <Divider sx={branchMenuDividerSx} />
         <Tooltip
           title={archiveDisabledReason ?? ''}
@@ -2283,7 +2302,7 @@ function BranchRow({
             <MenuItem
               dense
               onClick={handleForceStop}
-              disabled={forceStopMut.isPending}
+              disabled={isForceStopPending}
               sx={branchMenuItemSx}
             >
               <StopCircleOutlinedIcon sx={branchMenuIconSx} />
@@ -2294,20 +2313,6 @@ function BranchRow({
       </Menu>
     </Box>
   )
-}
-
-function mapBranchRuntimeActionError(err: unknown): string {
-  const data = (err as {
-    response?: { data?: { error?: string; detail?: string }; status?: number }
-  })?.response?.data
-  const raw = data?.error ?? data?.detail
-  if (raw) {
-    return raw.replace(/^(conflict:|not-found:)\s*/, '').trim()
-  }
-  if ((err as { response?: { status?: number } })?.response?.status === 409) {
-    return "Runtime is in a state that can't be restarted right now."
-  }
-  return "Couldn't restart the runtime. Try again in a moment."
 }
 
 function ProjectListSkeleton() {

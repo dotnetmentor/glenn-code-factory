@@ -2463,7 +2463,8 @@ export const postApiProjectsProjectIdProposalsBody = zod.object({
   "requiredEnv": zod.array(zod.object({
   "key": zod.string(),
   "description": zod.string().nullish(),
-  "secret": zod.boolean().nullish()
+  "secret": zod.boolean().nullish(),
+  "required": zod.boolean().nullish()
 })).nullish()
 })).nullish()
 }),
@@ -2519,7 +2520,8 @@ export const putApiProjectsProjectIdRuntimeSpecBody = zod.object({
   "requiredEnv": zod.array(zod.object({
   "key": zod.string(),
   "description": zod.string().nullish(),
-  "secret": zod.boolean().nullish()
+  "secret": zod.boolean().nullish(),
+  "required": zod.boolean().nullish()
 })).nullish()
 })).nullish()
 })
@@ -2551,7 +2553,8 @@ export const getApiProjectsProjectIdRuntimeSpecResponse = zod.object({
   "requiredEnv": zod.array(zod.object({
   "key": zod.string(),
   "description": zod.string().nullish(),
-  "secret": zod.boolean().nullish()
+  "secret": zod.boolean().nullish(),
+  "required": zod.boolean().nullish()
 })).nullish()
 })).nullish()
 }),
@@ -2672,7 +2675,8 @@ export const getApiProjectsProjectIdBranchesResponseItem = zod.object({
   "runningTurnCount": zod.number(),
   "previewHostname": zod.string().nullish(),
   "isArchived": zod.boolean(),
-  "archivedAt": zod.iso.datetime({}).nullish()
+  "archivedAt": zod.iso.datetime({}).nullish(),
+  "runtimeState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted'])
 })
 export const getApiProjectsProjectIdBranchesResponse = zod.array(getApiProjectsProjectIdBranchesResponseItem)
 
@@ -2799,7 +2803,8 @@ export const postApiProjectsProjectIdBranchesBranchIdAssignSubdomainResponse = z
   "runningTurnCount": zod.number(),
   "previewHostname": zod.string().nullish(),
   "isArchived": zod.boolean(),
-  "archivedAt": zod.iso.datetime({}).nullish()
+  "archivedAt": zod.iso.datetime({}).nullish(),
+  "runtimeState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted'])
 })
 
 
@@ -11286,7 +11291,8 @@ export const postApiProjectsProjectIdProposalsProposalIdEditBody = zod.object({
   "requiredEnv": zod.array(zod.object({
   "key": zod.string(),
   "description": zod.string().nullish(),
-  "secret": zod.boolean().nullish()
+  "secret": zod.boolean().nullish(),
+  "required": zod.boolean().nullish()
 })).nullish()
 })).nullish()
 })
@@ -11344,7 +11350,8 @@ export const postApiRuntimesRuntimeIdProposalsBody = zod.object({
   "requiredEnv": zod.array(zod.object({
   "key": zod.string(),
   "description": zod.string().nullish(),
-  "secret": zod.boolean().nullish()
+  "secret": zod.boolean().nullish(),
+  "required": zod.boolean().nullish()
 })).nullish()
 })).nullish()
 }),
@@ -11421,6 +11428,120 @@ export const postApiProjectsProjectIdBranchesBranchIdRuntimeRestartParams = zod.
 })
 
 export const postApiProjectsProjectIdBranchesBranchIdRuntimeRestartResponse = zod.object({
+  "runtimeId": zod.uuid(),
+  "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "stateChangedAt": zod.iso.datetime({}),
+  "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
+  "flyMachineId": zod.string().nullish(),
+  "imageDigest": zod.string().nullish(),
+  "region": zod.string(),
+  "recentTransitions": zod.array(zod.object({
+  "fromState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "toState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "reason": zod.string(),
+  "triggeredBy": zod.string(),
+  "occurredAt": zod.iso.datetime({})
+})),
+  "errorReason": zod.string().nullish(),
+  "errorMessage": zod.string().nullish(),
+  "respawnRetries": zod.number(),
+  "lastDiskUsedBytes": zod.number().nullish(),
+  "lastDiskTotalBytes": zod.number().nullish(),
+  "lastDiskSampledAt": zod.iso.datetime({}).nullish(),
+  "lastSysstatsSnapshot": zod.string().nullish(),
+  "lastSupervisordSnapshot": zod.string().nullish(),
+  "specHealth": zod.enum(['Unknown', 'Healthy', 'Degraded']),
+  "recentBootIssues": zod.array(zod.object({
+  "type": zod.string(),
+  "severity": zod.string(),
+  "timestamp": zod.iso.datetime({}),
+  "payload": zod.string()
+})).nullish()
+})
+
+
+export const postApiProjectsProjectIdBranchesBranchIdRuntimeSuspendParams = zod.object({
+  "projectId": zod.uuid(),
+  "branchId": zod.uuid()
+})
+
+export const postApiProjectsProjectIdBranchesBranchIdRuntimeSuspendResponse = zod.object({
+  "runtimeId": zod.uuid(),
+  "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "stateChangedAt": zod.iso.datetime({}),
+  "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
+  "flyMachineId": zod.string().nullish(),
+  "imageDigest": zod.string().nullish(),
+  "region": zod.string(),
+  "recentTransitions": zod.array(zod.object({
+  "fromState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "toState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "reason": zod.string(),
+  "triggeredBy": zod.string(),
+  "occurredAt": zod.iso.datetime({})
+})),
+  "errorReason": zod.string().nullish(),
+  "errorMessage": zod.string().nullish(),
+  "respawnRetries": zod.number(),
+  "lastDiskUsedBytes": zod.number().nullish(),
+  "lastDiskTotalBytes": zod.number().nullish(),
+  "lastDiskSampledAt": zod.iso.datetime({}).nullish(),
+  "lastSysstatsSnapshot": zod.string().nullish(),
+  "lastSupervisordSnapshot": zod.string().nullish(),
+  "specHealth": zod.enum(['Unknown', 'Healthy', 'Degraded']),
+  "recentBootIssues": zod.array(zod.object({
+  "type": zod.string(),
+  "severity": zod.string(),
+  "timestamp": zod.iso.datetime({}),
+  "payload": zod.string()
+})).nullish()
+})
+
+
+export const postApiProjectsProjectIdBranchesBranchIdRuntimeForceStopParams = zod.object({
+  "projectId": zod.uuid(),
+  "branchId": zod.uuid()
+})
+
+export const postApiProjectsProjectIdBranchesBranchIdRuntimeForceStopResponse = zod.object({
+  "runtimeId": zod.uuid(),
+  "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "stateChangedAt": zod.iso.datetime({}),
+  "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
+  "flyMachineId": zod.string().nullish(),
+  "imageDigest": zod.string().nullish(),
+  "region": zod.string(),
+  "recentTransitions": zod.array(zod.object({
+  "fromState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "toState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "reason": zod.string(),
+  "triggeredBy": zod.string(),
+  "occurredAt": zod.iso.datetime({})
+})),
+  "errorReason": zod.string().nullish(),
+  "errorMessage": zod.string().nullish(),
+  "respawnRetries": zod.number(),
+  "lastDiskUsedBytes": zod.number().nullish(),
+  "lastDiskTotalBytes": zod.number().nullish(),
+  "lastDiskSampledAt": zod.iso.datetime({}).nullish(),
+  "lastSysstatsSnapshot": zod.string().nullish(),
+  "lastSupervisordSnapshot": zod.string().nullish(),
+  "specHealth": zod.enum(['Unknown', 'Healthy', 'Degraded']),
+  "recentBootIssues": zod.array(zod.object({
+  "type": zod.string(),
+  "severity": zod.string(),
+  "timestamp": zod.iso.datetime({}),
+  "payload": zod.string()
+})).nullish()
+})
+
+
+export const postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratchParams = zod.object({
+  "projectId": zod.uuid(),
+  "branchId": zod.uuid()
+})
+
+export const postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratchResponse = zod.object({
   "runtimeId": zod.uuid(),
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),

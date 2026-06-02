@@ -9,12 +9,13 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getGetApiProjectsProjectIdQueryKey,
   useGetApiProjectsProjectId,
   usePatchApiProjectsProjectIdRuntimeSpec,
 } from '../../../../../api/queries-commands'
+import { customClient } from '../../../../../api/mutator'
 import { useNotification } from '../../../../shared/contexts/NotificationContext'
 import {
   bodySx,
@@ -24,10 +25,8 @@ import {
   workspaceFontFamily,
   workspaceText,
 } from '../../../shared'
+import { ApplyRuntimeSpecDialog } from './ApplyRuntimeSpecDialog'
 
-// Mirror Project.cs constants — keep these in lockstep with the backend's
-// validation rules in Project.SetRuntimeSpec(...). The handler is the source
-// of truth; these are just for friendly client-side gating.
 const CPU_KINDS = ['shared', 'performance'] as const
 type CpuKind = (typeof CPU_KINDS)[number]
 
@@ -36,8 +35,6 @@ const MIN_MEMORY_MB = 256
 const MAX_MEMORY_MB = 262144
 const MIN_VOLUME_GB = 1
 const MAX_VOLUME_GB = 500
-
-// Fly's hard floor for the performance class: memoryMb >= 2048 * cpus.
 const PERFORMANCE_MIN_RAM_PER_CPU = 2048
 
 const DEFAULT_CPU_KIND: CpuKind = 'shared'
@@ -45,28 +42,43 @@ const DEFAULT_CPUS = 1
 const DEFAULT_MEMORY_MB = 2048
 const DEFAULT_VOLUME_GB = 5
 
+export interface BranchRuntimeHardwareSnapshot {
+  branchId: string
+  branchName: string
+  cpuKind: string
+  cpus: number
+  memoryMb: number
+  volumeSizeGb: number
+  state: string
+}
+
+function getBranchRuntimeHardwareQueryKey(projectId: string) {
+  return ['getApiProjectsProjectIdRuntimeSpecBranchHardware', projectId] as const
+}
+
+async function fetchBranchRuntimeHardware(projectId: string) {
+  return customClient<BranchRuntimeHardwareSnapshot[]>({
+    url: `/api/projects/${projectId}/runtime-spec/branch-hardware`,
+    method: 'GET',
+  })
+}
+
 interface PerformanceSettingsTabProps {
   projectId: string
 }
 
-/**
- * Performance tab — lets the user lab with the project's default runtime spec
- * (CPU class, vCPU count, RAM, volume size). The new spec applies to
- * subsequently-created runtimes only (new branch, fork, attach, AI
- * onboarding); live runtimes keep the spec they booted with thanks to the
- * snapshot pattern in the backend's creation handlers.
- *
- * <p>Saving fires PATCH /api/projects/{projectId}/runtime-spec. Cross-field
- * validation (Fly's performance-class memory floor: memoryMb &gt;= 2048 * cpus)
- * is also enforced server-side by Project.SetRuntimeSpec — we mirror it here
- * for inline UX so the user sees the issue before round-tripping.</p>
- */
 export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProps) {
   const queryClient = useQueryClient()
   const { showSuccess, showError } = useNotification()
 
   const projectQuery = useGetApiProjectsProjectId(projectId, {
     query: { enabled: !!projectId },
+  })
+
+  const branchHardwareQuery = useQuery({
+    queryKey: getBranchRuntimeHardwareQueryKey(projectId),
+    queryFn: () => fetchBranchRuntimeHardware(projectId),
+    enabled: !!projectId,
   })
 
   const currentCpuKind = (projectQuery.data?.runtimeCpuKind ?? DEFAULT_CPU_KIND) as CpuKind
@@ -78,9 +90,8 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
   const [cpus, setCpus] = useState<number>(currentCpus)
   const [memoryDraft, setMemoryDraft] = useState<string>(String(currentMemoryMb))
   const [volumeDraft, setVolumeDraft] = useState<string>(String(currentVolumeGb))
+  const [applyDialogOpen, setApplyDialogOpen] = useState(false)
 
-  // Reset the local draft whenever the upstream value changes (drawer reopen,
-  // refetch after a save in another tab, SignalR push later, etc.).
   useEffect(() => {
     setCpuKind(currentCpuKind)
     setCpus(currentCpus)
@@ -90,7 +101,6 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
 
   const mutation = usePatchApiProjectsProjectIdRuntimeSpec()
 
-  // ── Parsing + validation ────────────────────────────────────────────────
   const parsedMemoryMb = Number(memoryDraft)
   const memoryIsInteger = memoryDraft.trim() !== '' && Number.isInteger(parsedMemoryMb)
   const memoryInRange =
@@ -128,13 +138,23 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
     (memoryInRange && parsedMemoryMb !== currentMemoryMb) ||
     (volumeInRange && parsedVolumeGb !== currentVolumeGb)
 
-  const allValid =
-    memoryInRange && volumeInRange && !performanceMemoryTooLow
-
+  const allValid = memoryInRange && volumeInRange && !performanceMemoryTooLow
   const canSave = dirty && allValid && !mutation.isPending
 
-  const handleSave = () => {
-    if (!canSave) return
+  const driftedBranches = useMemo(() => {
+    const snapshots = branchHardwareQuery.data ?? []
+    return snapshots.filter(
+      (s) =>
+        s.cpuKind !== cpuKind ||
+        s.cpus !== cpus ||
+        s.memoryMb !== parsedMemoryMb ||
+        s.volumeSizeGb !== parsedVolumeGb,
+    )
+  }, [branchHardwareQuery.data, cpuKind, cpus, parsedMemoryMb, parsedVolumeGb])
+
+  const volumeSizeChangedOnDrifted = driftedBranches.some((s) => s.volumeSizeGb !== parsedVolumeGb)
+
+  const saveSpec = (applyToExistingBranches: boolean) => {
     mutation.mutate(
       {
         projectId,
@@ -143,15 +163,26 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
           cpus,
           memoryMb: parsedMemoryMb,
           volumeSizeGb: parsedVolumeGb,
+          applyToExistingBranches,
         },
       },
       {
-        onSuccess: () => {
-          showSuccess(
-            `Performance updated: ${cpuKind} / ${cpus} CPU / ${parsedMemoryMb} MB RAM / ${parsedVolumeGb} GB disk. New branches will use this spec.`,
-          )
+        onSuccess: (response) => {
+          setApplyDialogOpen(false)
+          const restarted = response.restartedBranchNames ?? []
+          let message =
+            applyToExistingBranches && restarted.length > 0
+              ? `Performance updated and applied to ${restarted.join(', ')}. Runtimes are restarting.`
+              : `Performance updated: ${cpuKind} / ${cpus} CPU / ${parsedMemoryMb} MB RAM / ${parsedVolumeGb} GB disk.`
+          if (response.volumeSizeNote) {
+            message += ` ${response.volumeSizeNote}`
+          }
+          showSuccess(message)
           queryClient.invalidateQueries({
             queryKey: getGetApiProjectsProjectIdQueryKey(projectId),
+          })
+          queryClient.invalidateQueries({
+            queryKey: getBranchRuntimeHardwareQueryKey(projectId),
           })
         },
         onError: (error: unknown) => {
@@ -179,9 +210,15 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
     )
   }
 
-  // Convenience: when the user switches to performance, snap memory up to the
-  // floor if it would otherwise fall short. They can dial it back down — we
-  // just nudge so the form isn't immediately invalid on toggle.
+  const handleSaveClick = () => {
+    if (!canSave) return
+    if (driftedBranches.length > 0) {
+      setApplyDialogOpen(true)
+      return
+    }
+    saveSpec(false)
+  }
+
   const handleCpuKindChange = (value: CpuKind) => {
     setCpuKind(value)
     if (value === 'performance') {
@@ -192,7 +229,6 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
     }
   }
 
-  // Same idea when the user changes CPU count under the performance class.
   const handleCpuCountChange = (value: number) => {
     setCpus(value)
     if (cpuKind === 'performance') {
@@ -205,7 +241,6 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
 
   return (
     <Stack spacing={4}>
-      {/* Heading */}
       <Box>
         <Typography
           component="h3"
@@ -220,9 +255,8 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
           Performance
         </Typography>
         <Typography sx={bodySx}>
-          The CPU, RAM and disk new runtimes for this project will boot with.
-          Existing branches keep their current size — this only affects new
-          branches you spin up after saving.
+          CPU, RAM, and disk for runtimes on this project. Saving may prompt you to
+          restart existing branches so live machines pick up the new sizing.
         </Typography>
       </Box>
 
@@ -235,13 +269,12 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
         }}
       >
         <Stack spacing={3}>
-          {/* CPU class */}
           <Box>
             <Typography sx={sectionTitleSx}>CPU class</Typography>
             <Typography sx={{ ...captionSx, mt: 0.5, mb: 1.5 }}>
               <b>Shared</b> burstable, cheaper, fine for installers + dev servers.{' '}
-              <b>Performance</b> dedicated cores, faster sustained work; requires
-              at least 2 GB RAM per CPU.
+              <b>Performance</b> dedicated cores, faster sustained work; requires at least
+              2 GB RAM per CPU.
             </Typography>
             <Select
               value={cpuKind}
@@ -263,12 +296,11 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
             </Select>
           </Box>
 
-          {/* CPU count */}
           <Box>
             <Typography sx={sectionTitleSx}>vCPU count</Typography>
             <Typography sx={{ ...captionSx, mt: 0.5, mb: 1.5 }}>
-              How many virtual CPUs the runtime gets. More CPUs help parallel
-              installs (npm/pnpm) and TypeScript builds.
+              How many virtual CPUs the runtime gets. More CPUs help parallel installs
+              (npm/pnpm) and TypeScript builds.
             </Typography>
             <Select
               value={cpus}
@@ -290,12 +322,11 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
             </Select>
           </Box>
 
-          {/* Memory */}
           <Box>
             <Typography sx={sectionTitleSx}>Memory (MB)</Typography>
             <Typography sx={{ ...captionSx, mt: 0.5, mb: 1.5 }}>
-              RAM allocated to the runtime. Heavy installs (large npm graphs,
-              TypeScript builds) need at least 4096 MB to be comfortable.
+              RAM allocated to the runtime. Heavy installs (large npm graphs, TypeScript
+              builds) need at least 4096 MB to be comfortable.
             </Typography>
             <TextField
               value={memoryDraft}
@@ -345,13 +376,12 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
             </Stack>
           </Box>
 
-          {/* Volume size */}
           <Box>
             <Typography sx={sectionTitleSx}>Disk (GB)</Typography>
             <Typography sx={{ ...captionSx, mt: 0.5, mb: 1.5 }}>
-              Size of the persistent volume the runtime clones the git branch
-              into. node_modules + build artifacts eat space fast — for full
-              app installs aim for 15–25 GB.
+              Size of the persistent volume the runtime clones the git branch into.
+              node_modules + build artifacts eat space fast — for full app installs aim
+              for 15–25 GB.
             </Typography>
             <TextField
               value={volumeDraft}
@@ -401,22 +431,30 @@ export function PerformanceSettingsTab({ projectId }: PerformanceSettingsTabProp
             </Stack>
           </Box>
 
-          {/* Action row */}
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ pt: 1 }}>
             <Typography sx={captionSx}>
-              Current: {currentCpuKind} / {currentCpus} CPU / {currentMemoryMb} MB /{' '}
+              Project default: {currentCpuKind} / {currentCpus} CPU / {currentMemoryMb} MB /{' '}
               {currentVolumeGb} GB
+              {driftedBranches.length > 0
+                ? ` · ${driftedBranches.length} branch(es) on older sizing`
+                : ''}
             </Typography>
-            <Button
-              variant="pill" color="primary"
-              onClick={handleSave}
-              disabled={!canSave}
-            >
+            <Button variant="pill" color="primary" onClick={handleSaveClick} disabled={!canSave}>
               {mutation.isPending ? 'Saving…' : 'Save'}
             </Button>
           </Stack>
         </Stack>
       </Box>
+
+      <ApplyRuntimeSpecDialog
+        open={applyDialogOpen}
+        branchNames={driftedBranches.map((b) => b.branchName)}
+        volumeSizeChanged={volumeSizeChangedOnDrifted}
+        pending={mutation.isPending}
+        onClose={() => setApplyDialogOpen(false)}
+        onNewBranchesOnly={() => saveSpec(false)}
+        onApplyToAll={() => saveSpec(true)}
+      />
     </Stack>
   )
 }

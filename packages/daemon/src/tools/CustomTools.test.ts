@@ -917,16 +917,21 @@ describe('readPreviewEnvFromProcess', () => {
 // ============================================================================
 
 describe('buildCustomTools', () => {
-  it('returns array of length 7 with the seven known names', () => {
+  it('returns array of length 12 with the known platform tool names', () => {
     const config = makeConfig()
     const tools = buildCustomTools({ proposeRuntimeSpec: STUB_PROPOSE_RUNTIME_SPEC, config, logger: makeLogger() })
-    expect(tools).toHaveLength(7)
+    expect(tools).toHaveLength(12)
     const names = tools.map((t) => t.name).sort()
     expect(names).toEqual([
       'dry_run_install',
       'get_boot_issues',
       'get_preview_url',
       'get_runtime_spec',
+      'git_abort_merge',
+      'git_complete_merge',
+      'git_start_merge',
+      'git_status',
+      'git_sync_with_origin',
       'propose_runtime_spec',
       'request_rebootstrap',
       'restart_service',

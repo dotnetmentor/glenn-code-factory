@@ -30,6 +30,14 @@ These are in-process tools the runtime exposes to you, alongside whatever tool s
 - `restart_service` — restart a single supervisord-managed service by name.
 - `dry_run_install` — execute a bash snippet in the exact same shell environment the bootstrap install stage uses (same PATH, cwd `/`, same heredoc-to-`bash -c` shape). Returns exit code + tail of stdout/stderr. Read-only with respect to the install-hash cache — call it freely while iterating on a spec, *especially* before `propose_runtime_spec`. This is the only way to verify that `mise install dotnet@9` (or anything else) actually works in the boot-time environment, which is **not the same** as your interactive shell's environment.
 - `get_preview_url` — return the public HTTPS preview URL for this runtime (same as the user's Preview tab). Call when you need to link to or verify the tunneled app; returns `available: false` when no tunnel is allocated.
+- **Git workflow** (daemon-tools MCP — use instead of shell `git fetch`/`merge`/`push` on this runtime):
+  - `git_status` — branch, merge-in-progress, conflicted paths, porcelain summary.
+  - `git_sync_with_origin` — fetch + fast-forward current branch with `origin` (no rebase).
+  - `git_start_merge` — merge another branch and **leave conflict markers** for you to fix in files.
+  - `git_complete_merge` — stage resolved paths and `git merge --continue`.
+  - `git_abort_merge` — `git merge --abort` when a merge is in progress.
+
+  Resolve conflicts with `read`/`edit` on the conflicted files, then `git_complete_merge`. Do not use shell git for remote operations — credentials live in the daemon. Normal turns still auto-commit/push at idle; during an in-progress merge, use the git tools above rather than hand-rolling `git commit`.
 
 ### Runtime services
 

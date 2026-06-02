@@ -148,7 +148,7 @@ echo "🐳 ${BUILD_CMD[*]}"
     --file Dockerfile.runtime-base \
     --tag "$FULL_REF" \
     --tag "$LATEST_REF" \
-    "${CACHE_ARGS[@]}" \
+    ${CACHE_ARGS+"${CACHE_ARGS[@]}"} \
     .
 
 # ---------- Measure size ------------------------------------------------------------
