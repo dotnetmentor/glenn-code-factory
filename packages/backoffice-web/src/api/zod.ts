@@ -371,6 +371,25 @@ export const postApiProjectsProjectIdBranchesBranchIdResetResponse = zod.object(
 })
 
 
+export const getApiCiPublishStatusQueryParams = zod.object({
+  "gitSha": zod.string().optional()
+})
+
+export const getApiCiPublishStatusResponse = zod.object({
+  "daemonStableGitSha": zod.string().nullish(),
+  "runtimeActiveGitSha": zod.string().nullish(),
+  "daemonPublishedForRequestedSha": zod.boolean(),
+  "runtimePublishedForRequestedSha": zod.boolean()
+})
+
+
+export const getApiCiRegistryCredentialsResponse = zod.object({
+  "registryHost": zod.string(),
+  "username": zod.string(),
+  "password": zod.string()
+})
+
+
 export const getApiCloudflareSubdomainsResponseItem = zod.object({
   "id": zod.uuid(),
   "hostname": zod.string(),
@@ -724,7 +743,8 @@ export const postApiDaemonVersionsBody = zod.object({
   "file": zod.instanceof(File).optional(),
   "channel": zod.string().optional(),
   "notes": zod.string().optional(),
-  "sha256": zod.string().optional()
+  "sha256": zod.string().optional(),
+  "gitSha": zod.string().optional()
 })
 
 export const postApiDaemonVersionsResponse = zod.object({
@@ -734,7 +754,8 @@ export const postApiDaemonVersionsResponse = zod.object({
   "downloadUrl": zod.string(),
   "sha256": zod.string(),
   "sizeBytes": zod.number(),
-  "releasedAt": zod.iso.datetime({})
+  "releasedAt": zod.iso.datetime({}),
+  "gitSha": zod.string().nullish()
 })
 
 
@@ -747,7 +768,8 @@ export const getApiDaemonVersionsResponseItem = zod.object({
   "sizeBytes": zod.number(),
   "releasedAt": zod.iso.datetime({}),
   "isActive": zod.boolean(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "gitSha": zod.string().nullish()
 })
 export const getApiDaemonVersionsResponse = zod.array(getApiDaemonVersionsResponseItem)
 
@@ -767,7 +789,8 @@ export const getApiDaemonVersionsResolveResponse = zod.object({
   "sizeBytes": zod.number(),
   "releasedAt": zod.iso.datetime({}),
   "isActive": zod.boolean(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "gitSha": zod.string().nullish()
 })
 
 
@@ -2705,7 +2728,8 @@ export const patchApiProjectsProjectIdRuntimeSpecBody = zod.object({
   "cpuKind": zod.string(),
   "cpus": zod.number(),
   "memoryMb": zod.number(),
-  "volumeSizeGb": zod.number()
+  "volumeSizeGb": zod.number(),
+  "applyToExistingBranches": zod.boolean()
 })
 
 export const patchApiProjectsProjectIdRuntimeSpecResponse = zod.object({
@@ -2713,8 +2737,27 @@ export const patchApiProjectsProjectIdRuntimeSpecResponse = zod.object({
   "cpuKind": zod.string(),
   "cpus": zod.number(),
   "memoryMb": zod.number(),
-  "volumeSizeGb": zod.number()
+  "volumeSizeGb": zod.number(),
+  "appliedToExistingBranchCount": zod.number(),
+  "restartedBranchNames": zod.array(zod.string()),
+  "volumeSizeNote": zod.string().nullish()
 })
+
+
+export const getApiProjectsProjectIdRuntimeSpecBranchHardwareParams = zod.object({
+  "projectId": zod.uuid()
+})
+
+export const getApiProjectsProjectIdRuntimeSpecBranchHardwareResponseItem = zod.object({
+  "branchId": zod.uuid(),
+  "branchName": zod.string(),
+  "cpuKind": zod.string(),
+  "cpus": zod.number(),
+  "memoryMb": zod.number(),
+  "volumeSizeGb": zod.number(),
+  "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted'])
+})
+export const getApiProjectsProjectIdRuntimeSpecBranchHardwareResponse = zod.array(getApiProjectsProjectIdRuntimeSpecBranchHardwareResponseItem)
 
 
 export const patchApiProjectsProjectIdCursorModelParams = zod.object({
@@ -12088,6 +12131,53 @@ export const putApiUsersIdRolesResponse = zod.object({
   "userId": zod.string(),
   "email": zod.string(),
   "roles": zod.array(zod.string())
+})
+
+
+export const postApiWaitlistBodyEmailMin = 0;
+export const postApiWaitlistBodyEmailMax = 256;
+
+export const postApiWaitlistBodySourceMin = 0;
+export const postApiWaitlistBodySourceMax = 50;
+
+export const postApiWaitlistBodyNoteMin = 0;
+export const postApiWaitlistBodyNoteMax = 500;
+
+
+
+export const postApiWaitlistBody = zod.object({
+  "email": zod.email().min(postApiWaitlistBodyEmailMin).max(postApiWaitlistBodyEmailMax),
+  "source": zod.string().min(postApiWaitlistBodySourceMin).max(postApiWaitlistBodySourceMax).nullish(),
+  "note": zod.string().min(postApiWaitlistBodyNoteMin).max(postApiWaitlistBodyNoteMax).nullish()
+})
+
+export const postApiWaitlistResponse = zod.object({
+  "id": zod.uuid(),
+  "email": zod.string(),
+  "createdAt": zod.iso.datetime({})
+})
+
+
+export const getApiWaitlistQueryPageDefault = 1;export const getApiWaitlistQueryPageSizeDefault = 50;
+
+export const getApiWaitlistQueryParams = zod.object({
+  "page": zod.number().default(getApiWaitlistQueryPageDefault),
+  "pageSize": zod.number().default(getApiWaitlistQueryPageSizeDefault),
+  "search": zod.string().optional()
+})
+
+export const getApiWaitlistResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.uuid(),
+  "email": zod.string(),
+  "source": zod.string().nullable(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.iso.datetime({})
+})),
+  "totalCount": zod.number(),
+  "page": zod.number(),
+  "pageSize": zod.number(),
+  "totalPages": zod.number()
 })
 
 

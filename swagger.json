@@ -2112,6 +2112,76 @@
         }
       }
     },
+    "/api/ci/publish-status": {
+      "get": {
+        "tags": [
+          "CiPublish"
+        ],
+        "parameters": [
+          {
+            "name": "gitSha",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiPublishStatusDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiPublishStatusDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiPublishStatusDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ci/registry-credentials": {
+      "get": {
+        "tags": [
+          "CiPublish"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiRegistryCredentialsDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiRegistryCredentialsDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiRegistryCredentialsDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/cloudflare/subdomains": {
       "get": {
         "tags": [
@@ -3464,6 +3534,9 @@
                   },
                   "sha256": {
                     "type": "string"
+                  },
+                  "gitSha": {
+                    "type": "string"
                   }
                 }
               },
@@ -3478,6 +3551,9 @@
                   "style": "form"
                 },
                 "sha256": {
+                  "style": "form"
+                },
+                "gitSha": {
                   "style": "form"
                 }
               }
@@ -11555,7 +11631,23 @@
           "200": {
             "description": "OK",
             "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BranchRuntimeHardwareSnapshotDto"
+                  }
+                }
+              },
               "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BranchRuntimeHardwareSnapshotDto"
+                  }
+                }
+              },
+              "text/json": {
                 "schema": {
                   "type": "array",
                   "items": {
@@ -11566,10 +11658,44 @@
             }
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           },
           "404": {
-            "description": "Not Found"
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -20825,6 +20951,148 @@
         }
       }
     },
+    "/api/waitlist": {
+      "post": {
+        "tags": [
+          "Waitlist"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinWaitlistRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinWaitlistRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinWaitlistRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWaitlistSignupResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWaitlistSignupResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWaitlistSignupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Waitlist"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAllWaitlistSignupsResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAllWaitlistSignupsResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAllWaitlistSignupsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces": {
       "post": {
         "tags": [
@@ -24254,6 +24522,46 @@
         },
         "additionalProperties": false
       },
+      "BranchRuntimeHardwareSnapshotDto": {
+        "required": [
+          "branchId",
+          "branchName",
+          "cpuKind",
+          "cpus",
+          "memoryMb",
+          "state",
+          "volumeSizeGb"
+        ],
+        "type": "object",
+        "properties": {
+          "branchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": "string"
+          },
+          "cpuKind": {
+            "type": "string"
+          },
+          "cpus": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memoryMb": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "volumeSizeGb": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RuntimeState"
+          }
+        },
+        "additionalProperties": false
+      },
       "BulkDestroyFailure": {
         "required": [
           "error",
@@ -24526,6 +24834,50 @@
           "reason": {
             "type": "string",
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CiPublishStatusDto": {
+        "required": [
+          "daemonPublishedForRequestedSha",
+          "runtimePublishedForRequestedSha"
+        ],
+        "type": "object",
+        "properties": {
+          "daemonStableGitSha": {
+            "type": "string",
+            "nullable": true
+          },
+          "runtimeActiveGitSha": {
+            "type": "string",
+            "nullable": true
+          },
+          "daemonPublishedForRequestedSha": {
+            "type": "boolean"
+          },
+          "runtimePublishedForRequestedSha": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CiRegistryCredentialsDto": {
+        "required": [
+          "password",
+          "registryHost",
+          "username"
+        ],
+        "type": "object",
+        "properties": {
+          "registryHost": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -25466,6 +25818,28 @@
         },
         "additionalProperties": false
       },
+      "CreateWaitlistSignupResponse": {
+        "required": [
+          "createdAt",
+          "email",
+          "id"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateWorkspaceRequest": {
         "required": [
           "name"
@@ -25835,6 +26209,10 @@
             "type": "boolean"
           },
           "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "gitSha": {
             "type": "string",
             "nullable": true
           }
@@ -27299,6 +27677,41 @@
         },
         "additionalProperties": false
       },
+      "GetAllWaitlistSignupsResponse": {
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalCount",
+          "totalPages"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WaitlistSignupListItem"
+            }
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "GetCardDetailsInput": {
         "required": [
           "cardId"
@@ -27974,6 +28387,33 @@
             "items": {
               "type": "string"
             },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "JoinWaitlistRequest": {
+        "required": [
+          "email"
+        ],
+        "type": "object",
+        "properties": {
+          "email": {
+            "maxLength": 256,
+            "minLength": 0,
+            "type": "string",
+            "format": "email"
+          },
+          "source": {
+            "maxLength": 50,
+            "minLength": 0,
+            "type": "string",
+            "nullable": true
+          },
+          "note": {
+            "maxLength": 500,
+            "minLength": 0,
+            "type": "string",
             "nullable": true
           }
         },
@@ -30090,6 +30530,10 @@
           "releasedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "gitSha": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -33261,6 +33705,7 @@
       },
       "UpdateRuntimeSpecRequest": {
         "required": [
+          "applyToExistingBranches",
           "cpuKind",
           "cpus",
           "memoryMb",
@@ -33285,46 +33730,6 @@
           },
           "applyToExistingBranches": {
             "type": "boolean"
-          }
-        },
-        "additionalProperties": false
-      },
-      "BranchRuntimeHardwareSnapshotDto": {
-        "required": [
-          "branchId",
-          "branchName",
-          "cpuKind",
-          "cpus",
-          "memoryMb",
-          "volumeSizeGb",
-          "state"
-        ],
-        "type": "object",
-        "properties": {
-          "branchId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "branchName": {
-            "type": "string"
-          },
-          "cpuKind": {
-            "type": "string"
-          },
-          "cpus": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "memoryMb": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "volumeSizeGb": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "state": {
-            "$ref": "#/components/schemas/RuntimeState"
           }
         },
         "additionalProperties": false
@@ -33883,6 +34288,38 @@
             "maxLength": 6,
             "minLength": 6,
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WaitlistSignupListItem": {
+        "required": [
+          "createdAt",
+          "email",
+          "id",
+          "note",
+          "source"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false

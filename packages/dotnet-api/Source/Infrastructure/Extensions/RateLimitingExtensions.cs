@@ -52,7 +52,28 @@ public static class RateLimitingExtensions
                 limiterOptions.QueueLimit = 2;
             });
 
-            // 📧 EMAIL: Registration/email endpoints - 3 per minute  
+            // 📝 WAITLIST: public, anonymous landing-page signup - 5 per minute per IP.
+            // Unlike ErrorReport, a throttled visitor SHOULD get a real signal (429) so
+            // the form can show "slow down" rather than a false success. Partition by IP
+            // (mixing the optional X-Test-Session header to keep tests independent).
+            options.AddPolicy("Waitlist", httpContext =>
+            {
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var testSession = httpContext.Request.Headers["X-Test-Session"].ToString();
+                var partitionKey = string.IsNullOrEmpty(testSession) ? ip : $"{ip}|{testSession}";
+
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: partitionKey,
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 5,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true,
+                    });
+            });
+
+            // 📧 EMAIL: Registration/email endpoints - 3 per minute
             options.AddFixedWindowLimiter("EmailPolicy", limiterOptions =>
             {
                 limiterOptions.PermitLimit = 3;

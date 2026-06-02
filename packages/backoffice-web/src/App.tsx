@@ -1,6 +1,7 @@
-import { Route, Routes, matchPath, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, matchPath, useLocation } from 'react-router-dom'
 import { AppLayout } from './app/layout/AppLayout'
 import { AppSelector } from './app/navigation/AppSelector'
+import { LandingRoute } from './applications/workspace/features/landing/LandingRoute'
 import { buildRoutes, getAllRoutes } from './app/routing/routeBuilder'
 import { RouteGuard } from './app/routing/RouteGuard'
 import { applications, getUserApplications } from './applications'
@@ -18,7 +19,12 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/" element={<AppSelector />} />
+      {/* Logged-out visitors get the marketing landing; authed users get the
+          app picker (which auto-redirects to their workspace). */}
+      <Route path="/" element={auth.isAuthenticated ? <AppSelector /> : <LandingRoute />} />
+      {/* Gated bounce: the landing's "Log in" button targets this. Logged out,
+          AuthGate paints the login form; once authed it lands the user home. */}
+      <Route path="/signin" element={<Navigate to="/" replace />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -56,6 +62,10 @@ function AppWithLayout() {
                      location.pathname === '/reset-password' ||
                      location.pathname.startsWith('/invite/')
 
+  // The marketing landing owns its own full-bleed IDE-style shell. Only applies
+  // to logged-out visitors — authed users at `/` get AppSelector inside AppLayout.
+  const isLanding = location.pathname === '/' && !auth.isAuthenticated
+
   // Routes declared as `chromeless` opt out of AppLayout. The route component
   // is responsible for its own shell (breadcrumb spine, sidebar, canvas).
   // Used by the Project Workspace IDE shell — see workspace/routes.ts.
@@ -67,7 +77,7 @@ function AppWithLayout() {
   )
 
   // These routes have their own full-page layouts
-  if (isMemberPortal || isPublicBooking || isAuthPage || isChromeless) {
+  if (isMemberPortal || isPublicBooking || isAuthPage || isChromeless || isLanding) {
     return <AppRoutes />
   }
 

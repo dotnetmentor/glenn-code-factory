@@ -2,6 +2,7 @@ import PeopleIcon from "@mui/icons-material/People";
 import HistoryIcon from "@mui/icons-material/History";
 import PaletteIcon from "@mui/icons-material/Palette";
 import BugReportIcon from '@mui/icons-material/BugReport'
+import MarkEmailReadOutlinedIcon from '@mui/icons-material/MarkEmailReadOutlined'
 import TuneIcon from '@mui/icons-material/Tune'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
@@ -23,6 +24,7 @@ import { DomainEventsPage } from "./features/domain-events/routes/DomainEventsPa
 import { ThemePlaygroundPage } from "./features/theme-playground/routes/ThemePlaygroundPage";
 import { ErrorLogsPage } from './features/errorlog/routes/ErrorLogsPage'
 import { ErrorTestPage } from './features/errorlog/routes/ErrorTestPage'
+import { WaitlistPage } from './features/waitlist/routes/WaitlistPage'
 import { SystemSettingsPage } from './features/system-settings/routes/SystemSettingsPage'
 import { EnvironmentBackupPage } from './features/environment-backup'
 import { ProjectSettingsPage } from './features/project-secrets/routes/ProjectSettingsPage'
@@ -90,6 +92,12 @@ export const superAdminRoutes: RouteDefinition[] = [
     icon: BugReportIcon,
     component: ErrorLogsPage,
     hideInNavigation: true,
+  },
+  {
+    path: '/super-admin/waitlist',
+    label: 'Waitlist',
+    icon: MarkEmailReadOutlinedIcon,
+    component: WaitlistPage,
   },
   // Dev-only E2E acceptance-test route. Guarded further inside the component
   // via `import.meta.env.DEV`, so even in a prod bundle it renders a stub.

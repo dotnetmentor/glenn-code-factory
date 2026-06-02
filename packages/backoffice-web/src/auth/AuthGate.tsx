@@ -15,6 +15,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const isForgotPassword = location.pathname === '/forgot-password'
   const isResetPassword = location.pathname === '/reset-password'
   const isInvitePage = location.pathname.startsWith('/invite/')
+  // The public marketing landing lives at `/`. Without this bypass, logged-out
+  // visitors hit the gate and see the login form instead of the landing. App.tsx
+  // decides what `/` renders based on auth (landing vs. AppSelector).
+  const isLanding = location.pathname === '/'
 
   // Show loading state while checking auth
   if (isLoading) {
@@ -29,7 +33,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   // - /example/* - Demo/example routes
   // - /book/* - Booking widget (handles its own auth via LoginDialog)
   // - /me/* - Member area (will require login but handled by the route itself)
-  if (isExampleApp || isBookingWidget || isMemberArea || isRegisterPage || isForgotPassword || isResetPassword || isInvitePage) {
+  if (isExampleApp || isBookingWidget || isMemberArea || isRegisterPage || isForgotPassword || isResetPassword || isInvitePage || isLanding) {
     return <>{children}</>
   }
 

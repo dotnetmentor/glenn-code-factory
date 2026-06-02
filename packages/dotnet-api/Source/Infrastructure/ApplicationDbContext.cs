@@ -29,6 +29,7 @@ using Source.Features.RuntimeTokens.Models;
 using Source.Features.SystemSettings.Models;
 using Source.Features.Users.Models;
 using Source.Features.ErrorLog.Models;
+using Source.Features.Waitlist.Models;
 using Source.Features.Workspaces.Models;
 using Source.Features.WorkspaceSpecs.Models;
 using Source.Shared;
@@ -63,6 +64,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<StoredEntityChange> StoredEntityChanges { get; set; }
     public DbSet<ErrorLog> ErrorLogs { get; set; }
     public DbSet<ErrorSignature> ErrorSignatures { get; set; }
+    public DbSet<WaitlistSignup> WaitlistSignups { get; set; }
     public DbSet<Workspace> Workspaces { get; set; }
     public DbSet<WorkspaceMembership> WorkspaceMemberships { get; set; }
     public DbSet<WorkspaceInvite> WorkspaceInvites { get; set; }
@@ -320,6 +322,27 @@ public class ApplicationDbContext : IdentityDbContext<User>
                 .WithMany()
                 .HasForeignKey(e => e.SignatureId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // -------- Waitlist --------
+        // Public landing-page signups. Email is stored normalized and unique so a
+        // re-submit is a no-op (the join handler treats a hit as idempotent success).
+        builder.Entity<WaitlistSignup>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Email).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.Source).HasMaxLength(50);
+            entity.Property(e => e.Note).HasMaxLength(500);
+            entity.Property(e => e.UserAgent).HasMaxLength(500);
+            entity.Property(e => e.Referrer).HasMaxLength(500);
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp with time zone");
+
+            // Idempotency + dedupe key. Also the dominant lookup ("is this email on the list?").
+            entity.HasIndex(e => e.Email).IsUnique();
+
+            // "Newest signups" — the dominant read pattern for the admin list.
+            entity.HasIndex(e => e.CreatedAt);
         });
 
         // -------- GitHub integration --------
