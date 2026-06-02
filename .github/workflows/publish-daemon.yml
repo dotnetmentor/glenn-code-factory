@@ -1,0 +1,95 @@
+name: Publish Daemon Bundle
+
+# =====================================================================================
+# Publishes a new daemon bundle when relevant paths change on main.
+# Path globs must stay in sync with scripts/ci/publish-paths.sh
+# =====================================================================================
+#
+# Required repository secrets:
+#   CONTROL_PLANE_API              e.g. https://orchestrator-api.onrender.com
+#   CONTROL_PLANE_PUBLISH_API_KEY  same value as CiPublish__ApiKey on Render
+# =====================================================================================
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/daemon/**'
+      - 'packages/dotnet-api/Source/Features/SignalR/**'
+      - 'packages/dotnet-api/Source/Features/CiPublish/**'
+      - 'packages/dotnet-api/Source/Features/DaemonVersions/**'
+      - 'scripts/generate-signalr.sh'
+      - 'scripts/publish-daemon.sh'
+      - 'scripts/lib/ci-publish-auth.sh'
+      - 'scripts/ci/**'
+      - '.github/workflows/publish-daemon.yml'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Publish even if paths unchanged or already published for this SHA
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-daemon-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to publish
+        id: gate
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          FORCE: ${{ github.event.inputs.force && '1' || '' }}
+          CONTROL_PLANE_API: ${{ secrets.CONTROL_PLANE_API }}
+          CONTROL_PLANE_PUBLISH_API_KEY: ${{ secrets.CONTROL_PLANE_PUBLISH_API_KEY }}
+        run: |
+          if scripts/ci/should-publish.sh daemon; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.publish == 'true'
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: packages/daemon/package-lock.json
+
+      - name: Install daemon dependencies
+        if: steps.gate.outputs.publish == 'true'
+        working-directory: packages/daemon
+        run: npm ci
+
+      - name: Publish daemon bundle
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          API: ${{ secrets.CONTROL_PLANE_API }}
+          CONTROL_PLANE_API: ${{ secrets.CONTROL_PLANE_API }}
+          CONTROL_PLANE_PUBLISH_API_KEY: ${{ secrets.CONTROL_PLANE_PUBLISH_API_KEY }}
+        run: bash scripts/publish-daemon.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Daemon publish"
+            echo
+            if [[ "${{ steps.gate.outputs.publish }}" == "true" ]]; then
+              echo "Published (or attempted) for \`${{ github.sha }}\`"
+            else
+              echo "Skipped — no daemon-relevant changes or already published for this commit."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -8,10 +8,11 @@
 # Default registry is registry.fly.io because Fly Machines auto-authenticate to it
 # (no pull secrets, no external provider). Override REGISTRY to point elsewhere.
 #
-# Note: This script ONLY pushes. Activating an image for use by the runtime
-# provisioner is a separate step done from the super-admin UI (which lists
-# pushed tags from the registry on demand and registers/activates them in the
-# DB). Build pipeline = dumb publisher; humans decide what's blessed.
+# Push only happens here. On main, .github/workflows/runtime-base-image.yml also
+# calls scripts/ci/register-runtime-image.sh, which POSTs to the control plane;
+# that API registers the image as Active and demotes the previous Active row.
+# Local-only runs (--no-push) do not touch the catalog — use the admin UI to
+# register/activate manually if you are not going through CI.
 #
 # Usage:
 #   scripts/publish-runtime-image.sh                       # full pipeline
@@ -116,9 +117,17 @@ echo
 # ---------- Registry login (only if pushing) ----------------------------------------
 if $DO_PUSH; then
     if [[ "$REGISTRY" == "registry.fly.io" ]]; then
-        echo "🔑 Logging into registry.fly.io with Fly:ApiToken from SystemSettings..."
-        FLY_API_TOKEN="$(platform_auth_fly_token)"
-        echo "$FLY_API_TOKEN" | docker login registry.fly.io -u x --password-stdin
+        if [[ -n "${CONTROL_PLANE_PUBLISH_API_KEY:-}" && -n "${CONTROL_PLANE_API:-${API:-}}" ]]; then
+            echo "🔑 Logging into registry.fly.io via control plane CI credentials..."
+            bash "$REPO_ROOT/scripts/ci/ci-registry-login.sh"
+        elif [[ -n "${FLY_API_TOKEN:-}" ]]; then
+            echo "🔑 Logging into registry.fly.io with FLY_API_TOKEN..."
+            echo "$FLY_API_TOKEN" | docker login registry.fly.io -u x --password-stdin
+        else
+            echo "🔑 Logging into registry.fly.io with Fly:ApiToken from SystemSettings..."
+            FLY_API_TOKEN="$(platform_auth_fly_token)"
+            echo "$FLY_API_TOKEN" | docker login registry.fly.io -u x --password-stdin
+        fi
     elif [[ -n "${REGISTRY_USERNAME:-}" && -n "${REGISTRY_TOKEN:-}" ]]; then
         echo "🔑 Logging into $REGISTRY with REGISTRY_USERNAME/REGISTRY_TOKEN"
         echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
@@ -202,8 +211,8 @@ if $DO_SMOKETEST; then
         echo "--- playwright -";  npx playwright --version
         echo "--- chromium ---";   ls -la /opt/playwright-browsers/chromium*/ | head -3
         echo "--- /opt/agent ---"; ls -la /opt/agent/
-        # Fail loudly if the daemon binary is missing or empty.
-        test -s /opt/agent/daemon.js
+        test -x /usr/local/bin/bootstrap-daemon.sh
+        test -d /opt/agent
         echo "smoke-test PASSED"
     '
 fi

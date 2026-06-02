@@ -55,6 +55,11 @@ public static class SystemSettingsExtensions
             return existing;
         }
 
+        if (environment.IsEnvironment("Testing"))
+        {
+            return "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        }
+
         // Single, actionable error. The cipher constructor also validates length
         // and base64 shape — we just need to refuse to boot when the key is unset
         // so no auto-seed path downstream interprets the absence as "fresh DB".

@@ -26,7 +26,8 @@ public sealed record PublishDaemonVersionCommand(
     string ContentDisposition,
     string Channel = "stable",
     string? Notes = null,
-    string? PreComputedSha256 = null
+    string? PreComputedSha256 = null,
+    string? GitSha = null
 ) : ICommand<Result<PublishDaemonVersionResponse>>;
 
 /// <summary>
@@ -42,4 +43,5 @@ public record PublishDaemonVersionResponse
     public required string Sha256 { get; init; }
     public required long SizeBytes { get; init; }
     public required DateTime ReleasedAt { get; init; }
+    public string? GitSha { get; init; }
 }

@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Source.Features.CiPublish;
 using Source.Features.RuntimeImages.Commands.UpdateRuntimeImageStatus;
 using Source.Features.RuntimeImages.Models;
 using Source.Features.RuntimeImages.Services;
@@ -73,14 +74,14 @@ public class RuntimeImagesController : ControllerBase
     }
 
     /// <summary>
-    /// Register a runtime image into the catalog. SuperAdmin-only. Tag is the natural
-    /// idempotency key — duplicates return 409. The image is created in
-    /// <see cref="RuntimeImageStatus.Active"/>; promotion semantics (single-Active
-    /// invariant) only kick in via the status-update endpoint, so the operator should
-    /// activate explicitly after register if they want exactly one Active row.
+    /// Register a runtime image into the catalog. Tag is the natural idempotency key —
+    /// duplicates return 409. The new row is created as
+    /// <see cref="RuntimeImageStatus.Active"/> and every other Active row is demoted to
+    /// <see cref="RuntimeImageStatus.Deprecated"/> in the same transaction (CI register
+    /// uses this path so a pushed base image becomes the default spawn target immediately).
     /// </summary>
     [HttpPost]
-    [Authorize(Roles = RoleConstants.SuperAdmin)]
+    [Authorize(Policy = CiPublishAuthenticationDefaults.PublishPolicy)]
     [ProducesResponseType(typeof(RuntimeImage), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -287,7 +288,7 @@ public class RuntimeImagesController : ControllerBase
     /// single-Active invariant the provisioner relies on.
     /// </summary>
     [HttpPatch("{id:guid}/status")]
-    [Authorize(Roles = RoleConstants.SuperAdmin)]
+    [Authorize(Policy = CiPublishAuthenticationDefaults.PublishPolicy)]
     [ProducesResponseType(typeof(RuntimeImage), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

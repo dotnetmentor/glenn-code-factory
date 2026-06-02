@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Source.Features.CiPublish;
 using Source.Features.DaemonVersions.Commands.PublishDaemonVersion;
 using Source.Features.DaemonVersions.Models;
 using Source.Features.DaemonVersions.Queries.ListDaemonVersions;
@@ -35,7 +36,7 @@ public class DaemonVersionsController : BaseApiController
     /// publicly-resolvable download URL.
     /// </summary>
     [HttpPost]
-    [Authorize(Roles = RoleConstants.SuperAdmin)]
+    [Authorize(Policy = CiPublishAuthenticationDefaults.PublishPolicy)]
     [Consumes("multipart/form-data")]
     // Bumped to 500MB after daemon bundles grew to include @cursor/sdk +
     // node_modules peers (SignalR, sqlite3 native binding, etc.).
@@ -48,7 +49,8 @@ public class DaemonVersionsController : BaseApiController
         IFormFile file,
         [FromForm] string? channel = null,
         [FromForm] string? notes = null,
-        [FromForm] string? sha256 = null)
+        [FromForm] string? sha256 = null,
+        [FromForm] string? gitSha = null)
     {
         if (file == null || file.Length == 0)
         {
@@ -62,7 +64,8 @@ public class DaemonVersionsController : BaseApiController
             ContentDisposition: file.FileName ?? "daemon.tar.gz",
             Channel: string.IsNullOrWhiteSpace(channel) ? "stable" : channel,
             Notes: notes,
-            PreComputedSha256: sha256);
+            PreComputedSha256: sha256,
+            GitSha: gitSha);
 
         var result = await Mediator.Send(command);
 

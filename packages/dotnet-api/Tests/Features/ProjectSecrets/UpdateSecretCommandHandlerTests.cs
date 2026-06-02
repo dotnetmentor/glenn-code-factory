@@ -109,7 +109,7 @@ public class UpdateSecretCommandHandlerTests
             ctx, encryption, Mock.Of<IMediator>());
 
         var result = await handler.Handle(
-            new UpdateSecretCommand(Guid.NewGuid(), "lower_case", "value", "user-1"),
+            new UpdateSecretCommand(Guid.NewGuid(), "1INVALID_START", "value", "user-1"),
             CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();

@@ -90,6 +90,11 @@ public static class AuthenticationExtensions
             return key;
         }
 
+        if (environment.IsEnvironment("Testing"))
+        {
+            return "integration-test-jwt-signing-key-min-32-chars-long!!";
+        }
+
         var hint = environment.IsDevelopment()
             ? $".env / appsettings (\"{JwtConfigSection}\": {{ \"{JwtKeyName}\": \"...\" }}) — min {MinJwtKeyLength} chars"
             : $"the {JwtConfigSection}__{JwtKeyName} environment variable — min {MinJwtKeyLength} chars";
