@@ -64,6 +64,21 @@ function makeStub(opts: { connected?: boolean } = {}) {
   }
 }
 
+// The connected-path wire shape differs from the in-process envelope: the
+// daemon JSON-stringifies `payload` at the wire boundary so it matches the
+// server's `RuntimeEventPayloadDto.Payload: string` contract (see
+// DefaultRuntimeEventEmitter.#sendNow — passing an object instead triggers an
+// InvalidDataException on the .NET argument binder). This helper asserts that
+// stringification contract AND decodes the payload back to the structured
+// object so the tests can assert on its contents.
+function decodeWire(invoke: { method: string; payload: unknown }): RuntimeEventEnvelope {
+  const wire = invoke.payload as Omit<RuntimeEventEnvelope, 'payload'> & {
+    payload: string
+  }
+  expect(typeof wire.payload).toBe('string')
+  return { ...wire, payload: JSON.parse(wire.payload) as Record<string, unknown> }
+}
+
 describe('inferSeverity', () => {
   it('maps *Failed → Error', () => {
     expect(inferSeverity('InstallFailed')).toBe('Error')
@@ -96,7 +111,7 @@ describe('DefaultRuntimeEventEmitter — connected path', () => {
 
     expect(invokes).toHaveLength(1)
     expect(invokes[0]?.method).toBe('RecordRuntimeEvent')
-    const env = invokes[0]?.payload as RuntimeEventEnvelope
+    const env = decodeWire(invokes[0]!)
     expect(env.type).toBe('ServiceRunning')
     expect(env.severity).toBe('Info')
     expect(env.payload).toEqual({ serviceName: 'redis' })
@@ -199,8 +214,8 @@ describe('DefaultRuntimeEventEmitter — startTimer', () => {
     timer.complete('InstallCompleted', { hash: 'abc' })
 
     expect(ctrl.invokes).toHaveLength(2)
-    const start = ctrl.invokes[0]?.payload as RuntimeEventEnvelope
-    const end = ctrl.invokes[1]?.payload as RuntimeEventEnvelope
+    const start = decodeWire(ctrl.invokes[0]!)
+    const end = decodeWire(ctrl.invokes[1]!)
 
     expect(start.type).toBe('InstallStarted')
     expect(start.severity).toBe('Info')
@@ -226,7 +241,7 @@ describe('DefaultRuntimeEventEmitter — startTimer', () => {
     nowMs = 10
     timer.fail('InstallFailed', { errorMessage: 'boom' })
 
-    const end = ctrl.invokes[1]?.payload as RuntimeEventEnvelope
+    const end = decodeWire(ctrl.invokes[1]!)
     expect(end.severity).toBe('Error')
     expect(end.durationMs).toBe(10)
     expect(end.payload['errorMessage']).toBe('boom')
@@ -244,7 +259,7 @@ describe('DefaultRuntimeEventEmitter — startTimer', () => {
     nowMs = 5
     timer.skip('InstallSkipped', { hash: 'xx' })
 
-    const end = ctrl.invokes[1]?.payload as RuntimeEventEnvelope
+    const end = decodeWire(ctrl.invokes[1]!)
     expect(end.type).toBe('InstallSkipped')
     expect(end.severity).toBe('Info')
     expect(end.durationMs).toBe(5)

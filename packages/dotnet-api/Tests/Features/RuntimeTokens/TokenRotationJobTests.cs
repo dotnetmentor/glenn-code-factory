@@ -506,7 +506,7 @@ public class TokenRotationJobTests : IDisposable
     [Fact]
     public void Run_HasDisableConcurrentExecutionAttribute()
     {
-        var method = typeof(TokenRotationJob).GetMethod(nameof(TokenRotationJob.Run))!;
+        var method = typeof(TokenRotationJob).GetMethod(nameof(TokenRotationJob.Run), new[] { typeof(Hangfire.IJobCancellationToken) })!;
         var attr = method.GetCustomAttributes(typeof(DisableConcurrentExecutionAttribute), inherit: false);
         attr.Should().NotBeEmpty(
             "two Hangfire workers must not race on the same daily rotation pass — the attribute is the lock");

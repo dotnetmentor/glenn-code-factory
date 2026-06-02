@@ -275,11 +275,26 @@ describe('useStickToBottom — auto-snap on content growth', () => {
     // stickiness, NOT snap back to bottom — otherwise the on-send
     // scroll-to-top behavior in ChatCanvas gets undone on the first
     // streamed chunk.
+    //
+    // IMPORTANT: this must happen OUTSIDE the post-reset pin window. For
+    // PIN_TO_BOTTOM_WINDOW_MS (1500) after mount/conversation-switch the
+    // ResizeObserver deliberately force-snaps and SKIPS the external-scroll
+    // release check (so async hydration after a conversation wipe doesn't
+    // strand the user mid-transcript). The real on-send scroll happens
+    // mid-conversation, well after that window has closed — so we drive a
+    // fake clock and advance past the window before the growth fires.
+    let nowMs = 0
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => nowMs)
+
     const m = mount({ scrollHeight: 1000, clientHeight: 400, initialScrollTop: 0 })
 
     // After mount snap, hook recorded lastSetScrollTopRef === 1000.
     expect(m.scroll.getScrollTop()).toBe(1000)
     expect(m.result.current?.isAtBottom).toBe(true)
+
+    // Advance past the pin window so the growth below takes the normal
+    // external-scroll release path rather than the force-snap pin path.
+    nowMs = 1600
 
     // Simulate the on-send programmatic scroll: move scrollTop directly to
     // a value well away from bottom. NO wheel/touch/keydown event dispatched —
@@ -296,6 +311,8 @@ describe('useStickToBottom — auto-snap on content growth', () => {
     // must have released stickiness so the Jump-to-latest Fab will appear.
     expect(m.scroll.getScrollTop()).toBe(100)
     expect(m.result.current?.isAtBottom).toBe(false)
+
+    nowSpy.mockRestore()
   })
 
   it('content growth while NOT at bottom leaves scrollTop alone', async () => {

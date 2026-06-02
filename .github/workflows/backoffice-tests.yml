@@ -1,0 +1,52 @@
+name: Backoffice Web Tests
+
+# =====================================================================================
+# Runs the backoffice-web vitest suite (packages/backoffice-web). Fast (~14s, 136
+# tests, jsdom — no app stack), so it gates every frontend-touching PR and runs
+# nightly as a backstop. Mirrors the daemon-tests workflow.
+# =====================================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'packages/backoffice-web/**'
+      - '.github/workflows/backoffice-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/backoffice-web/**'
+      - '.github/workflows/backoffice-tests.yml'
+  schedule:
+    # 03:22 UTC nightly — staggered off the daemon job (03:17) so they don't all
+    # queue on the GHA scheduler at once.
+    - cron: '22 3 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: backoffice-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/backoffice-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/backoffice-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test:run

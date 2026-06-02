@@ -424,21 +424,22 @@ public class RuntimeHubTests : IDisposable
         harness.Context.Items["RuntimeId"] = runtime.Id;
         harness.Context.Items["ProjectId"] = runtime.ProjectId;
 
-        var before = DateTime.UtcNow;
         await harness.Hub.Heartbeat(new HeartbeatPayload(
             EmittedAt: DateTime.UtcNow.AddSeconds(-30), // intentionally skewed
             DaemonVersion: "1.2.3",
             CpuPercent: 12.5,
             MemoryUsedMb: 256));
-        var after = DateTime.UtcNow;
 
-        // Re-read from a fresh tracking context in case the entity was
-        // detached; LastHeartbeatAt should sit between [before, after] —
-        // the server clock at the moment of receive, NOT the EmittedAt
-        // payload field (which we set 30s in the past on purpose).
+        // Re-read from a fresh tracking context in case the entity was detached.
+        // LastHeartbeatAt must be the server clock at the moment of receive — the
+        // injected FakeClock's fixed instant — NOT the EmittedAt payload field
+        // (set 30s in the past, and a different year from the FakeClock, so this
+        // also proves EmittedAt was ignored).
         var stored = await _db.ProjectRuntimes.FirstAsync(r => r.Id == runtime.Id);
         stored.LastHeartbeatAt.Should().NotBeNull();
-        stored.LastHeartbeatAt!.Value.Should().BeOnOrAfter(before).And.BeOnOrBefore(after);
+        stored.LastHeartbeatAt!.Value.Should().Be(
+            new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc),
+            "Heartbeat stamps the server-side clock (FakeClock default), not the daemon's EmittedAt");
     }
 
     [Fact]

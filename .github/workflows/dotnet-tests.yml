@@ -1,0 +1,98 @@
+name: API Tests
+
+# =====================================================================================
+# Runs the .NET API xunit suite (packages/dotnet-api/Tests, ~150 test classes / ~1300
+# tests). Each integration test spins up the full ASP.NET pipeline via
+# WebApplicationFactory; the DbContext is swapped for EF Core's in-memory provider, so
+# application data stays isolated per test.
+#
+# Why a Postgres service is still needed: the host's startup wires the Hangfire
+# dashboard UNCONDITIONALLY (Program.cs UseHangfire -> UseHangfireDashboard), and
+# Hangfire opens a real Postgres connection at boot. IntegrationTestBase tries to turn
+# Hangfire off via an in-memory "Features:EnableHangfire=false" override, but that's
+# read too late to take effect — so locally the test host quietly connects to the
+# developer's Postgres, and in CI we must provide one too. (Disabling it for real
+# would need a Program.cs change to gate UseHangfire on the flag.)
+#
+# Gated on API-touching PRs and run nightly.
+# =====================================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'packages/dotnet-api/**'
+      - '.github/workflows/dotnet-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/dotnet-api/**'
+      - '.github/workflows/dotnet-tests.yml'
+  schedule:
+    # 03:27 UTC nightly — staggered off the daemon (03:17) and backoffice (03:22) jobs.
+    - cron: '27 3 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: dotnet-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: dotnet test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/dotnet-api
+
+    services:
+      # Hangfire connects here at host startup (see header). The DbContext under test
+      # is in-memory; this DB only backs Hangfire's own schema, created on first use.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: app
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Fail-closed boot guards: the API refuses to start without a JWT signing key
+      # and a SystemSettings encryption key. AuthenticationExtensions.RequireJwtSigningKey
+      # / SystemSettingsExtensions.RequireEncryptionKey read these straight off
+      # IConfiguration in Program.cs, BEFORE IntegrationTestBase's in-memory overrides
+      # apply — so a real env var is the only thing read early enough. Throwaway TEST
+      # values (DB-under-test is in-memory and discarded), matching the ones
+      # IntegrationTestBase already seeds — NOT secrets. EncryptionKey is 32-byte base64.
+      Jwt__Key: 'integration-test-jwt-signing-key-min-32-chars-long!!'
+      SystemSettings__EncryptionKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+      # Hangfire's Postgres connection string (normalised to Npgsql form by the API).
+      # sslmode=disable is REQUIRED: PostgresConnectionString defaults to SslMode=Require
+      # when the URI omits sslmode, but the stock postgres:16 service has no TLS.
+      DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/app?sslmode=disable'
+      # Use the no-op Console email sender. appsettings.json pins Email:Provider=Resend
+      # with an empty ApiToken, so any flow that sends mail (e.g. user registration ->
+      # welcome email) 500s on "API key is invalid" without this override.
+      Email__Provider: 'Console'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # Targets net9.0 (api.csproj). No global.json pin, so track the latest 9.0 SDK.
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore Tests/Api.Tests.csproj
+
+      - name: Test
+        run: dotnet test Tests/Api.Tests.csproj --no-restore --configuration Release --verbosity normal

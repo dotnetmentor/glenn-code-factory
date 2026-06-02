@@ -117,7 +117,7 @@ public class HeartbeatWatcherJobTests : IDisposable
         // 45 seconds of silence is well past the 30-second threshold.
         var runtime = await SeedRuntimeAsync(
             RuntimeState.Online,
-            lastHeartbeatAt: DateTime.UtcNow.AddSeconds(-45));
+            lastHeartbeatAt: DateTime.UtcNow.AddSeconds(-90));
 
         await CreateJob().ScanOnce(CancellationToken.None);
 
@@ -167,7 +167,7 @@ public class HeartbeatWatcherJobTests : IDisposable
         // Online one.
         var runtime = await SeedRuntimeAsync(
             RuntimeState.Bootstrapping,
-            lastHeartbeatAt: DateTime.UtcNow.AddSeconds(-45));
+            lastHeartbeatAt: DateTime.UtcNow.AddSeconds(-90));
 
         await CreateJob().ScanOnce(CancellationToken.None);
 
@@ -188,7 +188,7 @@ public class HeartbeatWatcherJobTests : IDisposable
         // Waking runtimes also expect heartbeats — Waking -> Crashed is legal.
         var runtime = await SeedRuntimeAsync(
             RuntimeState.Waking,
-            lastHeartbeatAt: DateTime.UtcNow.AddSeconds(-45));
+            lastHeartbeatAt: DateTime.UtcNow.AddSeconds(-90));
 
         await CreateJob().ScanOnce(CancellationToken.None);
 
@@ -267,8 +267,8 @@ public class HeartbeatWatcherJobTests : IDisposable
         // the stale Suspended must remain untouched. Threshold is 30s — all three
         // "stale" values are comfortably past it (45/60/120 s), and the "fresh"
         // value (-20s) is comfortably inside.
-        var stale1 = await SeedRuntimeAsync(RuntimeState.Online, DateTime.UtcNow.AddSeconds(-45));
-        var stale2 = await SeedRuntimeAsync(RuntimeState.Online, DateTime.UtcNow.AddSeconds(-60));
+        var stale1 = await SeedRuntimeAsync(RuntimeState.Online, DateTime.UtcNow.AddSeconds(-90));
+        var stale2 = await SeedRuntimeAsync(RuntimeState.Online, DateTime.UtcNow.AddSeconds(-90));
         var stale3 = await SeedRuntimeAsync(RuntimeState.Online, DateTime.UtcNow.AddSeconds(-120));
         var fresh = await SeedRuntimeAsync(RuntimeState.Online, DateTime.UtcNow.AddSeconds(-20));
         var suspended = await SeedRuntimeAsync(RuntimeState.Suspended, DateTime.UtcNow.AddSeconds(-300));
@@ -329,7 +329,7 @@ public class HeartbeatWatcherJobTests : IDisposable
         var runtime = await SeedRuntimeAsync(
             RuntimeState.Bootstrapping,
             lastHeartbeatAt: null);
-        _clock.Advance(TimeSpan.FromMinutes(10));
+        _clock.Advance(TimeSpan.FromMinutes(15));
 
         await CreateJob().ScanOnce(CancellationToken.None);
 
@@ -344,7 +344,7 @@ public class HeartbeatWatcherJobTests : IDisposable
         audit.Reason.Should().Be("bootstrap:timeout");
         audit.TriggeredBy.Should().Be("watcher:bootstrap_timeout");
         audit.Metadata.Should().NotBeNull();
-        audit.Metadata!.Should().Contain("secondsInState",
+        audit.Metadata!.Should().Contain("secondsSilent",
             "metadata must include how long the runtime sat in the mid-boot state for diagnostics");
         audit.Metadata!.Should().Contain("previousState");
     }
@@ -381,7 +381,7 @@ public class HeartbeatWatcherJobTests : IDisposable
         var runtime = await SeedRuntimeAsync(
             RuntimeState.Booting,
             lastHeartbeatAt: null);
-        _clock.Advance(TimeSpan.FromMinutes(10));
+        _clock.Advance(TimeSpan.FromMinutes(15));
 
         await CreateJob().ScanOnce(CancellationToken.None);
 
@@ -406,7 +406,7 @@ public class HeartbeatWatcherJobTests : IDisposable
         var runtime = await SeedRuntimeAsync(
             RuntimeState.Waking,
             lastHeartbeatAt: null);
-        _clock.Advance(TimeSpan.FromMinutes(10));
+        _clock.Advance(TimeSpan.FromMinutes(15));
 
         await CreateJob().ScanOnce(CancellationToken.None);
 

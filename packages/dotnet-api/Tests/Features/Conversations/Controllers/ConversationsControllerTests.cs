@@ -27,6 +27,12 @@ public class ConversationsControllerTests : IntegrationTestBase
 {
     private const string Password = "Password123!";
 
+    // The user registered for the current test. Seed helpers create an owned
+    // Project for each project id they touch so the controller's ownership gate
+    // (CallerOwnsProjectAsync) passes — without a Project row owned by the caller
+    // every read returns 404.
+    private string? _callerUserId;
+
     /// <summary>
     /// Match the API's controller JSON config (<c>AddJsonOptions</c>) so we deserialise
     /// the enum responses (<see cref="ConversationStatus"/>, <see cref="AgentSessionStatus"/>,
@@ -171,6 +177,7 @@ public class ConversationsControllerTests : IntegrationTestBase
         using (var scope = CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await EnsureOwnedProjectAsync(db, projectId);
             for (var i = 0; i < 250; i++)
             {
                 db.Conversations.Add(new Conversation
@@ -711,6 +718,7 @@ public class ConversationsControllerTests : IntegrationTestBase
             Status = status,
             LastActivityAt = DateTime.UtcNow,
         };
+        await EnsureOwnedProjectAsync(db, projectId);
         db.Conversations.Add(conversation);
         await db.SaveChangesAsync();
         return conversation;
@@ -779,6 +787,24 @@ public class ConversationsControllerTests : IntegrationTestBase
         using var scope = CreateScope();
         var um = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
         var user = await um.FindByEmailAsync(email);
-        return (client, user!.Id);
+        _callerUserId = user!.Id;
+        return (client, user.Id);
+    }
+
+    /// <summary>
+    /// Ensure a Project row owned by the current caller exists for <paramref name="projectId"/>.
+    /// Idempotent. The controller's CallerOwnsProjectAsync gate 404s without it.
+    /// </summary>
+    private async Task EnsureOwnedProjectAsync(ApplicationDbContext db, Guid projectId)
+    {
+        if (_callerUserId is null) return;
+        if (await db.Projects.AnyAsync(p => p.Id == projectId)) return;
+        db.Projects.Add(new Source.Features.Projects.Models.Project
+        {
+            Id = projectId,
+            OwnerUserId = _callerUserId,
+            WorkspaceId = Guid.NewGuid(),
+            Name = "Test Project",
+        });
     }
 }

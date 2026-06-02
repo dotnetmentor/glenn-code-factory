@@ -83,6 +83,13 @@ beforeEach(async () => {
   // Force a stable identity even if the host has a different config.
   await git(repoDir, ['config', 'user.name', 'Test'])
   await git(repoDir, ['config', 'user.email', 'test@example.com'])
+  // Disable commit/tag signing repo-locally. Some environments (e.g. CI
+  // sandboxes) set `commit.gpgsign=true` with a host-managed signer that
+  // isn't usable here, which would make every `git commit` exit 128. These
+  // tests assert git's diff/log *output shape*, not signatures, so signing is
+  // pure friction — turn it off so the suite is portable across hosts.
+  await git(repoDir, ['config', 'commit.gpgsign', 'false'])
+  await git(repoDir, ['config', 'tag.gpgsign', 'false'])
 })
 
 afterEach(async () => {

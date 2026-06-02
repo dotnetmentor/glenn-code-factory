@@ -136,7 +136,14 @@ public static class OwnershipExtensions
         // Conversation.ProjectId is a plain Guid (no FK / no nav) so we
         // resolve ownership via a join through the Projects table rather than
         // an Include. Single round-trip, two index lookups.
+        //
+        // IgnoreQueryFilters: the Conversation entity has a global filter on
+        // Status != Archived. Callers of this gate (GetConversation, Rename,
+        // Archive/Unarchive) all operate on archived rows by id and themselves
+        // IgnoreQueryFilters in their main query — so the gate must too, or it
+        // 404s every archived-conversation access before the caller runs.
         var row = await db.Conversations
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(c => c.Id == conversationId)
             .Select(c => new

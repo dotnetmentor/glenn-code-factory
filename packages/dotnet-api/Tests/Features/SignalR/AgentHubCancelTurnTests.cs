@@ -58,6 +58,13 @@ public class AgentHubCancelTurnTests : IDisposable
         services.AddSingleton<IBackgroundJobClient>(new Mock<IBackgroundJobClient>().Object);
         services.AddScoped<DomainEventInterceptor>();
 
+        // CancelTurn now delegates to the CancelSessionCommand handler via MediatR,
+        // and that handler dispatches the cancel to the runtime group through this
+        // cross-hub. Register the mock so the real handler (resolved by the real
+        // mediator below) fans out through _runtimeGroupClient, keeping the
+        // end-to-end dispatch assertions valid.
+        services.AddSingleton<IHubContext<RuntimeHub, IRuntimeClient>>(_runtimeHub.Object);
+
         services.AddDbContext<ApplicationDbContext>((sp, options) =>
         {
             options.UseInMemoryDatabase(dbName);
@@ -91,7 +98,7 @@ public class AgentHubCancelTurnTests : IDisposable
         var projectId = Guid.NewGuid();
         var runtime = await SeedOnlineRuntime(projectId);
         var conversation = await SeedConversation(projectId);
-        var session = await SeedSession(conversation.Id, AgentSessionStatus.Running);
+        var session = await SeedSession(conversation.Id, AgentSessionStatus.Running, runtime.Id);
 
         CancelTurnPayload? dispatched = null;
         _runtimeGroupClient
@@ -112,10 +119,12 @@ public class AgentHubCancelTurnTests : IDisposable
         dispatched.Should().NotBeNull();
         dispatched!.SessionId.Should().Be(session.Id);
 
-        // Status NOT changed — daemon's TurnCanceled event drives the transition.
+        // The CancelSessionCommand handler marks a Running session Canceling
+        // (optimistic local transition); the daemon's later TurnCanceled event
+        // drives the final terminal transition.
         var reloaded = await _db.AgentSessions.SingleAsync(s => s.Id == session.Id);
-        reloaded.Status.Should().Be(AgentSessionStatus.Running,
-            "CancelTurn must not mutate session status — the daemon owns the terminal transition");
+        reloaded.Status.Should().Be(AgentSessionStatus.Canceling,
+            "cancelling a Running session moves it to the intermediate Canceling state");
     }
 
     // ------------------------------------------------------------------
@@ -134,11 +143,13 @@ public class AgentHubCancelTurnTests : IDisposable
         var act = async () => await harness.Hub.CancelTurn(new CancelTurnRequest(session.Id));
 
         await act.Should().NotThrowAsync();
+        // A Pending (queued, never-dispatched) session has no in-flight turn, so
+        // nothing is pushed to the runtime — but the handler cancels it outright.
         _runtimeGroupClient.Verify(c => c.CancelTurn(It.IsAny<CancelTurnPayload>()), Times.Never);
 
-        // Status still Pending.
         var reloaded = await _db.AgentSessions.SingleAsync(s => s.Id == session.Id);
-        reloaded.Status.Should().Be(AgentSessionStatus.Pending);
+        reloaded.Status.Should().Be(AgentSessionStatus.Canceled,
+            "a Pending session is canceled immediately — there is no running turn to drain");
     }
 
     [Fact]
@@ -226,6 +237,18 @@ public class AgentHubCancelTurnTests : IDisposable
 
     private async Task<ProjectRuntime> SeedOnlineRuntime(Guid projectId)
     {
+        // CancelTurn gates on CallerCanAccessProjectAsync — the conversation's
+        // project must be owned by the caller or the cancel is denied (no dispatch).
+        if (!await _db.Projects.AnyAsync(p => p.Id == projectId))
+        {
+            _db.Projects.Add(new Source.Features.Projects.Models.Project
+            {
+                Id = projectId,
+                OwnerUserId = TestUserId,
+                WorkspaceId = Guid.NewGuid(),
+                Name = "seeded-project",
+            });
+        }
         var runtime = new ProjectRuntime
         {
             ProjectId = projectId,
@@ -255,11 +278,13 @@ public class AgentHubCancelTurnTests : IDisposable
         return conversation;
     }
 
-    private async Task<AgentSession> SeedSession(Guid conversationId, AgentSessionStatus status)
+    private async Task<AgentSession> SeedSession(
+        Guid conversationId, AgentSessionStatus status, Guid? runtimeId = null)
     {
         var session = new AgentSession
         {
             ConversationId = conversationId,
+            RuntimeId = runtimeId ?? Guid.NewGuid(),
             Prompt = "test prompt",
             Status = status,
         };
@@ -281,7 +306,7 @@ public class AgentHubCancelTurnTests : IDisposable
         var groups = new Mock<IGroupManager>();
         var clients = new Mock<IHubCallerClients<IAgentClient>>();
 
-        var hub = new AgentHub(_db, _runtimeHub.Object, Mock.Of<Source.Features.Conversations.Services.ITurnDispatcher>(), Mock.Of<IMediator>(), Mock.Of<Source.Features.SignalR.Services.IAgentSecretsResolver>(), NullLogger<AgentHub>.Instance)
+        var hub = new AgentHub(_db, _runtimeHub.Object, Mock.Of<Source.Features.Conversations.Services.ITurnDispatcher>(), _provider.GetRequiredService<IMediator>(), Mock.Of<Source.Features.SignalR.Services.IAgentSecretsResolver>(), NullLogger<AgentHub>.Instance)
         {
             Context = context,
             Groups = groups.Object,

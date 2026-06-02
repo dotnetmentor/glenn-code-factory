@@ -34,6 +34,9 @@ public class UrgentPromptControllerTests : IntegrationTestBase
 {
     private const string Password = "Password123!";
 
+    // Caller's user id, captured at registration, used to seed an owned Project.
+    private string? _callerUserId;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
@@ -171,10 +174,17 @@ public class UrgentPromptControllerTests : IntegrationTestBase
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
         var projectId = Guid.NewGuid();
+        // The urgent-prompt handler dispatches to the runtime serving the
+        // conversation's branch, so the runtime and conversation must share a
+        // BranchId and the runtime must be in a dispatchable (Online) state.
+        var branchId = Guid.NewGuid();
         var runtime = new ProjectRuntime
         {
             Id = Guid.NewGuid(),
             ProjectId = projectId,
+            BranchId = branchId,
+            Region = "arn",
+            State = RuntimeState.Online,
         };
         db.ProjectRuntimes.Add(runtime);
 
@@ -183,12 +193,13 @@ public class UrgentPromptControllerTests : IntegrationTestBase
             Id = Guid.NewGuid(),
             ProjectId = projectId,
             Title = "test",
-            BranchId = Guid.NewGuid(),
+            BranchId = branchId,
             Status = ConversationStatus.Active,
             LastActivityAt = DateTime.UtcNow,
         };
         db.Conversations.Add(conversation);
 
+        await EnsureOwnedProjectAsync(db, projectId);
         await db.SaveChangesAsync();
         return (conversation.Id, runtime.Id);
     }
@@ -233,6 +244,20 @@ public class UrgentPromptControllerTests : IntegrationTestBase
         using var scope = CreateScope();
         var um = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
         var user = await um.FindByEmailAsync(email);
-        return (client, user!.Id);
+        _callerUserId = user!.Id;
+        return (client, user.Id);
+    }
+
+    private async Task EnsureOwnedProjectAsync(ApplicationDbContext db, Guid projectId)
+    {
+        if (_callerUserId is null) return;
+        if (await db.Projects.AnyAsync(p => p.Id == projectId)) return;
+        db.Projects.Add(new Source.Features.Projects.Models.Project
+        {
+            Id = projectId,
+            OwnerUserId = _callerUserId,
+            WorkspaceId = Guid.NewGuid(),
+            Name = "Test Project",
+        });
     }
 }

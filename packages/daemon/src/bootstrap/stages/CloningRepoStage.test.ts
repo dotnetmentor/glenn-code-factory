@@ -182,10 +182,17 @@ describe('CloningRepoStage', () => {
     expect(gitCalls[0]?.opts?.env?.['GIT_TERMINAL_PROMPT']).toBe('0')
   })
 
-  it('existing checkout: fetch (with basic auth) + reset --hard (no auth)', async () => {
+  it('warm volume on expected branch: no fetch/reset (Fly volume is source of truth)', async () => {
+    // Per the daemon-git-sync-redesign: once a runtime exists the volume is
+    // the source of truth — a warm boot already on the expected branch does
+    // NOT pull from origin. (The first session's `pullBeforeStart` is where
+    // origin catches up, handled in TurnRunner, not here.) The default
+    // executor reports HEAD on `main`, so both the warm-path branch check and
+    // the reconcile check short-circuit: the only git ops are the two
+    // `rev-parse` reads — no fetch, no reset, no reset --hard, no token.
     const fs = makeFs({ gitDirExists: true })
     const { executor, calls } = makeExecutor()
-    const { tokenManager } = makeTokenManager()
+    const { tokenManager, getToken } = makeTokenManager()
     const state = new BootstrapState()
     state.setPayload(payloadWithRepo())
     const stage = new CloningRepoStage({
@@ -201,32 +208,25 @@ describe('CloningRepoStage', () => {
     expect(result).toEqual({ ok: true })
 
     const gitCalls = calls.filter((c) => c.command === 'git')
-    // fetch + reset + rev-parse (reconcile short-circuit).
-    expect(gitCalls).toHaveLength(3)
+    // Two rev-parse reads only: warm-path branch check + reconcile check.
+    expect(gitCalls).toHaveLength(2)
+    expect(gitCalls.every((c) => c.args.includes('rev-parse'))).toBe(true)
     expect(gitCalls[0]?.args).toEqual([
-      '-c',
-      `http.extraHeader=Authorization: Basic ${FAKE_BASIC_AUTH}`,
-      '-C',
-      '/data/project/repo',
-      'fetch',
-      '--depth=1',
-      'origin',
-      '+refs/heads/main:refs/remotes/origin/main',
-    ])
-    expect(gitCalls[1]?.args).toEqual([
-      '-C',
-      '/data/project/repo',
-      'reset',
-      '--hard',
-      'origin/main',
-    ])
-    expect(gitCalls[2]?.args).toEqual([
       '-C',
       '/data/project/repo',
       'rev-parse',
       '--abbrev-ref',
       'HEAD',
     ])
+    expect(gitCalls[1]?.args).toEqual([
+      '-C',
+      '/data/project/repo',
+      'rev-parse',
+      '--abbrev-ref',
+      'HEAD',
+    ])
+    // No remote op ⇒ no installation token ever requested.
+    expect(getToken).not.toHaveBeenCalled()
   })
 
   it('git failure (non-auth) returns recoverable failure without retry', async () => {
@@ -432,12 +432,20 @@ describe('CloningRepoStage', () => {
     expect(result).toEqual({ ok: true })
 
     const gitCalls = calls.filter((c) => c.command === 'git')
-    // Warm-boot fetch + reset (initial), then rev-parse (mismatch), then
-    // reconcile fetch, switch, second rev-parse (verify), status.
-    expect(gitCalls).toHaveLength(7)
+    // New warm-volume CopyBranch path: HEAD is on the source branch, so the
+    // warm block does a non-destructive fetch + `checkout -B <target>`. The
+    // subsequent reconcile read then sees HEAD already on the target and
+    // short-circuits. Four git ops total:
+    //   0: rev-parse (warm-path branch check — sees source ⇒ mismatch)
+    //   1: fetch origin +refs/heads/<target> (with basic auth)
+    //   2: checkout -B <target> origin/<target>
+    //   3: rev-parse (reconcile check — sees target ⇒ short-circuit)
+    expect(gitCalls).toHaveLength(4)
 
-    // The reconcile fetch (call index 3) targets the destination branch.
-    expect(gitCalls[3]?.args).toEqual([
+    // The warm-path fetch (call index 1) targets the destination branch with
+    // basic-auth, non-destructively (no reset --hard — CopyBranch pushed the
+    // destination from the source tip, so origin/<target> == the volume's HEAD).
+    expect(gitCalls[1]?.args).toEqual([
       '-c',
       `http.extraHeader=Authorization: Basic ${FAKE_BASIC_AUTH}`,
       '-C',
@@ -447,19 +455,21 @@ describe('CloningRepoStage', () => {
       'origin',
       '+refs/heads/payments-copy:refs/remotes/origin/payments-copy',
     ])
-    // The switch (call index 4). Uses `-C` to force-create a local branch
-    // tracking the just-fetched `origin/<target>` ref — needed because
-    // `git switch <branch>` does NOT reliably auto-guess from the remote
-    // in a shallow single-branch clone whose origin config is locked to a
+    // The switch (call index 2). Uses `checkout -B` to force-create a local
+    // branch tracking the just-fetched `origin/<target>` ref — needed because
+    // `git checkout <branch>` does NOT reliably auto-guess from the remote in
+    // a shallow single-branch clone whose origin config is locked to a
     // different branch (the forked-volume case).
-    expect(gitCalls[4]?.args).toEqual([
+    expect(gitCalls[2]?.args).toEqual([
       '-C',
       '/data/project/repo',
-      'switch',
-      '-C',
+      'checkout',
+      '-B',
       'payments-copy',
       'origin/payments-copy',
     ])
+    // Local switch needs no token; the only auth'd op is the fetch above.
+    expect(gitCalls[2]?.opts?.env?.['GIT_TERMINAL_PROMPT']).toBe('0')
   })
 
   it('cloned volume: switch failed to land on target → recoverable failure', async () => {
@@ -494,14 +504,24 @@ describe('CloningRepoStage', () => {
     }
   })
 
-  it('cloned volume: dirty tree after switch → succeeds with warning, does NOT fail', async () => {
+  it('cloned volume: dirty tree after reconcile switch → succeeds with warning, does NOT fail', async () => {
     const fs = makeFs({ gitDirExists: true })
+    // The post-switch dirty-tree warning lives in the reconcile safety-net
+    // (the warm-path checkout itself does no status check). To exercise it we
+    // model the case where the warm-path `checkout -B` did NOT stick: the
+    // reconcile read still sees the source branch, so reconcile runs its own
+    // fetch + `switch -C`, which DOES land on the target — and the resulting
+    // working tree is unexpectedly dirty. rev-parse sequence:
+    //   1: warm-path read       → source  (mismatch ⇒ warm fetch+checkout)
+    //   2: reconcile read       → source  (still mismatch ⇒ reconcile switches)
+    //   3: reconcile verify read → target (switch landed ⇒ status check runs)
     let revParseCalls = 0
     const { executor } = makeExecutor(async (_cmd, args) => {
       if (args.includes('rev-parse')) {
         revParseCalls += 1
-        if (revParseCalls === 1) return { stdout: 'payments\n', stderr: '', exitCode: 0 }
-        return { stdout: 'payments-copy\n', stderr: '', exitCode: 0 }
+        return revParseCalls <= 2
+          ? { stdout: 'payments\n', stderr: '', exitCode: 0 }
+          : { stdout: 'payments-copy\n', stderr: '', exitCode: 0 }
       }
       if (args.includes('status')) {
         return { stdout: ' M src/foo.ts\n', stderr: '', exitCode: 0 }

@@ -157,9 +157,10 @@ public class FlyClientStateTests : IDisposable
         var op = await _db.FlyOperations.SingleAsync();
         op.Operation.Should().Be("StopMachine");
         op.Status.Should().Be(FlyOperationStatus.Succeeded);
-        // No payload was supplied — RequestPayload should reflect that, not the literal "{}"
-        // we put on the wire (we only persist the caller's intent, not the synthetic body).
-        op.RequestPayload.Should().BeEmpty();
+        // No options were supplied. SendVoidAsync normalises an absent payload to
+        // the valid-empty-JSON "{}" (see FlyClient.SendVoidAsync) so the audit row
+        // always holds parseable JSON.
+        op.RequestPayload.Should().Be("{}");
     }
 
     // ----------------------------------------------------------------------

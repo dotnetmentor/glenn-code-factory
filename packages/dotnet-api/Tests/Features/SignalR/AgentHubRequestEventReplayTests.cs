@@ -258,9 +258,20 @@ public class AgentHubRequestEventReplayTests : IDisposable
 
     private async Task<Conversation> SeedConversation()
     {
+        // RequestEventReplay resolves the session's project and returns an
+        // empty list unless the caller can access it — so the conversation's
+        // project must exist and be owned by the test caller (TestUserId).
+        var projectId = Guid.NewGuid();
+        _db.Projects.Add(new Source.Features.Projects.Models.Project
+        {
+            Id = projectId,
+            OwnerUserId = TestUserId,
+            WorkspaceId = Guid.NewGuid(),
+            Name = "seeded-project",
+        });
         var conversation = new Conversation
         {
-            ProjectId = Guid.NewGuid(),
+            ProjectId = projectId,
             BranchId = Guid.NewGuid(),
             Title = "seeded",
             Status = ConversationStatus.Active,

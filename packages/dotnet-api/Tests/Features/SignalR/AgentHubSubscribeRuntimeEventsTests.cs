@@ -229,9 +229,20 @@ public class AgentHubSubscribeRuntimeEventsTests : IDisposable
 
     private async Task<ProjectRuntime> SeedRuntime()
     {
+        // SubscribeToRuntimeEvents gates via ResolveAccessibleRuntimeAsync, which
+        // requires the runtime's project to be owned by (or accessible to) the
+        // caller — otherwise "Runtime not found".
+        var projectId = Guid.NewGuid();
+        _db.Projects.Add(new Source.Features.Projects.Models.Project
+        {
+            Id = projectId,
+            OwnerUserId = TestUserId,
+            WorkspaceId = Guid.NewGuid(),
+            Name = "seeded-project",
+        });
         var runtime = new ProjectRuntime
         {
-            ProjectId = Guid.NewGuid(),
+            ProjectId = projectId,
             Region = "arn",
             VolumeSizeGb = 1,
             State = RuntimeState.Online,

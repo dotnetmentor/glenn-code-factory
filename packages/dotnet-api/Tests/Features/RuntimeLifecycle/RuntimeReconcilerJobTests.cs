@@ -414,7 +414,7 @@ public class RuntimeReconcilerJobTests : IDisposable
     [Fact]
     public void Run_HasDisableConcurrentExecutionAttribute()
     {
-        var method = typeof(RuntimeReconcilerJob).GetMethod(nameof(RuntimeReconcilerJob.Run))!;
+        var method = typeof(RuntimeReconcilerJob).GetMethod(nameof(RuntimeReconcilerJob.Run), new[] { typeof(Hangfire.IJobCancellationToken) })!;
         var attr = method.GetCustomAttributes(typeof(Hangfire.DisableConcurrentExecutionAttribute), inherit: false);
         attr.Should().NotBeEmpty(
             "two Hangfire workers must not race on the same reconcile pass — the attribute is the lock");
