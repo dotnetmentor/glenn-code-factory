@@ -20,8 +20,9 @@
 #      it up on its next 60s tick. Skip with --no-activate.
 #
 # Why this exists alongside publish-runtime-image.sh:
-#   publish-runtime-image.sh assumes you have a working local docker. CI uses it.
-#   Devs with `docker login registry.fly.io` use it. But the agent container has
+#   GitHub Actions (runtime-base-image.yml) uses this script — Fly remote build + push.
+#   publish-runtime-image.sh is for local Docker (buildx, smoke-test, optional push).
+#   Devs with `docker login registry.fly.io` may use either path. The agent container has
 #   no docker socket and the kernel blocks unprivileged userns, so neither buildah
 #   nor podman work either. flyctl talks to Fly's hosted builder over HTTPS,
 #   which is the only build path available from inside the agent.
@@ -30,6 +31,7 @@
 #   scripts/publish-runtime-image-remote.sh
 #   scripts/publish-runtime-image-remote.sh --also-latest     # also push :latest (slow — rebuilds)
 #   scripts/publish-runtime-image-remote.sh --no-activate     # build+push only
+#   scripts/publish-runtime-image-remote.sh --enforce-size-budget --trivy  # CI flags
 #   scripts/publish-runtime-image-remote.sh --tag 2026.05.11-deadbee
 #
 # Required (local):
@@ -79,17 +81,28 @@ API="${API:-http://localhost:5338}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/platform-auth.sh
 source "$REPO_ROOT/scripts/lib/platform-auth.sh"
+# shellcheck source=lib/runtime-image-size-budget.sh
+source "$REPO_ROOT/scripts/lib/runtime-image-size-budget.sh"
+# shellcheck source=lib/runtime-image-trivy.sh
+source "$REPO_ROOT/scripts/lib/runtime-image-trivy.sh"
+
+log()  { printf '\033[36m[publish-remote]\033[0m %s\n' "$*"; }
+fail() { printf '\033[31m[publish-remote FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
 
 DO_LATEST=false        # API uses sha-pinned refs; :latest is opt-in for humans
 DO_ACTIVATE=true
+DO_TRIVY=false
+ENFORCE_SIZE_BUDGET=false
 TAG_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --also-latest)   DO_LATEST=true ;;
-        --no-activate)   DO_ACTIVATE=false ;;
-        --use-db-token)  log "⚠️  --use-db-token is deprecated (DB is now the only token source)" ;;
-        --tag)           TAG_OVERRIDE="$2"; shift ;;
+        --also-latest)           DO_LATEST=true ;;
+        --no-activate)           DO_ACTIVATE=false ;;
+        --trivy)                 DO_TRIVY=true ;;
+        --enforce-size-budget)   ENFORCE_SIZE_BUDGET=true ;;
+        --use-db-token)          log "⚠️  --use-db-token is deprecated (DB is now the only token source)" ;;
+        --tag)                   TAG_OVERRIDE="$2"; shift ;;
         -h|--help)
             # Print the leading comment block (skip shebang, until first non-#-line)
             awk 'NR==1 { next } /^#/ { print; next } { exit }' "$0" | sed 's/^# \{0,1\}//'
@@ -102,9 +115,6 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
-
-log()  { printf '\033[36m[publish-remote]\033[0m %s\n' "$*"; }
-fail() { printf '\033[31m[publish-remote FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
 
 # Returns 0 when $1 appears in `fly apps list --json`.
 fly_app_exists() {
@@ -227,12 +237,20 @@ fi
 
 log "flyctl: $(flyctl version | head -1)"
 
-# ---------- 2. Token source (SystemSettings only) ----------------------------------
-log "reading Fly:ApiToken from SystemSettings (decrypted via .env key)..."
-FLY_API_TOKEN="$(platform_auth_fly_token)" || fail "could not read Fly:ApiToken — set it in Super Admin → System Settings and ensure .env has SystemSettings__EncryptionKey"
-export FLY_API_TOKEN
+# ---------- 2. Fly API token --------------------------------------------------------
+if [[ -n "${FLY_API_TOKEN:-}" ]]; then
+    log "using FLY_API_TOKEN from environment"
+    export FLY_API_TOKEN
+elif [[ -n "${CONTROL_PLANE_PUBLISH_API_KEY:-}" && -n "${CONTROL_PLANE_API:-${API:-}}" ]]; then
+    log "using Fly token from control plane CI credentials..."
+    # shellcheck source=ci/ci-registry-credentials.sh
+    source "$REPO_ROOT/scripts/ci/ci-registry-credentials.sh"
+else
+    log "reading Fly:ApiToken from SystemSettings (decrypted via .env key)..."
+    FLY_API_TOKEN="$(platform_auth_fly_token)" || fail "could not read Fly:ApiToken — set it in Super Admin → System Settings and ensure .env has SystemSettings__EncryptionKey"
+    export FLY_API_TOKEN
+fi
 
-# Verify token works
 flyctl auth whoami >/dev/null 2>&1 || fail "FLY_API_TOKEN is not accepted by Fly"
 
 # ---------- 3. Fly app must exist (deploy --build-only targets APP in fly.toml) ---
@@ -293,7 +311,12 @@ log "size: ${SIZE_MB} MB"
 FULL_SHA="$(git rev-parse HEAD)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# ---------- 8. Tag :latest as well (opt-in) ---------------------------------------
+# ---------- 8. Trivy (OS packages on pushed image) --------------------------------
+if $DO_TRIVY; then
+    runtime_image_trivy_scan "$FULL_REF" "$REPO_ROOT" true || fail "Trivy scan failed"
+fi
+
+# ---------- 9. Tag :latest as well (opt-in) ---------------------------------------
 # flyctl can only push the labelled tag, so doing :latest means a second remote
 # build (slow). Skip by default — the API stores a sha-pinned full ref in the
 # RuntimeImages row, so nothing in the runtime path needs :latest.
@@ -310,69 +333,37 @@ if $DO_LATEST; then
         2>&1 | tee -a /tmp/fly-runtime-build.log >/dev/null || log "⚠️  :latest push failed (non-fatal)"
 fi
 
-# ---------- 9. Register + Activate via API ----------------------------------------
-if $DO_ACTIVATE; then
-    log "minting SuperAdmin JWT from .env + bootstrap user..."
-    JWT="$(platform_auth_jwt)" || fail "could not mint JWT — ensure API has bootstrapped SuperAdmin and .env has Jwt__Key + Bootstrap__SuperAdminEmail"
-
-    log "registering in RuntimeImages..."
-    REG_BODY="$(python3 -c "
-import json
-print(json.dumps({
-  'tag': '$TAG',
-  'digest': '$DIGEST',
-  'registry': '$REGISTRY',
-  'gitSha': '$FULL_SHA',
-  'builtAt': '$BUILT_AT',
-  'sizeMb': $SIZE_MB,
-  'notes': 'published via publish-runtime-image-remote.sh',
-}))")"
-    REG_RESP="$(curl -fsS -X POST "$API/api/admin/runtime-images" \
-        -H "Authorization: Bearer $JWT" \
-        -H "Content-Type: application/json" \
-        -d "$REG_BODY")" || fail "register HTTP call failed"
-    echo "$REG_RESP" | python3 -m json.tool 2>/dev/null || echo "$REG_RESP"
-
-    IMG_ID="$(echo "$REG_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))')"
-    [[ -n "$IMG_ID" ]] || fail "API didn't return an image id; check response above"
-
-    # Quirk: POST /api/admin/runtime-images creates the row with Status=Active but
-    # does NOT demote any other Active rows. The single-Active invariant is only
-    # enforced inside UpdateRuntimeImageStatusHandler when transitioning a row TO
-    # Active — and PATCH-ing this brand-new row to Active is a no-op because it's
-    # already Active. So to demote prior Active rows we explicitly PATCH them to
-    # Deprecated.
-    log "demoting prior Active rows (single-Active invariant)..."
-    PRIOR_IDS="$(curl -fsS "$API/api/admin/runtime-images?status=Active" \
-        -H "Authorization: Bearer $JWT" \
-        | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-for r in d['items']:
-    if r['id'] != '$IMG_ID':
-        print(r['id'])
-")"
-    for pid in $PRIOR_IDS; do
-        log "  demoting $pid -> Deprecated"
-        curl -fsS -X PATCH "$API/api/admin/runtime-images/$pid/status" \
-            -H "Authorization: Bearer $JWT" \
-            -H "Content-Type: application/json" \
-            -d '{"status":"Deprecated"}' >/dev/null
-    done
-    log "✅ $TAG is the sole Active runtime image."
+if $ENFORCE_SIZE_BUDGET; then
+    echo "📏 Image size budget"
+    runtime_image_enforce_size_budget "$SIZE_MB" "$REPO_ROOT" || fail "size budget check failed"
 fi
 
-# ---------- 10. Outputs ------------------------------------------------------------
+# ---------- 10. Register + activate -----------------------------------------------
+if $DO_ACTIVATE; then
+    log "registering in RuntimeImages..."
+    RUNTIME_IMAGE_TAG="$TAG" \
+    RUNTIME_IMAGE_DIGEST="$DIGEST" \
+    RUNTIME_IMAGE_SIZE_MB="$SIZE_MB" \
+    RUNTIME_IMAGE_NOTES="published via publish-runtime-image-remote.sh" \
+    REGISTRY="$REGISTRY" \
+    API="${CONTROL_PLANE_API:-${API:-}}" \
+        bash "$REPO_ROOT/scripts/ci/register-runtime-image.sh"
+fi
+
+# ---------- 11. Outputs -----------------------------------------------------------
 echo
 echo "TAG=$TAG"
 echo "DIGEST=$DIGEST"
 echo "FULL_REF=$FULL_DIGEST_REF"
+echo "SIZE_MB=$SIZE_MB"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     {
         echo "tag=$TAG"
         echo "digest=$DIGEST"
+        echo "size_mb=$SIZE_MB"
         echo "full_ref=$FULL_DIGEST_REF"
+        echo "full_sha=$FULL_SHA"
     } >> "$GITHUB_OUTPUT"
 fi
 

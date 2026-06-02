@@ -14,6 +14,7 @@ TAG="${RUNTIME_IMAGE_TAG:?RUNTIME_IMAGE_TAG required}"
 DIGEST="${RUNTIME_IMAGE_DIGEST:?RUNTIME_IMAGE_DIGEST required}"
 SIZE_MB="${RUNTIME_IMAGE_SIZE_MB:-0}"
 REGISTRY="${REGISTRY:-registry.fly.io/glenn-runtime-base}"
+NOTES="${RUNTIME_IMAGE_NOTES:-published via GitHub Actions}"
 FULL_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -26,16 +27,17 @@ fail() { printf '\033[31m[register-runtime-image FAIL]\033[0m %s\n' "$*" >&2; ex
 AUTH="$(ci_publish_auth_header)" || fail "set CONTROL_PLANE_PUBLISH_API_KEY or configure local .env for JWT"
 
 log "registering tag=$TAG digest=$DIGEST"
-REG_BODY="$(python3 -c "
-import json
+REG_BODY="$(NOTES="$NOTES" TAG="$TAG" DIGEST="$DIGEST" REGISTRY="$REGISTRY" \
+  FULL_SHA="$FULL_SHA" BUILT_AT="$BUILT_AT" SIZE_MB="$SIZE_MB" python3 -c "
+import json, os
 print(json.dumps({
-  'tag': '$TAG',
-  'digest': '$DIGEST',
-  'registry': '$REGISTRY',
-  'gitSha': '$FULL_SHA',
-  'builtAt': '$BUILT_AT',
-  'sizeMb': int('$SIZE_MB'),
-  'notes': 'published via GitHub Actions',
+  'tag': os.environ['TAG'],
+  'digest': os.environ['DIGEST'],
+  'registry': os.environ['REGISTRY'],
+  'gitSha': os.environ['FULL_SHA'],
+  'builtAt': os.environ['BUILT_AT'],
+  'sizeMb': int(os.environ['SIZE_MB']),
+  'notes': os.environ['NOTES'],
 }))")"
 
 REG_RESP="$(curl -fsS -X POST "${API%/}/api/admin/runtime-images" \

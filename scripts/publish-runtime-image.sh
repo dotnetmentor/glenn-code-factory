@@ -3,20 +3,20 @@
 # publish-runtime-image.sh
 # =====================================================================================
 # Builds, smoke-tests, and pushes the glenn-runtime-base image. Single source of
-# truth for both local dev and CI — the GitHub workflow just calls this.
+# truth for local Docker builds. CI uses publish-runtime-image-remote.sh (Fly builder).
 #
 # Default registry is registry.fly.io because Fly Machines auto-authenticate to it
 # (no pull secrets, no external provider). Override REGISTRY to point elsewhere.
 #
-# Push only happens here. On main, .github/workflows/runtime-base-image.yml also
-# calls scripts/ci/register-runtime-image.sh, which POSTs to the control plane;
+# Push only happens here. On main, runtime-base-image.yml remote-builds via
+# publish-runtime-image-remote.sh, then scripts/ci/register-runtime-image.sh POSTs
 # that API registers the image as Active and demotes the previous Active row.
 # Local-only runs (--no-push) do not touch the catalog — use the admin UI to
 # register/activate manually if you are not going through CI.
 #
 # Trivy (when pushing): CRITICAL OS packages only (--pkg-types os). Vendor Go binaries
 # (e.g. cloudflared) are not gated here — patch via CLOUDFLARED_VERSION / upstream releases.
-# CI is the security gate; publish-runtime-image-remote.sh does not run Trivy.
+# CI runs Trivy via publish-runtime-image-remote.sh --trivy after the remote push.
 #
 # Usage:
 #   scripts/publish-runtime-image.sh                       # full pipeline
@@ -45,11 +45,14 @@ set -euo pipefail
 REGISTRY="${REGISTRY:-registry.fly.io}"
 IMAGE_NAME="${IMAGE_NAME:-glenn-runtime-base}"
 PLATFORM="${PLATFORM:-linux/amd64}"
-SIZE_BUDGET_FILE=".image-size.last"
 SIZE_GROWTH_THRESHOLD_PCT="${SIZE_GROWTH_THRESHOLD_PCT:-10}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/platform-auth.sh
 source "$REPO_ROOT/scripts/lib/platform-auth.sh"
+# shellcheck source=lib/runtime-image-size-budget.sh
+source "$REPO_ROOT/scripts/lib/runtime-image-size-budget.sh"
+# shellcheck source=lib/runtime-image-trivy.sh
+source "$REPO_ROOT/scripts/lib/runtime-image-trivy.sh"
 
 # ---------- Flags -------------------------------------------------------------------
 DO_PUSH=true
@@ -169,37 +172,6 @@ SIZE_BYTES="$(docker image inspect "$FULL_REF" --format '{{.Size}}')"
 SIZE_MB=$(( SIZE_BYTES / 1024 / 1024 ))
 echo "📏 Image size: ${SIZE_MB} MB"
 
-# ---------- Size budget check -------------------------------------------------------
-if $ENFORCE_SIZE_BUDGET; then
-    if [[ ! -f "$SIZE_BUDGET_FILE" ]]; then
-        echo "ℹ️  No baseline at $SIZE_BUDGET_FILE — establishing one at ${SIZE_MB} MB."
-        echo "$SIZE_MB" > "$SIZE_BUDGET_FILE"
-    else
-        PREV_SIZE_MB="$(cat "$SIZE_BUDGET_FILE")"
-        if [[ -z "$PREV_SIZE_MB" || "$PREV_SIZE_MB" -le 0 ]]; then
-            echo "ℹ️  Baseline invalid; resetting to ${SIZE_MB} MB."
-            echo "$SIZE_MB" > "$SIZE_BUDGET_FILE"
-        else
-            GROWTH_MB=$(( SIZE_MB - PREV_SIZE_MB ))
-            GROWTH_PCT=$(( (GROWTH_MB * 100) / PREV_SIZE_MB ))
-            echo "   Previous: ${PREV_SIZE_MB} MB"
-            echo "   Current:  ${SIZE_MB} MB"
-            echo "   Growth:   ${GROWTH_MB} MB (${GROWTH_PCT}%)"
-            if [[ "$GROWTH_PCT" -gt "$SIZE_GROWTH_THRESHOLD_PCT" ]]; then
-                COMMIT_MSG="$(git log -1 --pretty=%B)"
-                if [[ "$COMMIT_MSG" == *"[image-size-ok]"* ]]; then
-                    echo "✅ Override accepted: commit message contains [image-size-ok]."
-                else
-                    echo "❌ Image grew by ${GROWTH_MB} MB (${GROWTH_PCT}%, threshold ${SIZE_GROWTH_THRESHOLD_PCT}%)." >&2
-                    echo "   Justify with [image-size-ok] in commit message or shrink." >&2
-                    exit 1
-                fi
-            fi
-            echo "$SIZE_MB" > "$SIZE_BUDGET_FILE"
-        fi
-    fi
-fi
-
 # ---------- Smoke test --------------------------------------------------------------
 if $DO_SMOKETEST; then
     echo "🚬 Smoke-testing $FULL_REF"
@@ -223,18 +195,13 @@ fi
 
 # ---------- Trivy scan --------------------------------------------------------------
 if $DO_TRIVY && $DO_PUSH; then
-    if command -v trivy >/dev/null 2>&1; then
-        echo "🛡️  Trivy scan ($FULL_REF) — OS packages only"
-        trivy image \
-            --severity CRITICAL \
-            --ignore-unfixed \
-            --pkg-types os \
-            --exit-code 1 \
-            "$FULL_REF"
-    else
-        echo "⚠️  trivy not installed — skipping vulnerability scan."
-        echo "   Install with: brew install trivy   (or aquasecurity/trivy on Linux)"
-    fi
+    runtime_image_trivy_scan "$FULL_REF" "$REPO_ROOT" false || exit 1
+fi
+
+# ---------- Size budget (after smoke + Trivy; before push) --------------------------
+if $ENFORCE_SIZE_BUDGET; then
+    echo "📏 Image size budget"
+    runtime_image_enforce_size_budget "$SIZE_MB" "$REPO_ROOT" || exit 1
 fi
 
 # ---------- Push --------------------------------------------------------------------
