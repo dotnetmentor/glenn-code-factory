@@ -3,6 +3,7 @@ import { AxiosError } from 'axios'
 import {
   postApiWorkspacesSlugByok,
   ProblemDetails,
+  UpdateWorkspaceByokRequest,
   UpdateWorkspaceByokResponse,
 } from '@/api/queries-commands'
 import { getErrorMessage } from '@/applications/shared/utils/errorUtils'
@@ -35,7 +36,10 @@ export function useWorkspaceByok({
     setIsLoadingStatus(true)
     suppressErrorToastRef.current = true
 
-    postApiWorkspacesSlugByok(workspaceSlug, { setCursorApiKey: false })
+    postApiWorkspacesSlugByok(workspaceSlug, {
+      setCursorApiKey: false,
+      setAllowProjectCursorApiKeyOverride: false,
+    })
       .then((response: UpdateWorkspaceByokResponse) => {
         if (cancelled) return
         setStatus({
@@ -91,16 +95,25 @@ export function useWorkspaceByok({
   }
 
   const saveCursorApiKey = (value: string) =>
-    runMutation({ setCursorApiKey: true, cursorApiKey: value })
+    runMutation({
+      setCursorApiKey: true,
+      cursorApiKey: value,
+      setAllowProjectCursorApiKeyOverride: false,
+    } satisfies UpdateWorkspaceByokRequest)
 
   const clearCursorApiKey = () =>
-    runMutation({ setCursorApiKey: true, cursorApiKey: null })
+    runMutation({
+      setCursorApiKey: true,
+      cursorApiKey: null,
+      setAllowProjectCursorApiKeyOverride: false,
+    } satisfies UpdateWorkspaceByokRequest)
 
   const setAllowProjectOverride = (allow: boolean) =>
     runMutation({
+      setCursorApiKey: false,
       setAllowProjectCursorApiKeyOverride: true,
       allowProjectCursorApiKeyOverride: allow,
-    })
+    } satisfies UpdateWorkspaceByokRequest)
 
   return {
     status,

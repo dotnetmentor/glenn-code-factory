@@ -173,6 +173,20 @@ export type PreviewPortChangedNotification = {
     occurredAt: (Date | string);
 }
 
+/** Transpiled from Source.Features.SignalR.Contracts.AttachmentStateChangedPayload */
+export type AttachmentStateChangedPayload = {
+    /** Transpiled from System.Guid */
+    attachmentId: string;
+    /** Transpiled from System.Guid */
+    conversationId: string;
+    /** Transpiled from System.Guid */
+    branchId: string;
+    /** Transpiled from string */
+    state: string;
+    /** Transpiled from string? */
+    error?: string;
+}
+
 /** Transpiled from Source.Features.SignalR.Contracts.PermissionRequestedPayload */
 export type PermissionRequestedPayload = {
     /** Transpiled from string */

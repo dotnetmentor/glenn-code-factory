@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IAgentHub, IPlanningHub, IRuntimeHub, IAgentClient, IPlanningClient, IRuntimeClient } from './Source.Features.SignalR.Hubs';
-import type { SubmitPromptPayload, SubmitPromptResponse, CancelTurnRequest, EventReplayRequest, AgentEventNotification, ResolvePermissionPayload, HeartbeatPayload, AgentSecretsDto, ErrorReportPayload, DiskPressurePayload, EmitEventPayload, ReportSessionCostPayload, PermissionRequestedPayload, RuntimeEventPayloadDto, ServiceLogLineDto, DaemonLogLineDto, LiveSupervisordSnapshotPayload, RuntimeStateChangedNotification, BootstrapProgressNotification, RuntimeWakingNotification, NotificationPayload, RunResultNotification, ConversationRenamedNotification, RuntimeDiskPressureNotification, RuntimeEventNotification, ServiceLogLineNotification, LiveSupervisordSnapshotNotification, DaemonLogLineNotification, PreviewPortChangedNotification, SpecificationChangedNotification, CardChangedNotification, SubtaskChangedNotification, StartTurnPayload, CancelTurnPayload, ConfigUpdatePayload, RestartServicePayload, ForceRebootstrapPayload, StageAttachmentPayload } from '../Source.Features.SignalR.Contracts';
+import type { SubmitPromptPayload, SubmitPromptResponse, CancelTurnRequest, EventReplayRequest, AgentEventNotification, ResolvePermissionPayload, HeartbeatPayload, AgentSecretsDto, ErrorReportPayload, DiskPressurePayload, EmitEventPayload, ReportSessionCostPayload, PermissionRequestedPayload, RuntimeEventPayloadDto, ServiceLogLineDto, DaemonLogLineDto, LiveSupervisordSnapshotPayload, RuntimeStateChangedNotification, BootstrapProgressNotification, RuntimeWakingNotification, NotificationPayload, RunResultNotification, ConversationRenamedNotification, RuntimeDiskPressureNotification, RuntimeEventNotification, ServiceLogLineNotification, LiveSupervisordSnapshotNotification, DaemonLogLineNotification, PreviewPortChangedNotification, AttachmentStateChangedPayload, SpecificationChangedNotification, CardChangedNotification, SubtaskChangedNotification, StartTurnPayload, CancelTurnPayload, ConfigUpdatePayload, RestartServicePayload, ForceRebootstrapPayload, StageAttachmentPayload } from '../Source.Features.SignalR.Contracts';
 import type { BootstrapPayloadV2, RepoAccessToken } from '../Source.Features.RuntimeBootstrap.Contracts';
 import type { AgentPermissionsConfig } from '../Source.Features.AgentPermissions.Models';
 import type { TurnRefusedPayload } from '../Source.Features.Conversations.Models';
@@ -365,6 +365,7 @@ class IAgentClient_Binder implements ReceiverRegister<IAgentClient> {
         const __liveSupervisordSnapshotReceived = (...args: [LiveSupervisordSnapshotNotification]) => receiver.liveSupervisordSnapshotReceived(...args);
         const __daemonLogLineReceived = (...args: [DaemonLogLineNotification]) => receiver.daemonLogLineReceived(...args);
         const __previewPortChanged = (...args: [PreviewPortChangedNotification]) => receiver.previewPortChanged(...args);
+        const __attachmentStateChanged = (...args: [AttachmentStateChangedPayload]) => receiver.attachmentStateChanged(...args);
 
         connection.on("RuntimeStateChanged", __runtimeStateChanged);
         connection.on("BootstrapProgress", __bootstrapProgress);
@@ -397,6 +398,7 @@ class IAgentClient_Binder implements ReceiverRegister<IAgentClient> {
         connection.on("LiveSupervisordSnapshotReceived", __liveSupervisordSnapshotReceived);
         connection.on("DaemonLogLineReceived", __daemonLogLineReceived);
         connection.on("PreviewPortChanged", __previewPortChanged);
+        connection.on("AttachmentStateChanged", __attachmentStateChanged);
 
         const methodList: ReceiverMethod[] = [
             { methodName: "RuntimeStateChanged", method: __runtimeStateChanged },
@@ -429,7 +431,8 @@ class IAgentClient_Binder implements ReceiverRegister<IAgentClient> {
             { methodName: "ServiceLogLine", method: __serviceLogLine },
             { methodName: "LiveSupervisordSnapshotReceived", method: __liveSupervisordSnapshotReceived },
             { methodName: "DaemonLogLineReceived", method: __daemonLogLineReceived },
-            { methodName: "PreviewPortChanged", method: __previewPortChanged }
+            { methodName: "PreviewPortChanged", method: __previewPortChanged },
+            { methodName: "AttachmentStateChanged", method: __attachmentStateChanged }
         ]
 
         return new ReceiverMethodSubscription(connection, methodList);

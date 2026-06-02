@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { SubmitPromptPayload, SubmitPromptResponse, CancelTurnRequest, EventReplayRequest, AgentEventNotification, ResolvePermissionPayload, HeartbeatPayload, AgentSecretsDto, ErrorReportPayload, DiskPressurePayload, EmitEventPayload, ReportSessionCostPayload, PermissionRequestedPayload, RuntimeEventPayloadDto, ServiceLogLineDto, DaemonLogLineDto, LiveSupervisordSnapshotPayload, RuntimeStateChangedNotification, BootstrapProgressNotification, RuntimeWakingNotification, NotificationPayload, RunResultNotification, ConversationRenamedNotification, RuntimeDiskPressureNotification, RuntimeEventNotification, ServiceLogLineNotification, LiveSupervisordSnapshotNotification, DaemonLogLineNotification, PreviewPortChangedNotification, SpecificationChangedNotification, CardChangedNotification, SubtaskChangedNotification, StartTurnPayload, CancelTurnPayload, ConfigUpdatePayload, RestartServicePayload, ForceRebootstrapPayload, StageAttachmentPayload } from '../Source.Features.SignalR.Contracts';
+import type { SubmitPromptPayload, SubmitPromptResponse, CancelTurnRequest, EventReplayRequest, AgentEventNotification, ResolvePermissionPayload, HeartbeatPayload, AgentSecretsDto, ErrorReportPayload, DiskPressurePayload, EmitEventPayload, ReportSessionCostPayload, PermissionRequestedPayload, RuntimeEventPayloadDto, ServiceLogLineDto, DaemonLogLineDto, LiveSupervisordSnapshotPayload, RuntimeStateChangedNotification, BootstrapProgressNotification, RuntimeWakingNotification, NotificationPayload, RunResultNotification, ConversationRenamedNotification, RuntimeDiskPressureNotification, RuntimeEventNotification, ServiceLogLineNotification, LiveSupervisordSnapshotNotification, DaemonLogLineNotification, PreviewPortChangedNotification, AttachmentStateChangedPayload, SpecificationChangedNotification, CardChangedNotification, SubtaskChangedNotification, StartTurnPayload, CancelTurnPayload, ConfigUpdatePayload, RestartServicePayload, ForceRebootstrapPayload, StageAttachmentPayload } from '../Source.Features.SignalR.Contracts';
 import type { BootstrapPayloadV2, RepoAccessToken } from '../Source.Features.RuntimeBootstrap.Contracts';
 import type { AgentPermissionsConfig } from '../Source.Features.AgentPermissions.Models';
 import type { TurnRefusedPayload } from '../Source.Features.Conversations.Models';
@@ -713,6 +713,12 @@ export type IAgentClient = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     previewPortChanged(payload: PreviewPortChangedNotification): Promise<void>;
+    /**
+    * chat-file-attachments — daemon staging-ack relay for composer chips.
+    * @param payload Transpiled from Source.Features.SignalR.Contracts.AttachmentStateChangedPayload
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    attachmentStateChanged(payload: AttachmentStateChangedPayload): Promise<void>;
 }
 
 /**
