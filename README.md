@@ -260,7 +260,7 @@ After import, run the [publish steps](#publish-daemon--runtime-image-once-per-en
 
 ```bash
 git clone <your-repo-url>
-cd agent-template   # or your fork name
+cd glenn-code-factory   # or your fork name
 ```
 
 ### 2. Environment file
@@ -314,7 +314,7 @@ See [Shared: local control plane](#shared-local-control-plane) for what this sta
 3. Request OTP — with `Email__Provider=Console`, the code is printed in the **API terminal** (not sent by email)
 4. Verify OTP → you receive a JWT and land as SuperAdmin
 
-The API seeds the bootstrap SuperAdmin on every startup when `Bootstrap__SuperAdminEmail` is set. You can also run `npm run create-admin` to register an additional admin via the API.
+The API seeds the bootstrap SuperAdmin on every startup when `Bootstrap__SuperAdminEmail` is set. Additional admins can be invited from **Super Admin → Users** once you're logged in.
 
 ---
 

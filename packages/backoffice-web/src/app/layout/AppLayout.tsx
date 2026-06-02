@@ -97,7 +97,7 @@ function AppLayoutContent({ children }: PropsWithChildren) {
                   lineHeight: 1,
                 }}
               >
-                GlennCode
+                GlennCode Factory
               </Typography>
             )}
           </Box>
