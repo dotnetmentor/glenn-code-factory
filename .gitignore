@@ -1,5 +1,8 @@
 .env
 
+# Render migration dumps (scripts/render-pg-dump.sh)
+.render-backups/
+
 # .NET
 bin/
 obj/

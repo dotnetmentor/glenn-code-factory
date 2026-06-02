@@ -82,6 +82,9 @@ See [How to set up end-to-end](#how-to-set-up-end-to-end).
 
 ## How to set up end-to-end
 
+**Canonical operator checklist (CLI-first, Fly / GitHub / Cloudflare / Render / CI):**  
+→ **[`docs/operator-setup.md`](docs/operator-setup.md)** · [docs index](docs/README.md)
+
 Two paths — pick one:
 
 | Path | When |
@@ -132,67 +135,14 @@ Full reference: [`.env.example`](.env.example)
 
 ### Path A — From scratch
 
-After [shared local setup](#shared-local-control-plane), log in as SuperAdmin and configure **Super Admin → System Settings** (`/super-admin/system-settings`).
+1. Complete [shared local setup](#shared-local-control-plane) (or [Render](#self-hosting-render) for production).
+2. Follow **[`docs/operator-setup.md`](docs/operator-setup.md)** — Fly (`glenn-runtimes` vs `glenn-runtime-base`), GitHub App permissions, Cloudflare pool, publish daemon + runtime image, CI secrets, smoke-test.
 
-#### System Settings checklist (agent platform)
+Quick reminders:
 
-| Category | Keys | Required for |
-|----------|------|--------------|
-| **GitHub** | `AppId`, `ClientId`, `ClientSecret`, `PrivateKeyPem`, `WebhookSecret`, `AppSlug`, `OAuthRedirectUri`, `AppInstallRedirectUri` | **All projects** — OAuth login, app install, repo clone/push, webhooks. No GitHub App → no projects. |
-| **Fly** | `Fly:ApiToken`, `Fly:OrgSlug`, `Fly:AppName`, `Fly:DefaultRegion` | Provisioning Fly machines + volumes |
-| **Runtime** | `Runtime:PublicApiUrl` | Stamped as `MAIN_API_URL` on machines — **overridden by `npm run dev` tunnel** locally; set a stable public URL in production |
-| **RuntimeTokens** | `SigningKeyCurrent` | Auto-generated on first boot if empty |
-| **Cloudflare** | `ApiToken`, `AccountId`, `ZoneId`, `BaseDomain` | Preview tunnel pool (per-branch subdomains) |
-| **File storage** | R2 creds in `.env` or use `Local` for dev | Daemon bundle upload on publish |
-
-#### GitHub App (required)
-
-Create a GitHub App under your org (or user), then paste every field into **Super Admin → System Settings → GitHub**. Redirect URIs must match your API base URL (defaults in the catalog point at `http://localhost:5338/...` for local dev).
-
-After System Settings are saved:
-
-1. **Install the app** on the org/repos you will use (workspace UI prompts this on first project)
-2. Grant the app access to the repositories the agent will work in
-
-Every new-project flow goes through GitHub — pick an existing repo, create a blank repo on GitHub, paste a `github.com/…` URL, or start from a **Starter** (generates a repo from a GitHub template). There is no path that skips GitHub.
-
-`RuntimeTokens:SigningKeyCurrent` and catalog rows are seeded on first boot from `.env` / `appsettings.json` where present; after that the DB is authoritative (except `Runtime__PublicApiUrl` env override).
-
-#### Publish daemon + runtime image (once per environment)
-
-Run with **`npm run dev` already up** (scripts default to `http://localhost:5338` and mint a SuperAdmin JWT from `.env`).
-
-| Step | Script | Skill |
-|------|--------|-------|
-| 1. Daemon bundle | `./scripts/publish-daemon.sh` | [daemon-deploy](.claude/skills/daemon-deploy/SKILL.md) |
-| 2. Runtime base image | `./scripts/publish-runtime-image-remote.sh` | [runtime-deployment](.claude/skills/runtime-deployment/SKILL.md) |
-| 2 alt (local Docker) | `./scripts/publish-runtime-image.sh` | same |
-
-**Publish notes:**
-
-- `publish-daemon.sh` — builds esbuild bundle, uploads to storage, registers `DaemonVersions` (channel `stable`)
-- `publish-runtime-image-remote.sh` — Fly remote build of [`Dockerfile.runtime-base`](Dockerfile.runtime-base), registers + activates `RuntimeImages`
-- Override Fly app/registry if yours differ from defaults: `APP=… IMAGE_NAME=… REGISTRY=registry.fly.io/… ./scripts/publish-runtime-image-remote.sh`
-- After SignalR hub contract changes: `./scripts/generate-signalr.sh` then republish daemon — see [daemon-deploy](.claude/skills/daemon-deploy/SKILL.md)
-
-Verify:
-
-```bash
-curl -fsS http://localhost:5338/api/daemon-versions/resolve?channel=stable
-# Super Admin → Runtime Images — one row Active
-```
-
-#### Preview tunnel pool
-
-**Super Admin → Subdomains** (`/super-admin/subdomains`) — batch-create Cloudflare preview tunnels. Project creation assigns one per branch; empty pool → `pool_empty` error with link to this page.
-
-#### Create a project and smoke-test
-
-1. Create a workspace, install the GitHub App, then create a project (existing repo, new repo, GitHub URL, or Starter — all GitHub-backed)
-2. Wait for runtime: `Pending → Booting → Bootstrapping → Online` (~90 s) — **Super Admin → Runtime Monitor**
-3. Open project chat; submit a prompt
-
-Stuck runtimes → [runtime-debug](.claude/skills/runtime-debug/SKILL.md). Architecture map → [runtime-environment](.claude/skills/runtime-environment/SKILL.md).
+- **GitHub is required** for all projects (clone/push via GitHub App; no repo-less mode).
+- **`npm run dev`** sets `Runtime__PublicApiUrl` via quick tunnel locally; production needs a stable API URL in System Settings / Render.
+- **Stuck runtimes** → [runtime-debug](.claude/skills/runtime-debug/SKILL.md) · **Architecture** → [runtime-environment](.claude/skills/runtime-environment/SKILL.md)
 
 ---
 
@@ -222,7 +172,7 @@ The **GitHub App must still exist on github.com** with matching webhook/OAuth UR
 | **Fly machines / runtimes** | Re-provisioned when you create projects or respawn |
 | **Conversations / agent history** | Not restored |
 
-After import, run the [publish steps](#publish-daemon--runtime-image-once-per-environment) and [subdomain pool](#preview-tunnel-pool). `npm run dev` sets `Runtime__PublicApiUrl` via tunnel automatically; respawn any imported runtimes stuck on an old URL.
+After import, run publish + subdomain steps in [`docs/operator-setup.md`](docs/operator-setup.md) (§7, §4c, §9). `npm run dev` sets `Runtime__PublicApiUrl` via tunnel automatically; respawn any imported runtimes stuck on an old URL.
 
 ---
 
@@ -331,6 +281,7 @@ The API seeds the bootstrap SuperAdmin on every startup when `Bootstrap__SuperAd
 │   └── local-db/             # Docker Compose for Postgres
 ├── .claude/skills/           # Agent skills (Orval, SignalR, runtime deploy, …)
 ├── scripts/                  # setup, swagger gen, daemon publish, migrations
+├── docs/                     # operator-setup.md (canonical), runtime-volume-layout.md
 ├── Dockerfile                # Production API + bundled frontend
 ├── Dockerfile.runtime-base   # Fly agent runtime machine image
 ├── render.yaml               # Render.com blueprint (self-host)
@@ -411,8 +362,7 @@ Full list: [`.env.example`](.env.example) · committed [`appsettings.json`](pack
 
 [`render.yaml`](render.yaml) provisions:
 
-- Managed PostgreSQL 16
-- Single Docker web service (API + built frontend)
+- Managed PostgreSQL 16 + single Docker web service (API + built frontend) in **`frankfurt`** (EU; pair with Fly region **`arn`** for Stockholm runtimes)
 
 After blueprint deploy, set secret env vars in the Render dashboard (`SystemSettings__EncryptionKey`, `Jwt__Key`, `Bootstrap__SuperAdminEmail`, etc.).
 

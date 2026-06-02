@@ -15,6 +15,9 @@ databases:
     databaseName: app
     plan: basic-256mb           # entry paid tier (256 MB RAM, 1 GB storage); ~$6–7/mo
     postgresMajorVersion: "16"
+    # EU — low latency to Fly runtimes in arn (Stockholm). Cannot change region on an
+    # existing DB; migrate data if you previously deployed in oregon.
+    region: frankfurt
     # Empty allow-list = reachable only from your Render services on the private network,
     # not the public internet. The web service below connects over the internal connection.
     ipAllowList: []
@@ -30,9 +33,10 @@ services:
     numInstances: 1
     healthCheckPath: /health
     autoDeploy: true
-    # Keep the DB and web service in the same region so the internal connection works
-    # and latency stays low. `oregon` is Render's default; change both together if needed.
-    region: oregon
+    # Keep the DB and web service in the same region (internal DATABASE_URL, low RTT).
+    # frankfurt is the closest Render region to Fly arn (Stockholm). Region is fixed
+    # at create time — existing oregon services need a new deploy + DB migration.
+    region: frankfurt
     envVars:
       # Postgres — injected as a postgres:// URI from the managed DB above. The app
       # normalizes it to Npgsql keyword form and enables TLS automatically
