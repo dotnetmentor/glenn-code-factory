@@ -89,9 +89,8 @@ export function IntegrationsTab() {
   const { showSuccess, showError } = useNotification()
   const queryClient = useQueryClient()
 
-  // Note: the install-callback `?install=` snackbar is now handled by
-  // ProjectsPage (the post-install redirect target) — this tab is reached
-  // via the settings drawer where no such query param ever lands.
+  // Note: the install-callback `?install=` snackbar is handled by
+  // WorkspaceLandingView (the post-install redirect target).
 
   const installationsQuery = useGetApiWorkspacesSlugGithubInstallations(slug, {
     query: { enabled: !!slug },

@@ -71,6 +71,7 @@ export {
 export { ManageGitHubAccessHint } from './components/ManageGitHubAccessHint'
 export { PoolEmptyErrorAlert } from './components/PoolEmptyErrorAlert'
 export { buildGithubInstallationManageUrl } from './githubInstallationManageUrl'
+export { useGithubCallbackSnackbar } from './hooks/useGithubCallbackSnackbar'
 export { isPoolEmptyError, SUBDOMAINS_ADMIN_PATH } from './poolEmptyError'
 
 // Phase 1 primitives — small, reusable building blocks (RuntimePill,

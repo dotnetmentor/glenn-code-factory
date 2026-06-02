@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using Source.Features.GitHub;
 using Source.Features.GitHub.Commands;
 using Source.Features.GitHub.Configuration;
 using Source.Features.GitHub.Models;
@@ -130,7 +131,8 @@ public class GithubInstallEndpointsTests : IntegrationTestBase
 
         var response = await client.GetAsync($"/api/github/install/callback?installation_id=555&setup_action=install&state={Uri.EscapeDataString(state)}");
         response.StatusCode.Should().Be(HttpStatusCode.Redirect, await response.Content.ReadAsStringAsync());
-        response.Headers.Location!.ToString().Should().StartWith($"/w/{alice.Slug}/projects?install=success");
+        response.Headers.Location!.ToString()
+            .Should().StartWith(WorkspaceFrontendRoutes.HomeWithQuery(alice.Slug, "install", "success"));
 
         using var scope = CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -140,6 +142,25 @@ public class GithubInstallEndpointsTests : IntegrationTestBase
 
         var repos = await db.GithubRepositories.Where(r => r.GithubInstallationId == inst.Id).ToListAsync();
         repos.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task Login_callback_with_install_params_redirects_to_workspace_home()
+    {
+        var alice = await RegisterUserAsync();
+
+        var (installState, _) = await IssueStateForWorkspaceAsync(alice.WorkspaceId);
+        SetupHappyInstallApi(installationId: 888L, accountLogin: "alice-org", repoCount: 1);
+
+        var client = NoFollowRedirectClient(authCookie: null);
+        client.DefaultRequestHeaders.Add("Cookie", $"gh_install_state={installState}");
+
+        var response = await client.GetAsync(
+            $"/api/github/login/callback?installation_id=888&setup_action=install&state={Uri.EscapeDataString(installState)}&code=oauth-code");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect, await response.Content.ReadAsStringAsync());
+        response.Headers.Location!.ToString()
+            .Should().StartWith(WorkspaceFrontendRoutes.HomeWithQuery(alice.Slug, "install", "success"));
     }
 
     [Fact]

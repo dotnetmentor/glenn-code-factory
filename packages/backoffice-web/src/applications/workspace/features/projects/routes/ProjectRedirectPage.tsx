@@ -32,9 +32,8 @@ interface RouteParams {
  * Intermediate route at {@code /w/:slug/projects/:projectId} that resolves
  * the project's default branch and redirects to the per-branch IDE shell.
  *
- * <p>Lets list pages link to a project without already knowing a branchId —
- * the {@link WorkspaceLandingView} "Recent work" rows go through here, as
- * does the legacy {@code ProjectsPage} grid.</p>
+ * <p>Lets callers link to a project without already knowing a branchId — e.g.
+ * sidebar project rows and the landing page when only a project id is known.</p>
  *
  * <p>This route is {@code chromeless: true} and renders its loading / error
  * states inside the same {@link WorkspaceShellLayout} as the rest of the

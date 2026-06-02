@@ -223,9 +223,9 @@ public class WorkspacesController : BaseApiController
 
     /// <summary>
     /// List all (non-soft-deleted) projects inside this workspace. Any member
-    /// can read. Used by the frontend at <c>/w/:slug/projects</c> to render the
-    /// projects list view; the response is sorted "most recently updated first"
-    /// so the active projects float to the top.
+    /// can read. Used by the workspace shell sidebar and landing page; the
+    /// response is sorted "most recently updated first" so active projects
+    /// float to the top.
     /// </summary>
     [HttpGet("{slug}/projects")]
     [RequireWorkspaceRole(WorkspaceRole.Member)]

@@ -81,7 +81,7 @@ public class GithubUserAuthCallbackController : BaseApiController
     /// <summary>
     /// OAuth re-authorize callback. Validates the signed state, exchanges the code for a
     /// fresh UAT/refresh pair, persists them on the installation, and bounces the user back
-    /// to the workspace projects page with <c>?reauth=success|error</c>.
+    /// to the workspace home with <c>?reauth=success|error</c>.
     /// </summary>
     [HttpGet("callback")]
     [ProducesResponseType(302)]
@@ -99,7 +99,7 @@ public class GithubUserAuthCallbackController : BaseApiController
         {
             // State validation / workspace lookup failures — surface as 400. There's no
             // workspace slug to redirect to when the state token itself is bad, so we
-            // can't bounce the user back to the projects page.
+            // can't bounce the user back to the workspace home.
             if (string.Equals(result.Error, "Workspace not found", StringComparison.Ordinal))
             {
                 return NotFound(new { error = result.Error });
@@ -110,6 +110,6 @@ public class GithubUserAuthCallbackController : BaseApiController
 
         var slug = result.Value.WorkspaceSlug;
         var flag = result.Value.Success ? "success" : "error";
-        return Redirect($"/w/{slug}/projects?reauth={flag}");
+        return Redirect(WorkspaceFrontendRoutes.HomeWithQuery(slug, "reauth", flag));
     }
 }

@@ -1,4 +1,5 @@
 import { WorkspaceShellLayout } from '../../project-workspace/components/WorkspaceShellLayout'
+import { useGithubCallbackSnackbar } from '../../../shared'
 import { WorkspaceLandingView } from '../components/WorkspaceLandingView'
 
 /**
@@ -10,11 +11,16 @@ import { WorkspaceLandingView } from '../components/WorkspaceLandingView'
  * new-session, the per-branch IDE. The user lands here, sees what they
  * recently worked on, and either resumes or hits "New session".</p>
  *
+ * <p>GitHub OAuth callbacks land here with {@code ?install=} / {@code ?reauth=}
+ * query params; this route surfaces one-time snackbars and strips those params.</p>
+ *
  * <p>No SignalR wiring at this level — the canvas only reads polled summary
  * data (projects list, installations list, me). The sidebar falls back to
  * its own 15s polling, which is plenty for picking up where you left off.</p>
  */
 export function WorkspaceLandingRoute() {
+  useGithubCallbackSnackbar()
+
   return (
     <WorkspaceShellLayout>
       <WorkspaceLandingView />
