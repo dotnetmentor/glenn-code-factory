@@ -9,3 +9,13 @@
  */
 export const RUNTIME_IMAGE_REGISTRY: string =
   import.meta.env.VITE_RUNTIME_IMAGE_REGISTRY ?? 'registry.fly.io/glenn-runtime-base'
+
+/**
+ * Image-name segment of {@link RUNTIME_IMAGE_REGISTRY} (the part after the
+ * registry host) — e.g. `glenn-runtime-base`. Passed to the registry-tags API
+ * so the "Available in Fly registry" list matches the configured registry
+ * instead of the backend default. Keep `VITE_RUNTIME_IMAGE_REGISTRY` in sync
+ * with the backend `RuntimeImages:DefaultImageName` setting.
+ */
+export const RUNTIME_IMAGE_NAME: string =
+  RUNTIME_IMAGE_REGISTRY.split('/').pop() || 'glenn-runtime-base'

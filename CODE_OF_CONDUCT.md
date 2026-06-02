@@ -45,9 +45,9 @@ an individual is officially representing the community in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community maintainers via GitHub's private vulnerability
-reporting or by contacting a maintainer directly. All complaints will be
-reviewed and investigated promptly and fairly.
+reported to the project maintainers by contacting a maintainer directly. All
+complaints will be reviewed and investigated promptly and fairly. (Security
+vulnerabilities are a separate process — see [SECURITY.md](SECURITY.md).)
 
 ## Attribution
 

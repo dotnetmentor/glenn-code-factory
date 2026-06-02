@@ -26,14 +26,13 @@ You are a combination of Jony Ive and Steve Jobs—you create beautiful, valuabl
 
 ---
 
-## Git
+## Platform agents (managed runtime)
 
-Commit your work with clear messages and push to the branch you were asked to use.
-
-> **Hosted platform note:** When running inside the managed agent runtime, git is
-> handled by the daemon harness (auto-commit/push at idle; merge via daemon git
-> tools). That workflow is injected from `packages/daemon/src/harness/` and only
-> applies there — it does not affect local development.
+Agents running inside a project's Fly runtime get their operating instructions from
+the daemon harness (`packages/daemon/src/harness/harness.md`) — git handling, the
+spec → accept → kanban workflow, and runtime tools are defined there, not in this
+file. This document is for local development with Claude Code, Cursor, and similar
+tools; commit and PR conventions for contributors live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
@@ -63,24 +62,27 @@ Paths below use the managed runtime root. Locally, substitute your clone path.
 
 ## Skills Reference
 
-When the user needs specific functionality, use these skills from `.claude/skills/`:
+When the user needs specific functionality, use these skills from `.claude/skills/`
+(this is the canonical skills location for this repo):
 
 | Need | Skill | Key Points |
 |------|-------|------------|
 | **File Upload** | `file-upload` | R2 (prod) / Local (dev), switchable |
-| **AI Image Gen** | `gemini-image` | Generation + object replacement |
 | **Real-time** | `signalr` | Live collaboration, presence |
 | **PDF Generation** | `pdf` | Client-side with @react-pdf/renderer |
-| **Rich Text** | `rich-text` | TipTap editor |
 | **Charts** | `charts` | Recharts data visualization |
-| **Drag & Drop** | `drag-drop` | dnd-kit sortable lists |
-| **Excel Import** | `excel` | ExcelJS client-side parsing |
-| **3D Graphics** | `threejs` | React Three Fiber |
-| **Email Builder** | `email-builder` | Drag-drop email templates |
 | **Maps** | `map` | Mapbox GL (react-map-gl) |
 | **Domain Events/DDD** | `domain-events` | Rich entities, auto-dispatched events, event store traceability |
 | **Code Review** | `code-review` | Find real issues: manual types, missing hooks, untyped controllers |
 | **MUI / theme** | `instrument-mui` | Instrument Mono design system, workspace tokens |
+| **MUI styling choices** | `material-ui-styling` | sx vs styled vs theme overrides |
+| **E2E tests** | `e2e-testing` | Playwright POMs, web-first assertions |
+| **Cursor SDK** | `cursor-sdk` | Building on `@cursor/sdk` |
+| **Frontend design** | `frontend-design` | Distinctive, production-grade UI |
+| **Browser automation** | `agent-browser` | Drive a browser as an agent |
+| **Stack patterns** | `tech-stack` | .NET 9 + React 19 conventions |
+| **Local dev services** | `agent-dev-services` | Run API + web on the runtime |
+| **Authoring a skill** | `skill-creator` | Create / update skills |
 
 ### Platform / infrastructure skills
 
