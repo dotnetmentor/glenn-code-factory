@@ -419,6 +419,8 @@ After blueprint deploy, set secret env vars in the Render dashboard (`SystemSett
 
 **GitHub Actions (auto-publish on `main`):** set `CiPublish__ApiKey` on Render (`openssl rand -base64 48`), then add GitHub secrets `CONTROL_PLANE_API` (your Render URL) and `CONTROL_PLANE_PUBLISH_API_KEY` (same value). CI talks to the API only — no Postgres access. Fly registry login uses `GET /api/ci/registry-credentials` (returns the org `Fly:ApiToken` from System Settings).
 
+**Forking to your own Fly app:** the runtime base image defaults to `glenn-runtime-base`. To publish under your own name without editing source, set GitHub repository **variables** `RUNTIME_IMAGE_NAME` and `RUNTIME_IMAGE_REGISTRY` (used by the `Runtime Base Image` workflow), the `RuntimeImages:DefaultImageName` config / `VITE_RUNTIME_IMAGE_REGISTRY` build var for the UI, or pass `APP=… IMAGE_NAME=… REGISTRY=…` to the publish scripts.
+
 **CiPublish key hygiene (required):** that API key can publish daemon bundles, register runtime images (auto-activated as the spawn target), and read the Fly PAT for registry push. Store it only in GitHub **protected** environments/secrets on `main`, rotate `CiPublish__ApiKey` and `Fly:ApiToken` together if it leaks, and use `workflow_dispatch` with `force` when you intentionally need to republish a commit that already exists in the catalog.
 
 **Note:** SignalR uses an in-memory backplane — run **one instance** unless you add Redis.

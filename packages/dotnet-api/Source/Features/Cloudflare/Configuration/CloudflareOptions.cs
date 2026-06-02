@@ -27,8 +27,8 @@ public class CloudflareOptions
 
     /// <summary>
     /// The apex domain under which preview subdomains are minted. Default
-    /// <c>example.com</c>. Combined with an 8-char prefix to form the full
-    /// hostname (e.g. <c>kj4m9x2p.example.com</c>).
+    /// <c>glenncode.ai</c>. Combined with an 8-char prefix to form the full
+    /// hostname (e.g. <c>kj4m9x2p.glenncode.ai</c>).
     /// </summary>
-    public string BaseDomain { get; set; } = "example.com";
+    public string BaseDomain { get; set; } = "glenncode.ai";
 }

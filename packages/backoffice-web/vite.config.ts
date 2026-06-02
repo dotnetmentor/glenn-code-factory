@@ -11,9 +11,7 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    // `.trycloudflare.com` covers the quick tunnel started by `npm run dev`.
-    // Add your own preview hostnames here if you serve the dev server behind them.
-    allowedHosts: ['.trycloudflare.com'],
+    allowedHosts: ['.trycloudflare.com', '.playglenn.com', '.vibecodementor.net', '.glenncode.ai', '.glenncode.cc'],
     proxy: {
       '/api': {
         target: 'http://localhost:5338',

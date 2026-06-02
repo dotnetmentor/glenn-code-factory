@@ -28,7 +28,7 @@ using Source.Features.RuntimeLifecycle.Models;
 /// provisioned yet.</para>
 ///
 /// <para><see cref="PreviewHostname"/> is the fully-qualified hostname of the
-/// preview subdomain assigned to this branch (e.g. <c>wpxdludx.example.com</c>),
+/// preview subdomain assigned to this branch (e.g. <c>wpxdludx.glenncode.cc</c>),
 /// via <c>ProjectBranch.AssignedSubdomain.Hostname</c>. <c>null</c> for
 /// branches that pre-date the cloudflare-tunnel-preview Phase 3 pool or that
 /// haven't claimed yet. The frontend renders <c>https://{PreviewHostname}</c>

@@ -8,4 +8,4 @@
  * the publish scripts' default (`scripts/publish-runtime-image*.sh`).
  */
 export const RUNTIME_IMAGE_REGISTRY: string =
-  import.meta.env.VITE_RUNTIME_IMAGE_REGISTRY ?? 'registry.fly.io/runtime-base'
+  import.meta.env.VITE_RUNTIME_IMAGE_REGISTRY ?? 'registry.fly.io/glenn-runtime-base'
