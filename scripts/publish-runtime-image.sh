@@ -2,7 +2,7 @@
 # =====================================================================================
 # publish-runtime-image.sh
 # =====================================================================================
-# Builds, smoke-tests, and pushes the glenn-runtime-base image. Single source of
+# Builds, smoke-tests, and pushes the runtime-base image. Single source of
 # truth for both local dev and CI — the GitHub workflow just calls this.
 #
 # Default registry is registry.fly.io because Fly Machines auto-authenticate to it
@@ -27,7 +27,7 @@
 #
 # Optional env:
 #   REGISTRY                Default: registry.fly.io
-#   IMAGE_NAME              Default: glenn-runtime-base
+#   IMAGE_NAME              Default: runtime-base
 #   REGISTRY_USERNAME       For non-Fly registries only.
 #   REGISTRY_TOKEN          Password/token for non-Fly registries.
 #   PLATFORM                Default: linux/amd64
@@ -39,7 +39,7 @@ set -euo pipefail
 
 # ---------- Defaults ----------------------------------------------------------------
 REGISTRY="${REGISTRY:-registry.fly.io}"
-IMAGE_NAME="${IMAGE_NAME:-glenn-runtime-base}"
+IMAGE_NAME="${IMAGE_NAME:-runtime-base}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 SIZE_BUDGET_FILE=".image-size.last"
 SIZE_GROWTH_THRESHOLD_PCT="${SIZE_GROWTH_THRESHOLD_PCT:-10}"
@@ -78,7 +78,7 @@ Required (registry.fly.io):
 
 Optional env:
   REGISTRY                 Default: registry.fly.io
-  IMAGE_NAME               Default: glenn-runtime-base
+  IMAGE_NAME               Default: runtime-base
   REGISTRY_USERNAME        For non-Fly registries
   REGISTRY_TOKEN           For non-Fly registries
   PLATFORM                 Default: linux/amd64

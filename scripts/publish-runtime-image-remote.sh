@@ -12,7 +12,7 @@
 #   2. Reads and decrypts Fly:ApiToken from SystemSettings (via .env encryption key).
 #   3. Streams the repo as a build context to Fly's remote builder.
 #   4. The builder builds Dockerfile.runtime-base and pushes it to
-#      registry.fly.io/glenn-runtime-base:<TAG>. Pass --also-latest to
+#      registry.fly.io/runtime-base:<TAG>. Pass --also-latest to
 #      also push :latest (slow — flyctl rebuilds remotely; off by default
 #      because the API stores sha-pinned refs and doesn't need :latest).
 #   5. Registers the new tag in the API's RuntimeImages table and demotes
@@ -40,10 +40,10 @@
 # Optional env:
 #   API               Default: http://localhost:5338
 #   PG_URL            Default: postgresql://postgres@localhost:43594/app
-#   APP               Default: glenn-runtime-base (Fly app for remote build;
+#   APP               Default: runtime-base (Fly app for remote build;
 #                     must already exist — script lists your apps if missing).
-#   IMAGE_NAME        Default: glenn-runtime-base
-#   REGISTRY          Default: registry.fly.io/glenn-runtime-base  — this is
+#   IMAGE_NAME        Default: runtime-base
+#   REGISTRY          Default: registry.fly.io/runtime-base  — this is
 #                     the value stored in RuntimeImages.Registry. It must be
 #                     the FULL path because RuntimeProvisionerJob constructs
 #                     the Fly image ref as `{Registry}:{Tag}`.
@@ -56,7 +56,7 @@
 #   - On success, prints:
 #       TAG=<tag>
 #       DIGEST=<sha256:...>
-#       FULL_REF=registry.fly.io/glenn-runtime-base@sha256:...
+#       FULL_REF=registry.fly.io/runtime-base@sha256:...
 #     and if GITHUB_OUTPUT is set, appends them there too.
 # =====================================================================================
 
@@ -70,10 +70,10 @@ set -euo pipefail
 # transitions Pending → Failed in ~30s. That's why we default REGISTRY here
 # to the joined form; the `IMAGE_NAME` variable is only used for naming the
 # flyctl app and the tag we push.
-REGISTRY="${REGISTRY:-registry.fly.io/glenn-runtime-base}"
-IMAGE_NAME="${IMAGE_NAME:-glenn-runtime-base}"
+REGISTRY="${REGISTRY:-registry.fly.io/runtime-base}"
+IMAGE_NAME="${IMAGE_NAME:-runtime-base}"
 PUSH_REGISTRY_HOST="${PUSH_REGISTRY_HOST:-registry.fly.io}"
-APP="${APP:-glenn-runtime-base}"
+APP="${APP:-runtime-base}"
 DOCKERFILE="${DOCKERFILE:-Dockerfile.runtime-base}"
 API="${API:-http://localhost:5338}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -278,7 +278,7 @@ flyctl deploy \
 
 # ---------- 7. Extract digest from build log --------------------------------------
 # flyctl prints lines like:
-#   #18 pushing manifest for registry.fly.io/glenn-runtime-base:TAG@sha256:DIGEST ...
+#   #18 pushing manifest for registry.fly.io/runtime-base:TAG@sha256:DIGEST ...
 DIGEST="$(grep -oE "${PUSH_REGISTRY_HOST}/${IMAGE_NAME}:${TAG}@sha256:[0-9a-f]{64}" /tmp/fly-runtime-build.log \
             | head -1 | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
 [[ -n "$DIGEST" ]] || fail "couldn't extract digest from build log; check /tmp/fly-runtime-build.log"

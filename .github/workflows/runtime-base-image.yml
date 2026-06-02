@@ -1,13 +1,17 @@
 name: Runtime Base Image
 
 # =====================================================================================
-# Builds + pushes glenn-runtime-base and registers it in the control plane.
+# Builds + pushes the runtime base image and registers it in the control plane.
 # Path globs must stay in sync with scripts/ci/publish-paths.sh
 # =====================================================================================
 #
 # Required repository secrets:
 #   CONTROL_PLANE_API
 #   CONTROL_PLANE_PUBLISH_API_KEY
+#
+# Optional repository variables (override the generic defaults below):
+#   RUNTIME_IMAGE_NAME       Fly app / image name        (default: runtime-base)
+#   RUNTIME_IMAGE_REGISTRY   Full registry path to push  (default: registry.fly.io/runtime-base)
 # =====================================================================================
 
 on:
@@ -39,7 +43,7 @@ concurrency:
 
 env:
   REGISTRY: registry.fly.io
-  IMAGE_NAME: glenn-runtime-base
+  IMAGE_NAME: ${{ vars.RUNTIME_IMAGE_NAME || 'runtime-base' }}
 
 jobs:
   publish:
@@ -104,7 +108,7 @@ jobs:
           RUNTIME_IMAGE_TAG: ${{ steps.publish.outputs.tag }}
           RUNTIME_IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
           RUNTIME_IMAGE_SIZE_MB: ${{ steps.publish.outputs.size_mb }}
-          REGISTRY: registry.fly.io/glenn-runtime-base
+          REGISTRY: ${{ vars.RUNTIME_IMAGE_REGISTRY || 'registry.fly.io/runtime-base' }}
         run: bash scripts/ci/register-runtime-image.sh
 
       - name: Persist size baseline

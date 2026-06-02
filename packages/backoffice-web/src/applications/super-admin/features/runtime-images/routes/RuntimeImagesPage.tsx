@@ -30,8 +30,9 @@ import {
 } from '../../../../../api/queries-commands'
 import { RegisteredImagesTable } from '../components/RegisteredImagesTable'
 import { RegistryTagsTable } from '../components/RegistryTagsTable'
+import { RUNTIME_IMAGE_REGISTRY } from '../runtimeRegistry'
 
-const REGISTRY = 'registry.fly.io/glenn-runtime-base'
+const REGISTRY = RUNTIME_IMAGE_REGISTRY
 
 interface SnackState {
   open: boolean

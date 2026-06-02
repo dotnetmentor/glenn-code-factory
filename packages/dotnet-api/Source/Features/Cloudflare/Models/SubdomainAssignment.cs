@@ -36,7 +36,7 @@ public class SubdomainAssignment : Entity, IAuditable, ISoftDelete
 
     /// <summary>
     /// Fully-qualified hostname under the configured base domain, e.g.
-    /// <c>kj4m9x2p.glenncode.ai</c>. Globally unique — DB enforces.
+    /// <c>kj4m9x2p.example.com</c>. Globally unique — DB enforces.
     /// </summary>
     public string Hostname { get; set; } = string.Empty;
 

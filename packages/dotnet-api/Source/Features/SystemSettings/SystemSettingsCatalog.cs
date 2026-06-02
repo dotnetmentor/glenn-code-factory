@@ -88,7 +88,7 @@ public static class SystemSettingsCatalog
                 new SystemSettingDefinition(
                     Key: "Fly:AppName",
                     DisplayName: "App Name",
-                    Description: "Single Fly app namespace for all runtimes (e.g. 'glenn-runtimes')",
+                    Description: "Single Fly app namespace for all runtimes (e.g. 'your-runtimes')",
                     IsSecret: false),
                 new SystemSettingDefinition(
                     Key: "Fly:DefaultRegion",
@@ -117,7 +117,7 @@ public static class SystemSettingsCatalog
                         "Publicly-reachable URL daemons dial back at — both HTTP (/api/...) and " +
                         "SignalR (/hubs/runtime). In dev this is a Cloudflare tunnel hostname; in " +
                         "production it's the canonical API hostname. Example: " +
-                        "https://api.glenncode.ai. Must include the scheme and have no trailing slash.",
+                        "https://api.example.com. Must include the scheme and have no trailing slash.",
                     IsSecret: false),
             }),
         new SystemSettingCategory(
@@ -197,8 +197,8 @@ public static class SystemSettingsCatalog
                     Description:
                         "The apex domain under which preview subdomains are minted. Every pool " +
                         "subdomain becomes <c>{8-char-random}.{base-domain}</c>, e.g. " +
-                        "<c>kj4m9x2p.glenncode.ai</c>. Must match the zone identified by Zone ID. " +
-                        "Default: <c>glenncode.ai</c>.",
+                        "<c>kj4m9x2p.example.com</c>. Must match the zone identified by Zone ID. " +
+                        "Default: <c>example.com</c>.",
                     IsSecret: false),
             }),
         new SystemSettingCategory(

@@ -45,7 +45,7 @@
 # This means daemon code can ship in minutes (build → publish → re-create Machines)
 # without rebuilding/pushing this base image.
 #
-# Tag format: glenn-runtime-base:YYYY.MM.DD-{shortsha} + :latest (local dev only)
+# Tag format: runtime-base:YYYY.MM.DD-{shortsha} + :latest (local dev only)
 #
 # Built via .github/workflows/runtime-image.yml on merges to main.
 #
@@ -107,8 +107,8 @@ RUN mkdir -p /etc/sysctl.d \
 # different uid. Without this, `git commit` exits 128 with "Please tell me who you are"
 # and the entire auto-commit loop silently no-ops (we hit this in production: every row
 # in the GitOperations audit table was an exit-128 from missing identity).
-RUN git config --system user.name "Glenncode Agent" \
-    && git config --system user.email "agent@glenncode.ai"
+RUN git config --system user.name "Runtime Agent" \
+    && git config --system user.email "agent@example.com"
 
 # ----------------------- Layer 1c: PostgreSQL 15 (large, rarely changes) ------------
 # Postgres is the one pre-baked service. Rationale (Runtime Spec V2): postgres is the
@@ -133,7 +133,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ----------------------- Layer 1d: cloudflared (Cloudflare Tunnel) ------------------
 # cloudflared is the Cloudflare Tunnel daemon. Used by the agent daemon to expose the
 # project's preview port (PREVIEW_PORT, default 5173) to a stable Cloudflare-managed
-# public URL like https://{8-char-subdomain}.glenncode.ai.
+# public URL like https://{8-char-subdomain}.example.com.
 #
 # The daemon writes a supervisord conf for cloudflared at boot if TUNNEL_TOKEN is set
 # in the env (stamped by RuntimeProvisionerJob from the branch's assigned subdomain).
@@ -264,7 +264,7 @@ ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 CMD ["supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
 
 # ----------------------- Image labels (for `docker inspect`) ------------------------
-LABEL org.opencontainers.image.title="glenn-runtime-base"
+LABEL org.opencontainers.image.title="runtime-base"
 LABEL org.opencontainers.image.description="Universal substrate for project runtimes (slim — daemon downloaded at boot)"
 LABEL org.opencontainers.image.source="https://github.com/glenn/platform"
 LABEL com.glenn.image.role="runtime-base"

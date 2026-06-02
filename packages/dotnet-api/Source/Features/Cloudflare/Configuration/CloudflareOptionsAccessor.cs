@@ -33,11 +33,11 @@ public class CloudflareOptionsAccessor : ICloudflareOptionsAccessor
         {
             var opts = _settings.GetSection<CloudflareOptions>(CloudflareOptions.SectionName);
             // GetSection<T>'s reflection binder defaults blank/missing values to
-            // empty strings — we want the documented default of "glenncode.ai"
+            // empty strings — we want the documented default of "example.com"
             // when the operator has not yet entered anything.
             if (string.IsNullOrWhiteSpace(opts.BaseDomain))
             {
-                opts.BaseDomain = "glenncode.ai";
+                opts.BaseDomain = "example.com";
             }
             return opts;
         }

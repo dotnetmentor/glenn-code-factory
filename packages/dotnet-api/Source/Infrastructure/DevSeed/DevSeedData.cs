@@ -47,7 +47,7 @@ public static class DevSeedData
     /// rows and never touch existing data (admins can rename / re-icon / archive
     /// without their changes being clobbered on next boot).
     ///
-    /// <para>Placeholder GitHub repos under <c>glenncode-starters</c> are
+    /// <para>Placeholder GitHub repos under <c>example-starters</c> are
     /// intentional for V1: real template repos do not yet exist. Create-project
     /// against these will surface a generic GitHub error, which is acceptable
     /// per the starters spec (Scene 4 — broken-template flagging is the admin's
@@ -67,7 +67,7 @@ public static class DevSeedData
             Name = "Empty project",
             Description = "Start from scratch \u2014 bring your own code",
             IconKey = "package",
-            SourceRepoOwner = "glenncode-starters",
+            SourceRepoOwner = "example-starters",
             SourceRepoName = "empty",
             RuntimeSpec = null,
             IsActive = true,
@@ -80,7 +80,7 @@ public static class DevSeedData
             Name = "React + Vite + TypeScript",
             Description = "Modern React app with Vite dev server",
             IconKey = "code",
-            SourceRepoOwner = "glenncode-starters",
+            SourceRepoOwner = "example-starters",
             SourceRepoName = "react-vite-ts",
             // Minimal valid V3 spec — references the built-in `node-vite`
             // preset, which encapsulates install (npm install via mise) +
@@ -111,7 +111,7 @@ public static class DevSeedData
             Name = "Rails 8",
             Description = "Ruby on Rails 8 starter (run rails s manually)",
             IconKey = "code",
-            SourceRepoOwner = "glenncode-starters",
+            SourceRepoOwner = "example-starters",
             SourceRepoName = "rails-8",
             RuntimeSpec = """
                 {

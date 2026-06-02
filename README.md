@@ -335,7 +335,8 @@ The API seeds the bootstrap SuperAdmin on every startup when `Bootstrap__SuperAd
 ├── Dockerfile.runtime-base   # Fly agent runtime machine image
 ├── render.yaml               # Render.com blueprint (self-host)
 ├── .env.example              # All env vars documented
-└── CLAUDE.md                 # Instructions for AI coding agents
+├── AGENTS.md                 # Instructions for AI coding agents (shared)
+└── CLAUDE.md                 # Claude Code entry point — imports AGENTS.md
 ```
 
 Backend conventions: [`packages/dotnet-api/CLAUDE.md`](packages/dotnet-api/CLAUDE.md)
@@ -458,7 +459,7 @@ End-to-end checklist: [How to set up end-to-end](#how-to-set-up-end-to-end). Do 
 
 ## For AI coding agents
 
-See [`CLAUDE.md`](CLAUDE.md) for build conventions, subagent delegation, Orval patterns, and the skills index.
+See [`AGENTS.md`](AGENTS.md) for build conventions, subagent delegation, Orval patterns, and the skills index. It's shared across tools — Claude Code reads [`CLAUDE.md`](CLAUDE.md) (which imports `AGENTS.md`); Cursor and other agents read `AGENTS.md` directly.
 
 On a managed platform, spec + kanban workflow is injected via `packages/daemon/src/harness/`.
 

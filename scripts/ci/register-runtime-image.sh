@@ -5,7 +5,7 @@
 #   CONTROL_PLANE_API (or API)
 #   CONTROL_PLANE_PUBLISH_API_KEY (or platform_auth_jwt via .env for local dev)
 #   RUNTIME_IMAGE_TAG, RUNTIME_IMAGE_DIGEST, RUNTIME_IMAGE_SIZE_MB
-#   REGISTRY (full path, e.g. registry.fly.io/glenn-runtime-base)
+#   REGISTRY (full path, e.g. registry.fly.io/runtime-base)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -13,7 +13,7 @@ API="${CONTROL_PLANE_API:-${API:-}}"
 TAG="${RUNTIME_IMAGE_TAG:?RUNTIME_IMAGE_TAG required}"
 DIGEST="${RUNTIME_IMAGE_DIGEST:?RUNTIME_IMAGE_DIGEST required}"
 SIZE_MB="${RUNTIME_IMAGE_SIZE_MB:-0}"
-REGISTRY="${REGISTRY:-registry.fly.io/glenn-runtime-base}"
+REGISTRY="${REGISTRY:-registry.fly.io/runtime-base}"
 FULL_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 

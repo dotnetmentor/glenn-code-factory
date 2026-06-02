@@ -51,7 +51,7 @@ public class RuntimeImagesController : ControllerBase
     /// <c>imageName</c> query string is supplied. Matches the production image name the
     /// publish-runtime-image.sh script ships.
     /// </summary>
-    public const string FallbackImageName = "glenn-runtime-base";
+    public const string FallbackImageName = "runtime-base";
 
     private readonly ApplicationDbContext _db;
     private readonly IMediator _mediator;
