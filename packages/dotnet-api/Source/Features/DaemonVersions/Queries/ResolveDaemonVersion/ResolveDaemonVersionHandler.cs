@@ -71,6 +71,7 @@ public sealed class ResolveDaemonVersionHandler
             ReleasedAt = entity.ReleasedAt,
             IsActive = entity.IsActive,
             Notes = entity.Notes,
+            GitSha = entity.GitSha,
         });
     }
 

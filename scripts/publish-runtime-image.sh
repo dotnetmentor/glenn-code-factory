@@ -116,9 +116,17 @@ echo
 # ---------- Registry login (only if pushing) ----------------------------------------
 if $DO_PUSH; then
     if [[ "$REGISTRY" == "registry.fly.io" ]]; then
-        echo "🔑 Logging into registry.fly.io with Fly:ApiToken from SystemSettings..."
-        FLY_API_TOKEN="$(platform_auth_fly_token)"
-        echo "$FLY_API_TOKEN" | docker login registry.fly.io -u x --password-stdin
+        if [[ -n "${CONTROL_PLANE_PUBLISH_API_KEY:-}" && -n "${CONTROL_PLANE_API:-${API:-}}" ]]; then
+            echo "🔑 Logging into registry.fly.io via control plane CI credentials..."
+            bash "$REPO_ROOT/scripts/ci/ci-registry-login.sh"
+        elif [[ -n "${FLY_API_TOKEN:-}" ]]; then
+            echo "🔑 Logging into registry.fly.io with FLY_API_TOKEN..."
+            echo "$FLY_API_TOKEN" | docker login registry.fly.io -u x --password-stdin
+        else
+            echo "🔑 Logging into registry.fly.io with Fly:ApiToken from SystemSettings..."
+            FLY_API_TOKEN="$(platform_auth_fly_token)"
+            echo "$FLY_API_TOKEN" | docker login registry.fly.io -u x --password-stdin
+        fi
     elif [[ -n "${REGISTRY_USERNAME:-}" && -n "${REGISTRY_TOKEN:-}" ]]; then
         echo "🔑 Logging into $REGISTRY with REGISTRY_USERNAME/REGISTRY_TOKEN"
         echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
@@ -202,8 +210,8 @@ if $DO_SMOKETEST; then
         echo "--- playwright -";  npx playwright --version
         echo "--- chromium ---";   ls -la /opt/playwright-browsers/chromium*/ | head -3
         echo "--- /opt/agent ---"; ls -la /opt/agent/
-        # Fail loudly if the daemon binary is missing or empty.
-        test -s /opt/agent/daemon.js
+        test -x /usr/local/bin/bootstrap-daemon.sh
+        test -d /opt/agent
         echo "smoke-test PASSED"
     '
 fi

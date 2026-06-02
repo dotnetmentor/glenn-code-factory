@@ -2,10 +2,10 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Source.Features.Projects.Services;
 using Source.Features.ProjectSecrets.Services;
 using Source.Features.SignalR.Services;
-using Source.Features.SystemSettings.Models;
 using Source.Features.SystemSettings.Services;
 using Source.Features.Workspaces.Models;
 using Source.Infrastructure;
@@ -15,22 +15,32 @@ namespace Api.Tests.Features.SignalR;
 
 public sealed class CursorApiKeyResolverTests : IDisposable
 {
+    private readonly ServiceProvider _provider;
     private readonly ApplicationDbContext _db;
     private readonly SecretEncryptionService _encryption;
     private readonly CursorApiKeyResolver _resolver;
 
     public CursorApiKeyResolverTests()
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        _db = new ApplicationDbContext(options);
+        var dbName = Guid.NewGuid().ToString();
+        var keyB64 = Convert.ToBase64String(Enumerable.Range(0, 32).Select(i => (byte)i).ToArray());
 
-        var scopeFactory = new TestScopeFactory(_db);
-        _encryption = new SecretEncryptionService(scopeFactory, NullLogger<SecretEncryptionService>.Instance);
+        var services = new ServiceCollection();
+        services.AddSingleton(Options.Create(new SystemSettingsCipherOptions { EncryptionKey = keyB64 }));
+        services.AddSingleton<ISystemSettingsCipher, SystemSettingsCipher>();
+        services.AddSingleton<SystemSettingsCache>();
+        services.AddScoped(_ => new ApplicationDbContext(
+            new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseInMemoryDatabase(dbName)
+                .Options));
+        services.AddScoped<ISystemSettingsService, SystemSettingsService>();
+
+        _provider = services.BuildServiceProvider();
+        _db = _provider.GetRequiredService<ApplicationDbContext>();
+        _encryption = new SecretEncryptionService(
+            _provider.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<SecretEncryptionService>.Instance);
         _resolver = new CursorApiKeyResolver(_db, _encryption, NullLogger<CursorApiKeyResolver>.Instance);
-
-        SeedMasterKey();
     }
 
     [Fact]
@@ -76,19 +86,10 @@ public sealed class CursorApiKeyResolverTests : IDisposable
         status.AllowProjectCursorApiKeyOverride.Should().BeTrue();
     }
 
-    public void Dispose() => _db.Dispose();
-
-    private void SeedMasterKey()
+    public void Dispose()
     {
-        var key = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
-        _db.SystemSettings.Add(new SystemSetting
-        {
-            Key = SecretEncryptionService.MasterKeyName,
-            Category = SecretEncryptionService.MasterKeyName,
-            Value = key,
-            IsSecret = false,
-        });
-        _db.SaveChanges();
+        _db.Dispose();
+        _provider.Dispose();
     }
 
     private async Task<(Guid WorkspaceId, Guid ProjectId)> SeedWorkspaceAndProjectAsync()
@@ -143,31 +144,4 @@ public sealed class CursorApiKeyResolverTests : IDisposable
         await _db.SaveChangesAsync();
     }
 
-    private sealed class TestScopeFactory : IServiceScopeFactory
-    {
-        private readonly ApplicationDbContext _db;
-
-        public TestScopeFactory(ApplicationDbContext db) => _db = db;
-
-        public IServiceScope CreateScope() => new TestScope(_db);
-
-        private sealed class TestScope : IServiceScope
-        {
-            public TestScope(ApplicationDbContext db) =>
-                ServiceProvider = new TestProvider(db);
-
-            public IServiceProvider ServiceProvider { get; }
-            public void Dispose() { }
-        }
-
-        private sealed class TestProvider : IServiceProvider
-        {
-            private readonly ApplicationDbContext _db;
-
-            public TestProvider(ApplicationDbContext db) => _db = db;
-
-            public object? GetService(Type serviceType) =>
-                serviceType == typeof(ApplicationDbContext) ? _db : null;
-        }
-    }
 }

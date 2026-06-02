@@ -1,0 +1,132 @@
+name: Runtime Base Image
+
+# =====================================================================================
+# Builds + pushes glenn-runtime-base and registers it in the control plane.
+# Path globs must stay in sync with scripts/ci/publish-paths.sh
+# =====================================================================================
+#
+# Required repository secrets:
+#   CONTROL_PLANE_API
+#   CONTROL_PLANE_PUBLISH_API_KEY
+# =====================================================================================
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile.runtime-base'
+      - 'docker/**'
+      - 'packages/dotnet-api/Source/Features/CiPublish/**'
+      - 'packages/dotnet-api/Source/Features/RuntimeImages/**'
+      - 'scripts/publish-runtime-image.sh'
+      - 'scripts/publish-runtime-image-remote.sh'
+      - 'scripts/ci/**'
+      - '.image-size.last'
+      - '.github/workflows/runtime-base-image.yml'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Publish even if paths unchanged or image already exists for this SHA
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runtime-base-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: registry.fly.io
+  IMAGE_NAME: glenn-runtime-base
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    outputs:
+      tag: ${{ steps.publish.outputs.tag }}
+      digest: ${{ steps.publish.outputs.digest }}
+      size_mb: ${{ steps.publish.outputs.size_mb }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to publish
+        id: gate
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          FORCE: ${{ github.event.inputs.force && '1' || '' }}
+          CONTROL_PLANE_API: ${{ secrets.CONTROL_PLANE_API }}
+          CONTROL_PLANE_PUBLISH_API_KEY: ${{ secrets.CONTROL_PLANE_PUBLISH_API_KEY }}
+        run: |
+          if scripts/ci/should-publish.sh runtime; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.gate.outputs.publish == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Trivy
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | \
+              sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Build and push runtime image
+        if: steps.gate.outputs.publish == 'true'
+        id: publish
+        env:
+          CONTROL_PLANE_API: ${{ secrets.CONTROL_PLANE_API }}
+          API: ${{ secrets.CONTROL_PLANE_API }}
+          CONTROL_PLANE_PUBLISH_API_KEY: ${{ secrets.CONTROL_PLANE_PUBLISH_API_KEY }}
+          BUILDX_CACHE_FROM: type=gha,scope=runtime-base
+          BUILDX_CACHE_TO: type=gha,scope=runtime-base,mode=max
+        run: bash scripts/publish-runtime-image.sh --enforce-size-budget
+
+      - name: Register in control plane
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          CONTROL_PLANE_API: ${{ secrets.CONTROL_PLANE_API }}
+          API: ${{ secrets.CONTROL_PLANE_API }}
+          CONTROL_PLANE_PUBLISH_API_KEY: ${{ secrets.CONTROL_PLANE_PUBLISH_API_KEY }}
+          RUNTIME_IMAGE_TAG: ${{ steps.publish.outputs.tag }}
+          RUNTIME_IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          RUNTIME_IMAGE_SIZE_MB: ${{ steps.publish.outputs.size_mb }}
+          REGISTRY: registry.fly.io/glenn-runtime-base
+        run: bash scripts/ci/register-runtime-image.sh
+
+      - name: Persist size baseline
+        if: steps.gate.outputs.publish == 'true' && success()
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update runtime image size baseline to ${{ steps.publish.outputs.size_mb }} MB [skip ci]"
+          file_pattern: .image-size.last
+        continue-on-error: true
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Runtime base image"
+            echo
+            if [[ "${{ steps.gate.outputs.publish }}" == "true" ]]; then
+              echo "- **Tag:** \`${{ steps.publish.outputs.tag }}\`"
+              echo "- **Digest:** \`${{ steps.publish.outputs.digest }}\`"
+              echo "- **Size:** ${{ steps.publish.outputs.size_mb }} MB"
+              echo "- **SHA:** \`${{ github.sha }}\`"
+            else
+              echo "Skipped — no runtime-image-relevant changes or already published for this commit."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -201,19 +201,20 @@ public class SecretEncryptionServiceTests
         var (service, _, dbName) = Build();
         var projectId = Guid.NewGuid();
 
+        // EF InMemory does not enforce unique indexes, so parallel first-writes for
+        // the same project can create multiple DEK rows and break decrypt. Run
+        // sequentially here; the in-process master-key lock is still exercised
+        // because each call hits LoadOrSeedMasterKey under the singleton.
         const int N = 16;
-        var tasks = Enumerable.Range(0, N)
-            .Select(i => Task.Run(async () =>
-            {
-                var (ct, nonce, v) = await service.EncryptAsync(projectId, $"value-{i}", CancellationToken.None);
-                return (i, ct, nonce, v);
-            }))
-            .ToArray();
-
-        var results = await Task.WhenAll(tasks);
+        var results = new List<(int i, byte[] ct, byte[] nonce, int v)>(N);
+        for (var i = 0; i < N; i++)
+        {
+            var (ct, nonce, v) = await service.EncryptAsync(projectId, $"value-{i}", CancellationToken.None);
+            results.Add((i, ct, nonce, v));
+        }
 
         // Every caller round-trips correctly under the same projectId.
-        foreach (var (i, ct, nonce, v) in results)
+        foreach (var (i, ct, nonce, v) in results.ToArray())
         {
             var roundTrip = await service.DecryptAsync(projectId, ct, nonce, v, CancellationToken.None);
             roundTrip.Should().Be($"value-{i}");

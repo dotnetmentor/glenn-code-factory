@@ -7,8 +7,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DAEMON_DIR="$ROOT/packages/daemon"
 STAGE="$ROOT/.daemon-publish-stage"
 TARBALL="$ROOT/.daemon-bundle.tar.gz"
-# shellcheck source=lib/platform-auth.sh
-source "$ROOT/scripts/lib/platform-auth.sh"
+# shellcheck source=lib/ci-publish-auth.sh
+source "$ROOT/scripts/lib/ci-publish-auth.sh"
 
 log() { printf '\033[36m[publish-daemon]\033[0m %s\n' "$*"; }
 fail() { printf '\033[31m[publish-daemon FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -21,8 +21,7 @@ file_size_bytes() {
   fi
 }
 
-log "minting SuperAdmin JWT from .env + bootstrap user..."
-JWT="$(platform_auth_jwt)" || fail "could not mint JWT — ensure .env has Jwt__Key + Bootstrap__SuperAdminEmail and bootstrap SuperAdmin exists"
+AUTH_HEADER="$(ci_publish_auth_header)" || fail "set CONTROL_PLANE_PUBLISH_API_KEY (CI) or .env + Postgres for local JWT"
 
 # 1. Build daemon
 log "building daemon (esbuild)..."
@@ -105,13 +104,15 @@ log "  sha:  $SHA"
 
 # 5. Publish via API
 log "publishing to $API/api/daemon-versions (channel=$CHANNEL)..."
+GIT_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 NOTES="auto-published $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 RESP=$(curl -fsS -X POST "$API/api/daemon-versions" \
-  -H "Authorization: Bearer $JWT" \
+  -H "$AUTH_HEADER" \
   -F "file=@$TARBALL;type=application/gzip" \
   -F "channel=$CHANNEL" \
   -F "notes=$NOTES" \
+  -F "gitSha=$GIT_SHA" \
   -F "preComputedSha256=$SHA") || fail "publish HTTP request failed"
 
 log "published"

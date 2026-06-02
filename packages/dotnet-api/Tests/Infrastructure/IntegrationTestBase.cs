@@ -154,6 +154,13 @@ public abstract class IntegrationTestBase : IDisposable
             {
                 builder.UseEnvironment("Testing");
 
+                // Host-level settings beat machine env vars (e.g. FileStorage__Provider=R2).
+                builder.UseSetting("Email:Provider", "Console");
+                builder.UseSetting("FileStorage:Provider", "Local");
+                builder.UseSetting(
+                    "FileStorage:LocalPath",
+                    Path.Combine(Path.GetTempPath(), "glenn-api-integration-uploads"));
+
                 // Disable Hangfire before any services load — production code checks this flag.
                 builder.ConfigureAppConfiguration((_, config) =>
                 {
@@ -170,7 +177,12 @@ public abstract class IntegrationTestBase : IDisposable
                         // entry the cipher constructor throws and any code path that resolves
                         // ISystemSettingsService (now including IGithubOptionsAccessor) returns 500.
                         ["SystemSettings:EncryptionKey"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                        ["Jwt:Key"] = "integration-test-jwt-signing-key-min-32-chars-long!!"
+                        ["Jwt:Key"] = "integration-test-jwt-signing-key-min-32-chars-long!!",
+                        ["CiPublish:ApiKey"] = "ci-publish-integration-test-key-32chars!!",
+                        // Isolate from developer machine env (e.g. R2/Resend in shell or user secrets).
+                        ["Email:Provider"] = "Console",
+                        ["FileStorage:Provider"] = "Local",
+                        ["FileStorage:LocalPath"] = Path.Combine(Path.GetTempPath(), "glenn-api-integration-uploads"),
                     });
                 });
 

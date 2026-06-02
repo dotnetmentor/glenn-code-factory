@@ -78,3 +78,6 @@ services:
       # Bootstrap SuperAdmin seeded on every boot (self-registration is closed).
       - key: Bootstrap__SuperAdminEmail
         sync: false
+      # CI publish key (GitHub Actions). Generate: openssl rand -base64 48
+      - key: CiPublish__ApiKey
+        sync: false

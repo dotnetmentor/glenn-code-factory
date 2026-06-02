@@ -64,6 +64,9 @@ public class DaemonVersion : Entity, IAuditable
     /// <summary>Free-form release notes. Max 2000 chars.</summary>
     public string? Notes { get; set; }
 
+    /// <summary>Source commit this bundle was built from. Max 40 chars (full git SHA).</summary>
+    public string? GitSha { get; set; }
+
     /// <summary>UTC timestamp the version was released (= the publish call).</summary>
     public DateTime ReleasedAt { get; set; }
 

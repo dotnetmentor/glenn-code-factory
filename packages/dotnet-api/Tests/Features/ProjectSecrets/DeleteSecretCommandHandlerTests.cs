@@ -129,7 +129,7 @@ public class DeleteSecretCommandHandlerTests
         var handler = new DeleteSecretCommandHandler(ctx, Mock.Of<IMediator>());
 
         var result = await handler.Handle(
-            new DeleteSecretCommand(Guid.NewGuid(), "lower", "user-1"),
+            new DeleteSecretCommand(Guid.NewGuid(), "1INVALID_START", "user-1"),
             CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();

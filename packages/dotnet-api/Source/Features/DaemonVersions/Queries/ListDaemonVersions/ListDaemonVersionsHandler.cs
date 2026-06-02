@@ -52,6 +52,7 @@ public sealed class ListDaemonVersionsHandler
                 ReleasedAt = v.ReleasedAt,
                 IsActive = v.IsActive,
                 Notes = v.Notes,
+                GitSha = v.GitSha,
             });
         }
 

@@ -96,7 +96,7 @@ public class AddSecretCommandHandlerTests
     }
 
     [Theory]
-    [InlineData("lower_case")]      // must start with uppercase
+    [InlineData("_leading_underscore")]
     [InlineData("1STARTS_WITH_DIGIT")]
     [InlineData("HAS-DASH")]        // dashes not allowed
     [InlineData("HAS SPACE")]       // spaces not allowed

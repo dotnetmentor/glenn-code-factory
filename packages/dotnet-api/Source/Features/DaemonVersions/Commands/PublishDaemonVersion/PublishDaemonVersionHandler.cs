@@ -24,6 +24,7 @@ public sealed class PublishDaemonVersionHandler
     private const string DefaultChannel = "stable";
     private const int MaxChannelLength = 32;
     private const int MaxNotesLength = 2000;
+    private const int MaxGitShaLength = 40;
     private const string BundleFolder = DaemonBundleStorage.Folder;
 
     private readonly ApplicationDbContext _db;
@@ -64,6 +65,17 @@ public sealed class PublishDaemonVersionHandler
         {
             return Result.Failure<PublishDaemonVersionResponse>(
                 $"Notes must be {MaxNotesLength} characters or fewer");
+        }
+
+        string? gitSha = null;
+        if (!string.IsNullOrWhiteSpace(request.GitSha))
+        {
+            gitSha = request.GitSha.Trim();
+            if (gitSha.Length > MaxGitShaLength)
+            {
+                return Result.Failure<PublishDaemonVersionResponse>(
+                    $"GitSha must be {MaxGitShaLength} characters or fewer");
+            }
         }
 
         // -------- 2. Buffer + hash the bundle --------
@@ -145,6 +157,7 @@ public sealed class PublishDaemonVersionHandler
             BundleSha256 = sha256,
             BundleSizeBytes = bundleBytes.LongLength,
             Notes = request.Notes,
+            GitSha = gitSha,
             ReleasedAt = now,
             IsActive = true,
         };
@@ -178,6 +191,7 @@ public sealed class PublishDaemonVersionHandler
             Sha256 = entity.BundleSha256,
             SizeBytes = entity.BundleSizeBytes,
             ReleasedAt = entity.ReleasedAt,
+            GitSha = entity.GitSha,
         });
     }
 

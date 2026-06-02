@@ -17,4 +17,5 @@ public record DaemonVersionDto
     public required DateTime ReleasedAt { get; init; }
     public required bool IsActive { get; init; }
     public string? Notes { get; init; }
+    public string? GitSha { get; init; }
 }

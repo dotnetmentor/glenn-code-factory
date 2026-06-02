@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Source.Features.CiPublish.Extensions;
 using Source.Features.Cloudflare.Extensions;
 using Source.Features.FlyManagement.Extensions;
 using Source.Features.GitHub.Extensions;
@@ -87,6 +88,7 @@ builder.Services.AddAuthenticationServices(builder.Configuration, builder.Enviro
 // Additive: registers the "RuntimeToken" JWT scheme used by daemon-facing endpoints.
 // MUST run AFTER AddAuthenticationServices so the user-auth scheme keeps the default-scheme slot.
 builder.Services.AddRuntimeTokenAuthScheme();
+builder.Services.AddCiPublishFeature(builder.Configuration);
 // Authorization policy used by RuntimeHub mapping below. Pinning the policy to
 // the RuntimeToken scheme keeps the user-JWT default scheme out of the picture
 // for daemon connections — and keeps AgentHub on the user scheme untouched.

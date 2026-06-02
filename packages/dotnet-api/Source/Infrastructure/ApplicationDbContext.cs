@@ -812,6 +812,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.Property(e => e.BundleStorageKey).IsRequired().HasMaxLength(1024);
             entity.Property(e => e.BundleSha256).IsRequired().HasMaxLength(64);
             entity.Property(e => e.Notes).HasMaxLength(2000);
+            entity.Property(e => e.GitSha).HasMaxLength(40);
 
             entity.Property(e => e.ReleasedAt).HasColumnType("timestamp with time zone");
             entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");

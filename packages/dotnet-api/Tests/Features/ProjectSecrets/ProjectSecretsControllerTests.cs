@@ -121,7 +121,7 @@ public class ProjectSecretsControllerTests
 
         var result = await controller.Add(
             projectId,
-            new AddSecretRequest("lower_case", "value"),
+            new AddSecretRequest("1INVALID_START", "value"),
             CancellationToken.None);
 
         var bad = result.Result as BadRequestObjectResult;

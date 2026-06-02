@@ -102,6 +102,12 @@ public class RuntimeProvisionerJobTests : IDisposable
         services.AddSingleton<Source.Infrastructure.Services.FileStorage.IFileStorageService>(
             new StubFileStorageService());
 
+        services.AddSingleton<IRuntimeOptionsAccessor>(
+            new StubRuntimeOptionsAccessor(new RuntimeOptions
+            {
+                PublicApiUrl = "https://test-api.example.com",
+            }));
+
         _provider = services.BuildServiceProvider();
         _db = _provider.GetRequiredService<ApplicationDbContext>();
         _db.Database.EnsureCreated();
