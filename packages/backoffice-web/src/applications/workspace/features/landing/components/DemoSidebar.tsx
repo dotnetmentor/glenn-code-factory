@@ -1,12 +1,14 @@
 import { Box, Stack, Typography } from '@mui/material'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import UnfoldMoreRoundedIcon from '@mui/icons-material/UnfoldMoreRounded'
+import { RuntimeState } from '@/api/queries-commands'
 import {
   surfaceTokens,
   chromeTokens,
   workspaceFontFamily,
-  semanticTokens,
   workspaceChromeHeight,
 } from '../../../shared/designTokens'
+import { StatusDot } from '../../../shared/primitives'
 
 const SANS = workspaceFontFamily.sans
 
@@ -33,9 +35,10 @@ export function DemoSidebar() {
         <Box sx={{ width: 22, height: 22, borderRadius: 1, backgroundColor: chromeTokens.accentSurface, display: 'grid', placeItems: 'center' }}>
           <Typography sx={{ fontFamily: SANS, fontWeight: 700, fontSize: '0.7rem', color: surfaceTokens.textPrimary }}>G</Typography>
         </Box>
-        <Typography sx={{ fontFamily: SANS, fontWeight: 600, fontSize: '0.875rem', color: surfaceTokens.textPrimary }}>
+        <Typography noWrap sx={{ fontFamily: SANS, fontWeight: 600, fontSize: '0.875rem', color: surfaceTokens.textPrimary, flex: 1 }}>
           GlennCode
         </Typography>
+        <UnfoldMoreRoundedIcon sx={{ fontSize: 15, color: surfaceTokens.textFaint }} />
       </Stack>
 
       <Box sx={{ flex: 1, overflowY: 'auto', px: 1, py: 1.5 }}>
@@ -63,7 +66,7 @@ export function DemoSidebar() {
                   {p.branch}
                 </Typography>
               </Box>
-              {p.active && <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: semanticTokens.success }} />}
+              {p.active && <StatusDot state={RuntimeState.Online} size={7} hideTooltip />}
             </Stack>
           ))}
         </Stack>

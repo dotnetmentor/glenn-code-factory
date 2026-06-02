@@ -7,6 +7,10 @@
  * elapsed-ms value to a {@link MovieState}. The render loop ({@code useMovie})
  * just advances elapsed and re-derives — no imperative timers scattered across
  * components, and reduced-motion is a one-liner (jump elapsed to the finale).
+ *
+ * A {@link MovieFocus} track drives a virtual "camera": the route zooms and
+ * centers on whichever panel the system is acting on, so the eye is always on
+ * the thing happening right now.
  */
 
 export type AppTab = 'chat' | 'spec' | 'kanban' | 'preview'
@@ -43,12 +47,16 @@ export interface KanbanCardScript {
   moves: Array<[number, KanbanColumn]>
 }
 
-// ── Timeline constants (ms) ──────────────────────────────────────────────────
+/** Which panel the camera centers + enlarges. */
+export type MovieFocus = 'overview' | 'chat' | 'app'
 
-const REPO_AT = 500
-const TYPE_START = 1400
-const TYPE_END = 3500
-export const FINALE_AT = 13200
+// ── Timeline constants (ms) ──────────────────────────────────────────────────
+// Deliberately unhurried — the movie plays once and rests on the finale.
+
+const REPO_AT = 900
+const TYPE_START = 2400
+const TYPE_END = 5400
+export const FINALE_AT = 21800
 
 /** The line the visitor watches type itself in. */
 export const USER_MESSAGE = 'Build me a waitlist landing page for my new app.'
@@ -59,30 +67,30 @@ export const CHAT_ITEMS: ChatItem[] = [
   { kind: 'bubble', at: TYPE_START, role: 'user', text: USER_MESSAGE },
   {
     kind: 'bubble',
-    at: 3900,
+    at: 6000,
     role: 'assistant',
     text: "On it. I'll capture emails, persist them, and give you a live preview you can actually test.",
   },
-  { kind: 'tool', at: 4400, label: 'Writing spec', detail: 'Waitlist Landing', tone: 'default' },
-  { kind: 'bubble', at: 6400, role: 'assistant', text: 'Spec accepted — breaking it into tasks.' },
-  { kind: 'tool', at: 6900, label: 'WaitlistForm.tsx', detail: 'email + submit', tone: 'default' },
-  { kind: 'tool', at: 7700, label: 'POST /api/waitlist', detail: 'persist signup', tone: 'default' },
-  { kind: 'bubble', at: 10300, role: 'assistant', text: 'Running it in the sandbox to check it works…' },
-  { kind: 'tool', at: 10900, label: 'Preview', detail: 'empty email slipped through', tone: 'warn' },
-  { kind: 'tool', at: 11800, label: 'Fix', detail: 'added email validation', tone: 'success' },
-  { kind: 'bubble', at: 12500, role: 'assistant', text: 'Fixed and verified. Here it is — live. Try it 👇' },
+  { kind: 'tool', at: 6700, label: 'Writing spec', detail: 'Waitlist Landing', tone: 'default' },
+  { kind: 'bubble', at: 10400, role: 'assistant', text: 'Spec accepted — breaking it into tasks.' },
+  { kind: 'tool', at: 11000, label: 'WaitlistForm.tsx', detail: 'email + submit', tone: 'default' },
+  { kind: 'tool', at: 12000, label: 'POST /api/waitlist', detail: 'persist signup', tone: 'default' },
+  { kind: 'bubble', at: 15800, role: 'assistant', text: 'Running it in the sandbox to check it works…' },
+  { kind: 'tool', at: 17000, label: 'Preview', detail: 'empty email slipped through', tone: 'warn' },
+  { kind: 'tool', at: 18400, label: 'Fix', detail: 'added email validation', tone: 'success' },
+  { kind: 'bubble', at: 19600, role: 'assistant', text: 'Fixed and verified. Here it is — live. Try it 👇' },
 ]
 
 // ── Spec tab ───────────────────────────────────────────────────────────────
 
 export const SPEC_TITLE = 'Waitlist Landing'
 export const SPEC_LINES: Array<{ at: number; text: string }> = [
-  { at: 4700, text: 'Hero with a one-line pitch' },
-  { at: 5100, text: 'Email capture + “what would you build?”' },
-  { at: 5500, text: 'Persist signups to the database' },
-  { at: 5900, text: 'Validate email before accepting' },
+  { at: 7600, text: 'Hero with a one-line pitch' },
+  { at: 8200, text: 'Email capture + “what would you build?”' },
+  { at: 8800, text: 'Persist signups to the database' },
+  { at: 9400, text: 'Validate email before accepting' },
 ]
-export const SPEC_ACCEPTED_AT = 6300
+export const SPEC_ACCEPTED_AT = 10000
 
 // ── Kanban tab ───────────────────────────────────────────────────────────────
 
@@ -90,17 +98,17 @@ export const KANBAN_CARDS: KanbanCardScript[] = [
   {
     id: 'form',
     title: 'Waitlist form UI',
-    moves: [[6600, 'backlog'], [7000, 'doing'], [8200, 'done']],
+    moves: [[11200, 'backlog'], [11800, 'doing'], [13200, 'done']],
   },
   {
     id: 'api',
     title: 'POST /api/waitlist',
-    moves: [[6600, 'backlog'], [7800, 'doing'], [9200, 'done']],
+    moves: [[11200, 'backlog'], [12600, 'doing'], [14200, 'done']],
   },
   {
     id: 'validate',
     title: 'Email validation',
-    moves: [[6600, 'backlog'], [9400, 'doing'], [11900, 'done']],
+    moves: [[11200, 'backlog'], [13800, 'doing'], [15200, 'done']],
   },
 ]
 
@@ -108,9 +116,19 @@ export const KANBAN_CARDS: KanbanCardScript[] = [
 
 const TAB_SWITCHES: Array<[number, AppTab]> = [
   [0, 'preview'],
-  [4200, 'spec'],
-  [6600, 'kanban'],
-  [10400, 'preview'],
+  [6900, 'spec'],
+  [11000, 'kanban'],
+  [16000, 'preview'],
+]
+
+// ── Camera focus track ─────────────────────────────────────────────────────────
+
+const FOCUS_TRACK: Array<[number, MovieFocus]> = [
+  [0, 'overview'],
+  [1900, 'chat'], // lean in as the request types itself
+  [6900, 'app'], // pan to the spec / tasks / preview panel
+  [16800, 'chat'], // pan back to watch the agent test & self-correct
+  [19500, 'app'], // settle on the live preview for the finale
 ]
 
 // ── Captions (the "explaining parts") ─────────────────────────────────────────
@@ -118,9 +136,10 @@ const TAB_SWITCHES: Array<[number, AppTab]> = [
 const CAPTIONS: Array<[number, string]> = [
   [REPO_AT, 'Point GlennCode at any repo — or start fresh.'],
   [TYPE_START, 'Just describe what you want.'],
-  [4200, 'It writes a spec first, so you both agree on the plan.'],
-  [6600, 'Then it works the board — one task at a time.'],
-  [10400, 'It runs your project in a sandbox and tests it itself.'],
+  [6900, 'It writes a spec first, so you both agree on the plan.'],
+  [11000, 'Then it works the board — one task at a time.'],
+  [16000, 'It runs your project in a sandbox and tests it itself.'],
+  [16800, 'Short feedback loops: it catches its own bugs and fixes them.'],
   [FINALE_AT, 'This waitlist is real — built live, running in a sandbox. Sign up right inside it.'],
 ]
 
@@ -144,6 +163,7 @@ export interface MovieState {
   kanban: Record<string, KanbanColumn>
   preview: PreviewPhase
   caption: string
+  focus: MovieFocus
   /** True once the movie has reached its resting finale frame. */
   atFinale: boolean
 }
@@ -186,10 +206,11 @@ export function deriveMovie(elapsed: number): MovieState {
   // Preview: idle until first tab visit, "building" while the agent works/tests,
   // then "live" once the verified message lands.
   let preview: PreviewPhase = 'idle'
-  if (elapsed >= 12500) preview = 'live'
-  else if (elapsed >= 10400) preview = 'building'
+  if (elapsed >= 19600) preview = 'live'
+  else if (elapsed >= 16000) preview = 'building'
 
   const caption = lastBefore(CAPTIONS, elapsed, CAPTIONS[0][1])
+  const focus = lastBefore(FOCUS_TRACK, elapsed, 'overview')
 
   return {
     repoConnected: elapsed >= REPO_AT,
@@ -202,6 +223,7 @@ export function deriveMovie(elapsed: number): MovieState {
     kanban,
     preview,
     caption,
+    focus,
     atFinale,
   }
 }

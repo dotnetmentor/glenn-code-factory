@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { Box, Stack, Typography } from '@mui/material'
-import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded'
+import { Box, IconButton, Stack, Typography } from '@mui/material'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
+import SettingsIcon from '@mui/icons-material/Settings'
+import { RuntimeState } from '@/api/queries-commands'
 import {
   surfaceTokens,
   chromeTokens,
@@ -9,6 +11,7 @@ import {
   semanticTokens,
   workspaceChromeHeight,
 } from '../../../shared/designTokens'
+import { StatusDot } from '../../../shared/primitives'
 import type { ChatItem, MovieState } from '../movie/script'
 
 const SANS = workspaceFontFamily.sans
@@ -104,29 +107,35 @@ export function DemoChat({ state }: { state: MovieState }) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 }}>
-      {/* Chrome strip — title + agent pill, on the shared y-grid. */}
+      {/* Chrome strip — conversation title + picker chevron, runtime pill, cog.
+          Mirrors the real ChatChrome on the shared y-grid. */}
       <Stack
         direction="row"
         alignItems="center"
-        spacing={1}
+        spacing={0.5}
         sx={{
           height: workspaceChromeHeight,
           flexShrink: 0,
-          px: 2,
+          px: 1.5,
           borderBottom: `1px solid ${surfaceTokens.hairline}`,
         }}
       >
-        <AutoAwesomeRoundedIcon sx={{ fontSize: 16, color: surfaceTokens.textMuted }} />
-        <Typography sx={{ fontFamily: SANS, fontWeight: 600, fontSize: '0.875rem', color: surfaceTokens.textPrimary }}>
-          New session
-        </Typography>
+        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0, px: 0.75, py: 0.4, borderRadius: 1.25, '&:hover': { backgroundColor: chromeTokens.rowHover } }}>
+          <Typography noWrap sx={{ fontFamily: SANS, fontWeight: 600, fontSize: '0.875rem', color: surfaceTokens.textPrimary }}>
+            Waitlist landing
+          </Typography>
+          <KeyboardArrowDownIcon sx={{ fontSize: 16, color: surfaceTokens.textFaint }} />
+        </Stack>
         <Box sx={{ flex: 1 }} />
-        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ px: 1, py: 0.4, borderRadius: 1, backgroundColor: semanticTokens.successSoft }}>
-          <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: semanticTokens.success }} />
-          <Typography sx={{ fontFamily: MONO, fontSize: '0.72rem', fontWeight: 600, color: surfaceTokens.textMuted }}>
-            sandbox online
+        <Stack direction="row" alignItems="center" spacing={0.6} sx={{ px: 0.9, py: 0.4, borderRadius: 999, backgroundColor: semanticTokens.successSoft }}>
+          <StatusDot state={RuntimeState.Online} size={7} hideTooltip />
+          <Typography sx={{ fontFamily: MONO, fontSize: '0.7rem', fontWeight: 600, color: surfaceTokens.textMuted }}>
+            sandbox
           </Typography>
         </Stack>
+        <IconButton size="small" disabled sx={{ color: surfaceTokens.textFaint }}>
+          <SettingsIcon sx={{ fontSize: 16 }} />
+        </IconButton>
       </Stack>
 
       {/* Transcript */}

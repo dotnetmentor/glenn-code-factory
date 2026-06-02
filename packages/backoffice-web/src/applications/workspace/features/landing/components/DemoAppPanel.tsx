@@ -1,15 +1,22 @@
 import { Box, Stack, Typography } from '@mui/material'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
-import LockRoundedIcon from '@mui/icons-material/LockRounded'
-import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
+import ViewKanbanOutlinedIcon from '@mui/icons-material/ViewKanbanOutlined'
+import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
+import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
+import DesktopWindowsOutlinedIcon from '@mui/icons-material/DesktopWindowsOutlined'
+import TabletMacOutlinedIcon from '@mui/icons-material/TabletMacOutlined'
+import PhoneIphoneOutlinedIcon from '@mui/icons-material/PhoneIphoneOutlined'
+import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined'
+import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined'
 import {
   surfaceTokens,
-  chromeTokens,
   workspaceColors,
   workspaceFontFamily,
   semanticTokens,
   workspaceChromeHeight,
 } from '../../../shared/designTokens'
+import { SegmentedTabs } from '../../../shared/primitives'
 import type { AppTab, KanbanColumn, MovieState } from '../movie/script'
 import { KANBAN_CARDS, SPEC_TITLE } from '../movie/script'
 import { LiveWaitlistForm } from './LiveWaitlistForm'
@@ -17,10 +24,10 @@ import { LiveWaitlistForm } from './LiveWaitlistForm'
 const SANS = workspaceFontFamily.sans
 const MONO = workspaceFontFamily.mono
 
-const TABS: Array<{ id: AppTab; label: string }> = [
-  { id: 'spec', label: 'Spec' },
-  { id: 'kanban', label: 'Tasks' },
-  { id: 'preview', label: 'Preview' },
+const TAB_ITEMS = [
+  { id: 'spec' as const, label: 'Spec', icon: DescriptionOutlinedIcon },
+  { id: 'kanban' as const, label: 'Tasks', icon: ViewKanbanOutlinedIcon },
+  { id: 'preview' as const, label: 'Preview', icon: PublicOutlinedIcon },
 ]
 
 function TabStrip({ active }: { active: AppTab }) {
@@ -28,35 +35,20 @@ function TabStrip({ active }: { active: AppTab }) {
     <Stack
       direction="row"
       alignItems="center"
-      spacing={0.5}
       sx={{
         height: workspaceChromeHeight,
         flexShrink: 0,
-        px: 1.5,
+        px: 1.25,
         borderBottom: `1px solid ${surfaceTokens.hairline}`,
       }}
     >
-      {TABS.map((t) => {
-        const on = t.id === active
-        return (
-          <Box
-            key={t.id}
-            sx={{
-              px: 1.5,
-              py: 0.6,
-              borderRadius: 1.25,
-              fontFamily: SANS,
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              color: on ? surfaceTokens.textPrimary : surfaceTokens.textFaint,
-              backgroundColor: on ? chromeTokens.accentSurface : 'transparent',
-              transition: 'background-color 200ms ease, color 200ms ease',
-            }}
-          >
-            {t.label}
-          </Box>
-        )
-      })}
+      {/* Real workspace primitive — the movie drives `value`, so onChange is a no-op. */}
+      <SegmentedTabs
+        value={active === 'chat' ? 'preview' : active}
+        onChange={() => {}}
+        items={TAB_ITEMS}
+        ariaLabel="App view"
+      />
     </Stack>
   )
 }
@@ -172,27 +164,56 @@ function KanbanView({ state }: { state: MovieState }) {
   )
 }
 
+const DEVICE_ICONS = [DesktopWindowsOutlinedIcon, TabletMacOutlinedIcon, PhoneIphoneOutlinedIcon]
+
+/** Faithful recreation of the real PreviewChrome bar (reload · URL pill · device toggle · open). */
+function PreviewChromeBar() {
+  return (
+    <Stack
+      direction="row"
+      alignItems="center"
+      spacing={1}
+      sx={{ height: workspaceChromeHeight, flexShrink: 0, px: '10px', borderBottom: `1px solid ${surfaceTokens.hairline}` }}
+    >
+      <RefreshOutlinedIcon sx={{ fontSize: 14, color: surfaceTokens.textMuted }} />
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1}
+        sx={{ flex: 1, minWidth: 0, height: 28, pl: '10px', pr: '8px', borderRadius: 999, backgroundColor: workspaceColors.chipBg, border: `1px solid ${surfaceTokens.hairline}` }}
+      >
+        <PublicOutlinedIcon sx={{ fontSize: 11, color: surfaceTokens.textFaint, flexShrink: 0 }} />
+        <Box component="span" sx={{ flex: 1, minWidth: 0, fontSize: '0.75rem', fontFamily: MONO, color: surfaceTokens.textPrimary, letterSpacing: '-0.005em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          your-app.sandbox.glenn.dev
+        </Box>
+        <ContentCopyOutlinedIcon sx={{ fontSize: 11, color: surfaceTokens.textMuted, flexShrink: 0 }} />
+      </Stack>
+      <Stack direction="row" alignItems="center" spacing="1px" sx={{ p: '2px', borderRadius: '7px', border: `1px solid ${surfaceTokens.hairline}`, backgroundColor: workspaceColors.chipBg, flexShrink: 0 }}>
+        {DEVICE_ICONS.map((Icon, i) => (
+          <Box
+            key={i}
+            sx={{
+              width: 24, height: 22, display: 'grid', placeItems: 'center', borderRadius: '5px',
+              backgroundColor: i === 0 ? surfaceTokens.surface : 'transparent',
+              color: i === 0 ? surfaceTokens.textPrimary : surfaceTokens.textMuted,
+            }}
+          >
+            <Icon sx={{ fontSize: 12 }} />
+          </Box>
+        ))}
+      </Stack>
+      <Box sx={{ width: '1px', height: 18, backgroundColor: surfaceTokens.hairline, flexShrink: 0, mx: 0.25 }} />
+      <OpenInNewOutlinedIcon sx={{ fontSize: 13, color: surfaceTokens.textMuted }} />
+    </Stack>
+  )
+}
+
 function PreviewView({ state }: { state: MovieState }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: workspaceColors.canvasBg }}>
-      {/* Fake browser chrome — sells "this is a real running app". */}
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1.5, py: 1, flexShrink: 0 }}>
-        <RefreshRoundedIcon sx={{ fontSize: 14, color: surfaceTokens.textFaint }} />
-        <Stack
-          direction="row"
-          alignItems="center"
-          spacing={0.75}
-          sx={{ flex: 1, px: 1.25, py: 0.5, borderRadius: 1, backgroundColor: workspaceColors.chipBg, border: `1px solid ${surfaceTokens.hairline}` }}
-        >
-          <LockRoundedIcon sx={{ fontSize: 11, color: surfaceTokens.textFaint }} />
-          <Typography sx={{ fontFamily: MONO, fontSize: '0.72rem', color: surfaceTokens.textMuted }}>
-            your-app.sandbox.glenn.dev
-          </Typography>
-        </Stack>
-      </Stack>
-
+      <PreviewChromeBar />
       {/* Viewport */}
-      <Box sx={{ flex: 1, overflowY: 'auto', display: 'grid', placeItems: 'center', borderTop: `1px solid ${surfaceTokens.hairline}` }}>
+      <Box sx={{ flex: 1, overflowY: 'auto', display: 'grid', placeItems: 'center' }}>
         {state.preview === 'live' ? (
           <LiveWaitlistForm />
         ) : state.preview === 'building' ? (
@@ -226,8 +247,9 @@ function PreviewView({ state }: { state: MovieState }) {
 
 /**
  * The right-side app panel — mirrors the real workspace AppContainer's tabbed
- * Spec / Tasks / Preview surfaces, scripted by {@link MovieState}. Only the
- * Preview tab's "live" state mounts a real, interactive component.
+ * Spec / Tasks / Preview surfaces (real SegmentedTabs + PreviewChrome recipe),
+ * scripted by {@link MovieState}. Only the Preview tab's "live" state mounts a
+ * real, interactive component.
  */
 export function DemoAppPanel({ state }: { state: MovieState }) {
   return (
