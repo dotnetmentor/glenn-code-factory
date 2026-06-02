@@ -55,7 +55,8 @@ function TabStrip({ active }: { active: AppTab }) {
 
 function SpecView({ state }: { state: MovieState }) {
   return (
-    <Box sx={{ p: 3, overflowY: 'auto', height: '100%' }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', p: 3, overflowY: 'auto' }}>
+      <Box sx={{ maxWidth: 520, mx: 'auto', width: '100%' }}>
       <Typography sx={{ fontFamily: SANS, fontWeight: 700, fontSize: '1.1rem', letterSpacing: '-0.01em', color: surfaceTokens.textPrimary }}>
         {SPEC_TITLE}
       </Typography>
@@ -99,6 +100,7 @@ function SpecView({ state }: { state: MovieState }) {
           </Typography>
         </Stack>
       )}
+      </Box>
     </Box>
   )
 }
@@ -111,16 +113,16 @@ const COLUMNS: Array<{ id: KanbanColumn; label: string }> = [
 
 function KanbanView({ state }: { state: MovieState }) {
   return (
-    <Box sx={{ p: 2, height: '100%', overflowY: 'auto' }}>
-      <Stack direction="row" spacing={1.5} sx={{ height: '100%' }} alignItems="stretch">
+    <Box sx={{ p: 2, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflowY: 'auto' }}>
+      <Stack direction="row" spacing={1.25} sx={{ width: '100%', maxWidth: 640, mx: 'auto' }} alignItems="stretch">
         {COLUMNS.map((col) => {
           const cards = KANBAN_CARDS.filter((c) => state.kanban[c.id] === col.id)
           return (
             <Box key={col.id} sx={{ flex: 1, minWidth: 0 }}>
-              <Typography sx={{ fontFamily: SANS, fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: surfaceTokens.textFaint, mb: 1, px: 0.5 }}>
+              <Typography sx={{ fontFamily: SANS, fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: surfaceTokens.textFaint, mb: 0.75, px: 0.5 }}>
                 {col.label}
               </Typography>
-              <Stack spacing={1}>
+              <Stack spacing={1} sx={{ p: 1, minHeight: 168, borderRadius: 1.5, backgroundColor: workspaceColors.chipBg, border: `1px solid ${surfaceTokens.hairline}` }}>
                 {cards.map((c) => {
                   const done = col.id === 'done'
                   return (

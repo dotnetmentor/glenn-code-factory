@@ -26,8 +26,8 @@ const SANS = workspaceFontFamily.sans
  */
 const CAMERA: Record<MovieFocus, { fx: number; fy: number; s: number }> = {
   overview: { fx: 0.5, fy: 0.5, s: 1 },
-  chat: { fx: 0.34, fy: 0.5, s: 1.24 },
-  app: { fx: 0.75, fy: 0.5, s: 1.24 },
+  chat: { fx: 0.34, fy: 0.5, s: 1.22 },
+  app: { fx: 0.74, fy: 0.5, s: 1.16 },
 }
 
 function cameraTransform(focus: MovieFocus): string {
