@@ -64,6 +64,7 @@ import { StatusDot } from './StatusDot'
 import { WorkspaceActivityLog } from './WorkspaceActivityLog'
 import { ProjectCostTag } from './ProjectCostTag'
 import { ProjectSettingsDrawer } from '../../project-settings'
+import { useProjectEnvStatusSummary } from '../../project-settings/tabs/env/useProjectEnvStatusSummary'
 import { formatCostUsd } from './costFormat'
 import { useBranchUnreadActivityStatus } from '../hooks/useWorkspaceActivityStore'
 import { useBranchRuntimeMenuActions } from '../hooks/useBranchRuntimeMenuActions'
@@ -1695,6 +1696,10 @@ function BranchesList({
     },
   )
 
+  // Cross-branch env health for this project — one request, read per branch
+  // below so each row can flag its own missing required vars.
+  const envStatus = useProjectEnvStatusSummary(projectId)
+
   // ── Copy-branch dialog state ────────────────────────────────────────────
   // Track WHICH branch the user is copying so the dialog can prefill its
   // suggested name and post to the right source id. We keep the source
@@ -1778,6 +1783,7 @@ function BranchesList({
             activeRowRef={branch.id === activeBranchId ? activeBranchRowRef : null}
             onCopyClick={() => handleCopyClick(branch)}
             liveStatusByBranchId={liveStatusByBranchId}
+            missingEnvCount={envStatus.missingForBranch(branch.id)}
           />
         ))}
       </Box>
@@ -1804,6 +1810,8 @@ interface BranchRowProps {
   activeRowRef: React.RefObject<HTMLDivElement | null> | null
   onCopyClick: () => void
   liveStatusByBranchId?: Map<string, LiveProjectStatus>
+  /** Count of required env vars not set on this branch (drives the amber dot). */
+  missingEnvCount?: number
 }
 
 function BranchRow({
@@ -1814,6 +1822,7 @@ function BranchRow({
   activeRowRef,
   onCopyClick,
   liveStatusByBranchId,
+  missingEnvCount = 0,
 }: BranchRowProps) {
   const queryClient = useQueryClient()
   const { showSuccess, showError } = useNotification()
@@ -2117,6 +2126,29 @@ function BranchRow({
             fontFamily: workspaceFontFamily.mono,
           }}
         />
+
+        {/* Missing required env vars on this branch — calm amber dot so the gap
+            is visible in the tree without opening settings. Amber (not the
+            runtime-failed red) keeps it distinct from the attention dot. */}
+        {missingEnvCount > 0 && (
+          <Tooltip
+            title={`${missingEnvCount} required variable${missingEnvCount === 1 ? '' : 's'} not set on this branch`}
+            placement="right"
+            enterDelay={400}
+          >
+            <Box
+              aria-label={`${missingEnvCount} required environment variable${missingEnvCount === 1 ? '' : 's'} missing`}
+              sx={{
+                flexShrink: 0,
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                backgroundColor: semanticTokens.warning,
+                display: 'inline-block',
+              }}
+            />
+          </Tooltip>
+        )}
 
         {branch.isDefault && !relative && (
           <Tooltip title="Default branch" placement="left" enterDelay={500}>

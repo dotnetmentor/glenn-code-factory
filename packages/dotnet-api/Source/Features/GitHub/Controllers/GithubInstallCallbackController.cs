@@ -73,10 +73,27 @@ public class GithubInstallCallbackController : BaseApiController
         }
 
         var slug = result.Value.WorkspaceSlug;
-        var status = result.Value.Pending ? "pending" : "success";
         // Land on the workspace home. The `?install=` flag drives a one-time
         // snackbar in WorkspaceLandingView, then it strips itself from the URL.
-        var path = WorkspaceFrontendRoutes.HomeWithQuery(slug, "install", status);
+        string path;
+        if (result.Value.Conflict)
+        {
+            // Same GitHub account already connected to another workspace. We
+            // still bounce the user home (never a raw JSON page) and carry the
+            // account + other-workspace name so the snackbar can spell out the
+            // fix instead of a generic "installation failed".
+            path = WorkspaceFrontendRoutes.HomeWithQuery(slug, new[]
+            {
+                new KeyValuePair<string, string?>("install", "conflict"),
+                new KeyValuePair<string, string?>("conflictAccount", result.Value.ConflictAccountLogin),
+                new KeyValuePair<string, string?>("conflictWorkspace", result.Value.ConflictWorkspaceName),
+            });
+        }
+        else
+        {
+            var status = result.Value.Pending ? "pending" : "success";
+            path = WorkspaceFrontendRoutes.HomeWithQuery(slug, "install", status);
+        }
 
         // Build an ABSOLUTE redirect against the deployment's canonical public host
         // (Runtime:PublicApiUrl SystemSetting — live-editable from Super Admin). The

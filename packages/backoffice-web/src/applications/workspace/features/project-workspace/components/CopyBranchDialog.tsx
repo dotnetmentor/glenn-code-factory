@@ -10,7 +10,6 @@ import {
   DialogTitle,
   FormControl,
   FormControlLabel,
-  LinearProgress,
   MenuItem,
   Radio,
   RadioGroup,
@@ -20,14 +19,12 @@ import {
   Typography,
 } from '@mui/material'
 import {
-  RuntimeState,
   getGetApiProjectsProjectIdBranchesQueryKey,
   useGetApiWorkspacesWorkspaceIdSpecs,
   usePostApiProjectsProjectIdBranchesBranchIdCopy,
   type CopyBranchResponse,
   type ProblemDetails,
 } from '../../../../../api/queries-commands'
-import { useAgentHub } from '../../../../../lib/signalr'
 import { useWorkspace } from '../../../../shared/contexts/WorkspaceContext'
 
 import {
@@ -160,8 +157,6 @@ export interface CopyBranchDialogProps {
   existingBranchNames: string[]
 }
 
-type ProgressPhase = 'idle' | 'forking' | 'cloning' | 'ready' | 'error'
-
 /**
  * Which "services" starter the user wants for the new runtime. The three modes
  * map onto the backend's two flags:
@@ -170,12 +165,6 @@ type ProgressPhase = 'idle' | 'forking' | 'cloning' | 'ready' | 'error'
  *   - 'blank'   → forceBlankSpec=true,  catalogSpecId=null
  */
 type ServicesMode = 'source' | 'catalog' | 'blank'
-
-interface ProgressTarget {
-  runtimeId: string
-  newBranchId: string
-  newBranchName: string
-}
 
 // ── Small visual primitives ───────────────────────────────────────────────
 
@@ -299,18 +288,14 @@ function WarmPanel({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Copy-branch dialog. Two visual states inside one dialog so we never
- * close + reopen mid-flow:
- * <ol>
- *   <li><b>Form</b> — pre-filled with {@code suggestCopyName(...)}, validates,
- *       fires the {@code usePostApiProjectsProjectIdBranchesBranchIdCopy}
- *       mutation. 202 Accepted → flip into progress state.</li>
- *   <li><b>Progress</b> — listens to AgentHub
- *       {@code runtimeStateChanged} for the {@code newRuntimeId} and shows a
- *       labelled spinner. On {@code Online} we invalidate the branch list,
- *       navigate to the new branch, then close. On {@code Crashed}/{@code Failed}
- *       we surface a retry button (re-submits with the same name).</li>
- * </ol>
+ * Copy-branch dialog. A single form: pre-filled with {@code suggestCopyName(...)},
+ * validates, and fires the
+ * {@code usePostApiProjectsProjectIdBranchesBranchIdCopy} mutation. On success
+ * we invalidate the branch list and immediately navigate to (and select) the
+ * new branch — the destination branch page renders the runtime's provisioning
+ * state, so we deliberately do NOT block navigation on the new runtime reaching
+ * {@code Online} (which can take minutes and previously left the user stranded
+ * on the source branch when the {@code Online} push was missed).
  */
 export function CopyBranchDialog({
   open,
@@ -332,24 +317,16 @@ export function CopyBranchDialog({
   )
 
   const [name, setName] = useState<string>(suggested)
-  const [phase, setPhase] = useState<ProgressPhase>('idle')
-  const [progressTarget, setProgressTarget] = useState<ProgressTarget | null>(
-    null,
-  )
   const [inlineError, setInlineError] = useState<string | null>(null)
   const [pushBlocker, setPushBlocker] = useState<string | null>(null)
   const [genericError, setGenericError] = useState<string | null>(null)
   const [servicesMode, setServicesMode] = useState<ServicesMode>('source')
   const [selectedCatalogSpecId, setSelectedCatalogSpecId] = useState<string>('')
 
-  // Reset when the dialog opens for a new source branch. We DON'T reset on
-  // close so a flickering parent (e.g. a re-render between mutation resolve
-  // and onClose) can't blow away the progress phase mid-fork.
+  // Reset when the dialog opens for a new source branch.
   useEffect(() => {
     if (!open) return
     setName(suggested)
-    setPhase('idle')
-    setProgressTarget(null)
     setInlineError(null)
     setPushBlocker(null)
     setGenericError(null)
@@ -372,74 +349,7 @@ export function CopyBranchDialog({
 
   const mutation = usePostApiProjectsProjectIdBranchesBranchIdCopy()
 
-  // SignalR subscription for the new runtime's state transitions. We connect
-  // scoped to the NEW branch (the one we just copied into) — the AgentHub
-  // joins the branch-{id} group on the query-string id, and the new runtime
-  // is tied to that branch, so its state-change pushes will reach us. The
-  // hub is only built while the dialog is open AND we have a runtime to
-  // watch. Before the branch-scoped routing migration this used projectId,
-  // which fanned out to every tab on the project; now we narrow to the new
-  // branch since that's the only runtime whose transitions we care about.
-  const { connection } = useAgentHub({
-    projectId: open && progressTarget ? projectId : undefined,
-    branchId:
-      open && progressTarget ? progressTarget.newBranchId : undefined,
-    enabled: open && progressTarget !== null,
-  })
-
-  useEffect(() => {
-    if (!connection || !progressTarget) return
-    const unsubscribe = connection.onRuntimeStateChanged((payload) => {
-      if (payload.runtimeId !== progressTarget.runtimeId) return
-      applyRuntimeState(payload.toState)
-    })
-    return () => {
-      unsubscribe()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connection, progressTarget?.runtimeId])
-
-  const applyRuntimeState = (toState: string) => {
-    switch (toState) {
-      case RuntimeState.Pending:
-      case RuntimeState.Booting:
-        setPhase('forking')
-        return
-      case RuntimeState.Bootstrapping:
-        setPhase('cloning')
-        return
-      case RuntimeState.Online:
-        setPhase('ready')
-        return
-      case RuntimeState.Crashed:
-      case RuntimeState.Failed:
-        setPhase('error')
-        return
-      default:
-      // Suspending / Suspended / Waking / Deleting / Deleted aren't expected
-      // mid-bootstrap; leave the phase as-is so the existing label persists.
-    }
-  }
-
-  // Drive the "Ready!" → invalidate → navigate → close sequence. We keep
-  // the success state visible for a short beat so the user sees the
-  // confirmation rather than a snap-close.
-  useEffect(() => {
-    if (phase !== 'ready') return
-    if (!progressTarget) return
-    queryClient.invalidateQueries({
-      queryKey: getGetApiProjectsProjectIdBranchesQueryKey(projectId),
-    })
-    const target = progressTarget
-    const timer = setTimeout(() => {
-      navigate(`/w/${slug}/projects/${projectId}/branches/${target.newBranchId}`)
-      onClose()
-    }, 450)
-    return () => clearTimeout(timer)
-  }, [phase, progressTarget, queryClient, projectId, slug, navigate, onClose])
-
   const trimmedName = name.trim()
-  const isInProgress = phase !== 'idle' && phase !== 'error'
 
   // Submit is gated on the catalog pick when the user has chosen
   // "Pick from catalog…". We don't surface this as an inline error because the
@@ -480,24 +390,16 @@ export function CopyBranchDialog({
       },
       {
         onSuccess: (response: CopyBranchResponse) => {
-          setProgressTarget({
-            runtimeId: response.newRuntimeId,
-            newBranchId: response.newBranchId,
-            newBranchName: response.newBranchName,
+          // Surface the new branch in the sidebar, then jump straight to it and
+          // select it. The destination branch page owns the runtime
+          // provisioning UI from here.
+          queryClient.invalidateQueries({
+            queryKey: getGetApiProjectsProjectIdBranchesQueryKey(projectId),
           })
-          // Seed the phase from the response so the user gets immediate
-          // feedback even before the first SignalR push lands.
-          applyRuntimeState(response.state)
-          // If the backend already reports Online (extremely fast path /
-          // tests), the dedicated effect will run the navigate sequence.
-          if (
-            response.state !== RuntimeState.Online &&
-            response.state !== RuntimeState.Crashed &&
-            response.state !== RuntimeState.Failed
-          ) {
-            // Default visible label while we wait for the first push.
-            setPhase((p) => (p === 'idle' ? 'forking' : p))
-          }
+          navigate(
+            `/w/${slug}/projects/${projectId}/branches/${response.newBranchId}`,
+          )
+          onClose()
         },
         onError: (err) => {
           const mapped = mapMutationError(err)
@@ -509,36 +411,15 @@ export function CopyBranchDialog({
     )
   }
 
-  const handleRetry = () => {
-    setPhase('idle')
-    setProgressTarget(null)
-    handleSubmit()
-  }
-
   const handleClose = () => {
-    if (isInProgress) return // No-op while the backend has work in flight.
+    if (mutation.isPending) return // No-op while the backend has work in flight.
     onClose()
   }
-
-  const progressLabel = (() => {
-    switch (phase) {
-      case 'forking':
-        return 'Forking volume and booting runtime…'
-      case 'cloning':
-        return 'Cloning repo and starting services…'
-      case 'ready':
-        return 'Ready'
-      default:
-        return ''
-    }
-  })()
-
-  const showForm = phase === 'idle' || phase === 'error'
 
   // ── Title rendering ─────────────────────────────────────────────────────
   // We render the title manually so we can inline the source branch name
   // in monospace — matching the rest of the workspace's technical-name cadence.
-  const titleNode = showForm ? (
+  const titleNode = (
     <Stack direction="row" alignItems="baseline" spacing={0.75} sx={{ minWidth: 0 }}>
       <Box component="span" sx={{ flexShrink: 0 }}>
         Copy
@@ -562,10 +443,6 @@ export function CopyBranchDialog({
         to a new branch
       </Box>
     </Stack>
-  ) : phase === 'ready' ? (
-    'Branch ready'
-  ) : (
-    'Copying branch…'
   )
 
   return (
@@ -604,401 +481,285 @@ export function CopyBranchDialog({
         </DialogTitle>
 
         <DialogContent sx={{ px: 3, pb: 2.5, pt: 0 }}>
-          {showForm ? (
-            <Stack spacing={1.75}>
-              {pushBlocker && <WarmPanel>{pushBlocker}</WarmPanel>}
+          <Stack spacing={1.75}>
+            {pushBlocker && <WarmPanel>{pushBlocker}</WarmPanel>}
 
-              {phase === 'error' && (
-                <WarmPanel>
-                  The new runtime failed to come online. Nothing has been
-                  changed on the source branch — you can try again.
-                </WarmPanel>
-              )}
+            {/* Source eyebrow + branch name in monospace */}
+            <Stack direction="row" alignItems="baseline" spacing={1} sx={{ minWidth: 0 }}>
+              <Eyebrow>Source</Eyebrow>
+              <Box
+                component="span"
+                sx={{
+                  fontFamily: workspaceFontFamily.mono,
+                  fontSize: '0.75rem',
+                  color: tokens.primary,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  minWidth: 0,
+                }}
+              >
+                {sourceBranchName}
+              </Box>
+            </Stack>
 
-              {/* Source eyebrow + branch name in monospace */}
-              <Stack direction="row" alignItems="baseline" spacing={1} sx={{ minWidth: 0 }}>
-                <Eyebrow>Source</Eyebrow>
-                <Box
-                  component="span"
-                  sx={{
+            {/* New-name field with eyebrow label */}
+            <Stack spacing={0.75}>
+              <Eyebrow>New branch name</Eyebrow>
+              <TextField
+                required
+                autoFocus
+                fullWidth
+                size="small"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  setInlineError(null)
+                  setGenericError(null)
+                }}
+                error={!!inlineError}
+                disabled={mutation.isPending}
+                inputProps={{ spellCheck: 'false', autoComplete: 'off' }}
+                variant="outlined"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: tokens.surface,
+                    borderRadius: 1.5,
                     fontFamily: workspaceFontFamily.mono,
-                    fontSize: '0.75rem',
+                    fontSize: '0.8125rem',
                     color: tokens.primary,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    minWidth: 0,
-                  }}
-                >
-                  {sourceBranchName}
-                </Box>
-              </Stack>
-
-              {/* New-name field with eyebrow label */}
-              <Stack spacing={0.75}>
-                <Eyebrow>New branch name</Eyebrow>
-                <TextField
-                  required
-                  autoFocus
-                  fullWidth
-                  size="small"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value)
-                    setInlineError(null)
-                    setGenericError(null)
-                  }}
-                  error={!!inlineError}
-                  disabled={mutation.isPending}
-                  inputProps={{ spellCheck: 'false', autoComplete: 'off' }}
-                  variant="outlined"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
+                    transition: 'border-color 120ms ease, background-color 120ms ease',
+                    '&.Mui-error fieldset': {
+                      borderColor: tokens.danger,
+                    },
+                    '&.Mui-disabled': {
                       bgcolor: tokens.surface,
-                      borderRadius: 1.5,
-                      fontFamily: workspaceFontFamily.mono,
-                      fontSize: '0.8125rem',
-                      color: tokens.primary,
-                      transition: 'border-color 120ms ease, background-color 120ms ease',
-                      '&.Mui-error fieldset': {
-                        borderColor: tokens.danger,
-                      },
-                      '&.Mui-disabled': {
-                        bgcolor: tokens.surface,
-                        opacity: 0.7,
-                      },
+                      opacity: 0.7,
                     },
-                    '& .MuiOutlinedInput-input': {
-                      px: 1.5,
-                      py: 1,
-                    },
-                    '& .MuiOutlinedInput-input::placeholder': {
-                      color: tokens.muted,
-                      opacity: 1,
-                    },
+                  },
+                  '& .MuiOutlinedInput-input': {
+                    px: 1.5,
+                    py: 1,
+                  },
+                  '& .MuiOutlinedInput-input::placeholder': {
+                    color: tokens.muted,
+                    opacity: 1,
+                  },
+                }}
+              />
+              {inlineError ? (
+                <Typography
+                  sx={{
+                    fontSize: '0.75rem',
+                    color: tokens.danger,
+                    lineHeight: 1.4,
                   }}
-                />
-                {inlineError ? (
-                  <Typography
-                    sx={{
-                      fontSize: '0.75rem',
-                      color: tokens.danger,
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    {inlineError}
-                  </Typography>
-                ) : (
-                  <Typography
-                    sx={{
-                      fontSize: '0.6875rem',
-                      color: tokens.muted,
-                      lineHeight: 1.45,
-                    }}
-                  >
-                    We suggested a non-conflicting name; you can change it.
-                  </Typography>
-                )}
-              </Stack>
-
-              {/* Services picker — three options driving the backend's
-                  forceBlankSpec / catalogSpecId pair. Default "source" carries
-                  the source branch's current spec into the new runtime. */}
-              <Stack spacing={0.75}>
-                <Eyebrow>Services</Eyebrow>
-                <RadioGroup
-                  value={servicesMode}
-                  onChange={(_, value) => {
-                    const next = value as ServicesMode
-                    setServicesMode(next)
-                    if (next !== 'catalog') {
-                      // Clear any stale pick so toggling back doesn't auto-
-                      // submit with a now-irrelevant selection.
-                      setSelectedCatalogSpecId('')
-                    }
-                  }}
-                  sx={{ gap: 0.25 }}
                 >
-                  <ServicesOption
-                    value="source"
-                    label="Same as source branch"
-                    helper="Fork the source branch's current spec into the new runtime."
-                    selected={servicesMode === 'source'}
-                    disabled={mutation.isPending}
-                  />
-                  <ServicesOption
-                    value="catalog"
-                    label="Pick from catalog…"
-                    helper="Stamp the new runtime with one of your workspace's saved specs."
-                    selected={servicesMode === 'catalog'}
-                    disabled={mutation.isPending}
-                  />
-                  {servicesMode === 'catalog' && (
-                    <Box sx={{ pl: 3.75, pt: 0.5, pb: 0.25 }}>
-                      <FormControl
-                        fullWidth
-                        size="small"
-                        disabled={
-                          mutation.isPending ||
-                          catalogSpecsQuery.isLoading ||
-                          catalogEmpty
+                  {inlineError}
+                </Typography>
+              ) : (
+                <Typography
+                  sx={{
+                    fontSize: '0.6875rem',
+                    color: tokens.muted,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  We suggested a non-conflicting name; you can change it.
+                </Typography>
+              )}
+            </Stack>
+
+            {/* Services picker — three options driving the backend's
+                forceBlankSpec / catalogSpecId pair. Default "source" carries
+                the source branch's current spec into the new runtime. */}
+            <Stack spacing={0.75}>
+              <Eyebrow>Services</Eyebrow>
+              <RadioGroup
+                value={servicesMode}
+                onChange={(_, value) => {
+                  const next = value as ServicesMode
+                  setServicesMode(next)
+                  if (next !== 'catalog') {
+                    // Clear any stale pick so toggling back doesn't auto-
+                    // submit with a now-irrelevant selection.
+                    setSelectedCatalogSpecId('')
+                  }
+                }}
+                sx={{ gap: 0.25 }}
+              >
+                <ServicesOption
+                  value="source"
+                  label="Same as source branch"
+                  helper="Fork the source branch's current spec into the new runtime."
+                  selected={servicesMode === 'source'}
+                  disabled={mutation.isPending}
+                />
+                <ServicesOption
+                  value="catalog"
+                  label="Pick from catalog…"
+                  helper="Stamp the new runtime with one of your workspace's saved specs."
+                  selected={servicesMode === 'catalog'}
+                  disabled={mutation.isPending}
+                />
+                {servicesMode === 'catalog' && (
+                  <Box sx={{ pl: 3.75, pt: 0.5, pb: 0.25 }}>
+                    <FormControl
+                      fullWidth
+                      size="small"
+                      disabled={
+                        mutation.isPending ||
+                        catalogSpecsQuery.isLoading ||
+                        catalogEmpty
+                      }
+                    >
+                      <Select
+                        value={selectedCatalogSpecId}
+                        displayEmpty
+                        onChange={(e) =>
+                          setSelectedCatalogSpecId(e.target.value as string)
                         }
-                      >
-                        <Select
-                          value={selectedCatalogSpecId}
-                          displayEmpty
-                          onChange={(e) =>
-                            setSelectedCatalogSpecId(e.target.value as string)
+                        renderValue={(value) => {
+                          if (!value) {
+                            return (
+                              <Box
+                                component="span"
+                                sx={{
+                                  color: tokens.muted,
+                                  fontSize: '0.8125rem',
+                                }}
+                              >
+                                {catalogSpecsQuery.isLoading
+                                  ? 'Loading…'
+                                  : catalogEmpty
+                                    ? 'No catalog specs available'
+                                    : 'Select a spec…'}
+                              </Box>
+                            )
                           }
-                          renderValue={(value) => {
-                            if (!value) {
-                              return (
+                          const picked = catalogSpecs.find(
+                            (s) => s.id === value,
+                          )
+                          return picked?.name ?? value
+                        }}
+                        sx={{
+                          bgcolor: tokens.surface,
+                          borderRadius: 1.5,
+                          fontSize: '0.8125rem',
+                          color: tokens.primary,
+                          '& .MuiSelect-select': {
+                            py: 1,
+                            px: 1.5,
+                          },
+                        }}
+                      >
+                        {catalogSpecs.map((spec) => (
+                          <MenuItem
+                            key={spec.id}
+                            value={spec.id}
+                            sx={{ fontSize: '0.8125rem' }}
+                          >
+                            <Stack spacing={0.125}>
+                              <Box component="span" sx={{ fontWeight: 500 }}>
+                                {spec.name}
+                              </Box>
+                              {spec.description && (
                                 <Box
                                   component="span"
                                   sx={{
+                                    fontSize: '0.6875rem',
                                     color: tokens.muted,
-                                    fontSize: '0.8125rem',
+                                    lineHeight: 1.3,
                                   }}
                                 >
-                                  {catalogSpecsQuery.isLoading
-                                    ? 'Loading…'
-                                    : catalogEmpty
-                                      ? 'No catalog specs available'
-                                      : 'Select a spec…'}
+                                  {spec.description}
                                 </Box>
-                              )
-                            }
-                            const picked = catalogSpecs.find(
-                              (s) => s.id === value,
-                            )
-                            return picked?.name ?? value
-                          }}
-                          sx={{
-                            bgcolor: tokens.surface,
-                            borderRadius: 1.5,
-                            fontSize: '0.8125rem',
-                            color: tokens.primary,
-                            '& .MuiSelect-select': {
-                              py: 1,
-                              px: 1.5,
-                            },
-                          }}
-                        >
-                          {catalogSpecs.map((spec) => (
-                            <MenuItem
-                              key={spec.id}
-                              value={spec.id}
-                              sx={{ fontSize: '0.8125rem' }}
-                            >
-                              <Stack spacing={0.125}>
-                                <Box component="span" sx={{ fontWeight: 500 }}>
-                                  {spec.name}
-                                </Box>
-                                {spec.description && (
-                                  <Box
-                                    component="span"
-                                    sx={{
-                                      fontSize: '0.6875rem',
-                                      color: tokens.muted,
-                                      lineHeight: 1.3,
-                                    }}
-                                  >
-                                    {spec.description}
-                                  </Box>
-                                )}
-                              </Stack>
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                      {catalogEmpty && (
-                        <Typography
-                          sx={{
-                            mt: 0.5,
-                            fontSize: '0.6875rem',
-                            color: tokens.muted,
-                            lineHeight: 1.45,
-                          }}
-                        >
-                          No specs in this workspace's catalog yet. Save one
-                          from a runtime drawer first.
-                        </Typography>
-                      )}
-                    </Box>
-                  )}
-                  <ServicesOption
-                    value="blank"
-                    label="Blank — no services"
-                    helper="Start with an empty spec. The agent will propose services as needed."
-                    selected={servicesMode === 'blank'}
-                    disabled={mutation.isPending}
-                  />
-                </RadioGroup>
-              </Stack>
-
-              {genericError && <WarmPanel>{genericError}</WarmPanel>}
-            </Stack>
-          ) : (
-            <Stack
-              spacing={1.25}
-              alignItems="stretch"
-              sx={{ minHeight: 120, justifyContent: 'center', py: 1 }}
-            >
-              {phase === 'ready' ? (
-                <Stack alignItems="center" spacing={0.75}>
-                  <Typography
-                    sx={{
-                      fontSize: '0.875rem',
-                      fontWeight: 600,
-                      color: tokens.primary,
-                      letterSpacing: '-0.005em',
-                    }}
-                  >
-                    Ready
-                  </Typography>
-                  {progressTarget && (
-                    <Typography
-                      sx={{
-                        fontFamily: workspaceFontFamily.mono,
-                        fontSize: '0.75rem',
-                        color: tokens.muted,
-                      }}
-                    >
-                      {progressTarget.newBranchName}
-                    </Typography>
-                  )}
-                </Stack>
-              ) : (
-                <Stack spacing={1.5} sx={{ width: '100%' }}>
-                  <LinearProgress
-                    sx={{
-                      height: 2,
-                      borderRadius: 1,
-                      bgcolor: tokens.surface,
-                      '& .MuiLinearProgress-bar': {
-                        bgcolor: tokens.accent,
-                      },
-                    }}
-                  />
-                  <Stack alignItems="center" spacing={0.5}>
-                    <Typography
-                      sx={{
-                        fontSize: '0.8125rem',
-                        color: tokens.muted,
-                        fontWeight: 400,
-                      }}
-                    >
-                      {progressLabel}
-                    </Typography>
-                    {progressTarget && (
+                              )}
+                            </Stack>
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    {catalogEmpty && (
                       <Typography
                         sx={{
-                          fontFamily: workspaceFontFamily.mono,
+                          mt: 0.5,
                           fontSize: '0.6875rem',
                           color: tokens.muted,
-                          opacity: 0.8,
+                          lineHeight: 1.45,
                         }}
                       >
-                        {progressTarget.newBranchName}
+                        No specs in this workspace's catalog yet. Save one
+                        from a runtime drawer first.
                       </Typography>
                     )}
-                  </Stack>
-                </Stack>
-              )}
+                  </Box>
+                )}
+                <ServicesOption
+                  value="blank"
+                  label="Blank — no services"
+                  helper="Start with an empty spec. The agent will propose services as needed."
+                  selected={servicesMode === 'blank'}
+                  disabled={mutation.isPending}
+                />
+              </RadioGroup>
             </Stack>
-          )}
+
+            {genericError && <WarmPanel>{genericError}</WarmPanel>}
+          </Stack>
         </DialogContent>
 
         <DialogActions sx={{ px: 3, pb: 2.5, pt: 1, gap: 1 }}>
-          {showForm && (
-            <>
-              <Button
-                type="button"
-                onClick={handleClose}
-                disabled={mutation.isPending}
-                variant="text"
-                disableElevation
-                sx={{
-                  color: tokens.muted,
-                  textTransform: 'none',
-                  fontWeight: 500,
-                  fontSize: '0.8125rem',
-                  borderRadius: 2,
-                  px: 1.5,
-                  py: 0.625,
-                  '&:hover': {
-                    bgcolor: tokens.rowHover,
-                    color: tokens.primary,
-                  },
-                }}
-              >
-                Cancel
-              </Button>
-              {phase === 'error' ? (
-                <Button
-                  type="button"
-                  variant="pill" color="primary" onClick={handleRetry}
-                  disabled={
-                    mutation.isPending || !trimmedName || catalogPickIncomplete
-                  }
-                  
-                  sx={{
-                    bgcolor: tokens.primary,
-                    color: tokens.canvas,
-                    textTransform: 'none',
-                    fontWeight: 500,
-                    fontSize: '0.8125rem',
-                    borderRadius: 2,
-                    px: 1.75,
-                    py: 0.625,
-                    boxShadow: 'none',
-                    '&:hover': {
-                      bgcolor: tokens.primary,
-                      boxShadow: 'none',
-                    },
-                    '&.Mui-disabled': {
-                      bgcolor: tokens.surface,
-                      color: tokens.muted,
-                    },
-                  }}
-                >
-                  {mutation.isPending ? 'Retrying…' : 'Retry'}
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  variant="pill" color="primary" disabled={
-                    mutation.isPending || !trimmedName || catalogPickIncomplete
-                  }
-                  
-                  sx={{
-                    bgcolor: tokens.primary,
-                    color: tokens.canvas,
-                    textTransform: 'none',
-                    fontWeight: 500,
-                    fontSize: '0.8125rem',
-                    borderRadius: 2,
-                    px: 1.75,
-                    py: 0.625,
-                    boxShadow: 'none',
-                    '&:hover': {
-                      bgcolor: tokens.primary,
-                      boxShadow: 'none',
-                    },
-                    '&.Mui-disabled': {
-                      bgcolor: tokens.surface,
-                      color: tokens.muted,
-                    },
-                  }}
-                >
-                  {mutation.isPending ? 'Copying…' : 'Copy branch'}
-                </Button>
-              )}
-            </>
-          )}
-          {/* Progress / ready state: no actions — the dialog auto-closes on
-              navigate. We deliberately do NOT offer Cancel here because the
-              backend work is already underway and can't be undone client-side. */}
+          <Button
+            type="button"
+            onClick={handleClose}
+            disabled={mutation.isPending}
+            variant="text"
+            disableElevation
+            sx={{
+              color: tokens.muted,
+              textTransform: 'none',
+              fontWeight: 500,
+              fontSize: '0.8125rem',
+              borderRadius: 2,
+              px: 1.5,
+              py: 0.625,
+              '&:hover': {
+                bgcolor: tokens.rowHover,
+                color: tokens.primary,
+              },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="pill" color="primary" disabled={
+              mutation.isPending || !trimmedName || catalogPickIncomplete
+            }
+
+            sx={{
+              bgcolor: tokens.primary,
+              color: tokens.canvas,
+              textTransform: 'none',
+              fontWeight: 500,
+              fontSize: '0.8125rem',
+              borderRadius: 2,
+              px: 1.75,
+              py: 0.625,
+              boxShadow: 'none',
+              '&:hover': {
+                bgcolor: tokens.primary,
+                boxShadow: 'none',
+              },
+              '&.Mui-disabled': {
+                bgcolor: tokens.surface,
+                color: tokens.muted,
+              },
+            }}
+          >
+            {mutation.isPending ? 'Copying…' : 'Copy branch'}
+          </Button>
         </DialogActions>
       </form>
     </Dialog>

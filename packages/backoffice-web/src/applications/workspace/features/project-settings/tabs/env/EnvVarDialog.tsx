@@ -6,11 +6,16 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  IconButton,
+  InputAdornment,
   Stack,
   Switch,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
+import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined'
 import {
   chromeTokens,
   semanticTokens,
@@ -78,15 +83,19 @@ export function EnvVarDialog({
   const [key, setKey] = useState('')
   const [value, setValue] = useState('')
   const [isSecret, setIsSecret] = useState(true)
+  const [showValue, setShowValue] = useState(false)
   const [keyError, setKeyError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   // Reset the form whenever the dialog (re-)opens, seeding from `initial`.
+  // Re-mask on every open so a previously-revealed value never leaks into the
+  // next thing the user edits.
   useEffect(() => {
     if (!open) return
     setKey(initial?.key ?? '')
     setValue(initial?.value ?? '')
     setIsSecret(initial?.isSecret ?? true)
+    setShowValue(false)
     setKeyError(null)
     setSubmitError(null)
   }, [open, initial?.key, initial?.value, initial?.isSecret])
@@ -191,11 +200,36 @@ export function EnvVarDialog({
                 fullWidth
                 size="small"
                 value={value}
-                type={isSecret ? 'password' : 'text'}
+                type={isSecret && !showValue ? 'password' : 'text'}
                 placeholder="Enter a value"
                 disabled={isSubmitting}
                 onChange={(e) => setValue(e.target.value)}
                 inputProps={{ spellCheck: 'false', autoComplete: 'off' }}
+                InputProps={
+                  isSecret
+                    ? {
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <Tooltip title={showValue ? 'Hide value' : 'Show value'}>
+                              <IconButton
+                                onClick={() => setShowValue((v) => !v)}
+                                edge="end"
+                                size="small"
+                                aria-label={showValue ? 'Hide value' : 'Show value'}
+                                tabIndex={-1}
+                              >
+                                {showValue ? (
+                                  <VisibilityOffOutlinedIcon fontSize="small" />
+                                ) : (
+                                  <VisibilityOutlinedIcon fontSize="small" />
+                                )}
+                              </IconButton>
+                            </Tooltip>
+                          </InputAdornment>
+                        ),
+                      }
+                    : undefined
+                }
                 sx={fieldSx}
               />
             </Stack>

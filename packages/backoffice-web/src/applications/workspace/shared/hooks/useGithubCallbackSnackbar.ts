@@ -22,6 +22,17 @@ export function useGithubCallbackSnackbar() {
       showInfo('GitHub installation is pending admin approval.')
     } else if (installResult === 'cancelled') {
       showError('GitHub installation was cancelled.')
+    } else if (installResult === 'conflict') {
+      // The chosen GitHub account is already connected to another workspace.
+      // A GitHub App installs once per account, so it can only attach to one
+      // workspace at a time — name the account + workspace so the fix is clear.
+      const account = searchParams.get('conflictAccount')
+      const workspace = searchParams.get('conflictWorkspace')
+      const accountLabel = account ? `“${account}”` : 'That GitHub account'
+      const workspaceLabel = workspace ? `the workspace “${workspace}”` : 'another workspace'
+      showError(
+        `${accountLabel} is already connected to ${workspaceLabel}. Disconnect it there first, or connect a different GitHub account.`,
+      )
     } else if (installResult === 'error') {
       showError('GitHub installation failed. Please try again.')
     }
@@ -36,6 +47,8 @@ export function useGithubCallbackSnackbar() {
     const next = new URLSearchParams(searchParams)
     next.delete('install')
     next.delete('reauth')
+    next.delete('conflictAccount')
+    next.delete('conflictWorkspace')
     setSearchParams(next, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

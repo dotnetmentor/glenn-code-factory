@@ -91,6 +91,31 @@ public class ProjectSecretsController : ControllerBase
     }
 
     /// <summary>
+    /// Project-wide rollup of which (non-archived) branches have missing required
+    /// env vars. Drives the cross-branch env indicators — sidebar branch dots and
+    /// the settings-trigger badge — from a single request rather than one
+    /// per-branch status call.
+    /// </summary>
+    [HttpGet("status-summary")]
+    [ProducesResponseType(typeof(ProjectEnvStatusSummaryResponse), 200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    public async Task<ActionResult<ProjectEnvStatusSummaryResponse>> StatusSummary(
+        Guid projectId,
+        CancellationToken ct)
+    {
+        var deny = await EnforceProjectOwnershipAsync(projectId, secretKey: null, ct);
+        if (deny is not null) return deny;
+
+        var result = await _mediator.Send(new GetProjectEnvStatusSummaryQuery(projectId), ct);
+        if (!result.IsSuccess)
+        {
+            return NotFound(new { error = result.Error });
+        }
+        return Ok(result.Value);
+    }
+
+    /// <summary>
     /// Add a new secret. 400 covers both validation failures
     /// (<c>invalid_key_format</c> / <c>invalid_plaintext</c>) and the
     /// unique-key conflict (<c>key_already_exists</c>); the error code in the

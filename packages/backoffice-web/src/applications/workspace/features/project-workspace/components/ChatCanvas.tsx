@@ -1852,6 +1852,10 @@ export function ChatCanvas({
   const [gitSyncError, setGitSyncError] = useState<{
     title: string
     detail: string
+    // The coarse daemon classification (e.g. 'Auth', 'Hook', 'Unknown'). When
+    // 'Unknown' the title carries no actionable hint, so the banner auto-opens
+    // the raw output — that tail is then the only diagnostic signal.
+    reason?: string
   } | null>(null)
   useEffect(() => {
     if (!connection) return
@@ -1864,7 +1868,7 @@ export function ChatCanvas({
             : 'Daemon could not produce a commit.'
         const title = `Commit failed (${p.reason}) — working tree is out of sync with GitHub`
         showError(`${title}. ${commitReasonHint(p.reason)}`)
-        setGitSyncError({ title, detail })
+        setGitSyncError({ title, detail, reason: p.reason })
       }),
     )
     unsubs.push(
@@ -1875,7 +1879,7 @@ export function ChatCanvas({
             : `git push exited with no output (reason=${p.reason}).`
         const title = `Push failed (${p.reason}) — local commits are not on GitHub yet`
         showError(`${title}. ${pushReasonHint(p.reason)}`)
-        setGitSyncError({ title, detail })
+        setGitSyncError({ title, detail, reason: p.reason })
       }),
     )
     unsubs.push(
@@ -1886,7 +1890,7 @@ export function ChatCanvas({
             : `Conflicts in ${p.files.length} file(s).`
         const title = `Merge conflict on ${p.sourceBranch} → ${p.targetBranch}`
         showError(`${title}. Resolve conflicts in the runtime, then retry.`)
-        setGitSyncError({ title, detail })
+        setGitSyncError({ title, detail, reason: 'Conflict' })
       }),
     )
     unsubs.push(
@@ -3487,15 +3491,20 @@ function GitSyncBanner({
   error,
   onDismiss,
 }: {
-  error: { title: string; detail: string } | null
+  error: { title: string; detail: string; reason?: string } | null
   onDismiss: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
+  // When the daemon couldn't classify the failure ('Unknown'), the title has no
+  // actionable hint — the raw output tail is the only signal, so open it by
+  // default. Otherwise start collapsed.
+  const isUnknown = error?.reason === 'Unknown'
+  const [expanded, setExpanded] = useState(isUnknown)
   // Reset the "Details" expanded state whenever the banner content changes —
-  // a fresh error shouldn't surface the previous error's tail.
+  // a fresh error shouldn't surface the previous error's tail. Re-apply the
+  // auto-open for unclassified failures.
   useEffect(() => {
-    setExpanded(false)
-  }, [error?.title])
+    setExpanded(isUnknown)
+  }, [error?.title, isUnknown])
 
   if (!error) return null
   return (
@@ -3518,12 +3527,18 @@ function GitSyncBanner({
             </Stack>
           }
         >
-          <AlertTitle sx={{ mb: 0 }}>
-            ⚠ Out of sync with GitHub
-          </AlertTitle>
-          <Typography variant="body2" sx={{ mt: 0.5 }}>
-            {error.title}
+          {/* Lead with the actual classified failure (the specific reason),
+              not a generic "out of sync" headline that hides what really
+              broke. The GitHub-sync framing is demoted to an eyebrow. */}
+          <Typography
+            variant="caption"
+            sx={{ color: 'text.secondary', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}
+          >
+            GitHub sync
           </Typography>
+          <AlertTitle sx={{ mb: 0, mt: 0.25 }}>
+            {error.title}
+          </AlertTitle>
           <Collapse in={expanded} timeout="auto" unmountOnExit>
             <Box
               component="pre"

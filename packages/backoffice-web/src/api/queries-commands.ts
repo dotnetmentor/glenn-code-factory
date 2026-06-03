@@ -391,6 +391,13 @@ export const BootstrapStage = {
   Ready: "Ready",
 } as const;
 
+export interface BranchEnvMissingSummary {
+  branchId: string;
+  branchName: string;
+  missingCount: number;
+  missingKeys: string[];
+}
+
 export interface BranchEnvVarItem {
   key: string;
   isSecret: boolean;
@@ -2080,6 +2087,12 @@ export interface ProjectDto {
   modelId?: string | null;
   /** @nullable */
   modelSlug?: string | null;
+}
+
+export interface ProjectEnvStatusSummaryResponse {
+  requiredCount: number;
+  branchesWithMissing: number;
+  branches: BranchEnvMissingSummary[];
 }
 
 export interface ProjectKanbanCardDto {
@@ -21946,6 +21959,191 @@ export const usePostApiProjectsProjectIdSecrets = <
 
   return useMutation(mutationOptions, queryClient);
 };
+
+export const getApiProjectsProjectIdSecretsStatusSummary = (
+  projectId: string,
+  signal?: AbortSignal,
+) => {
+  return customClient<ProjectEnvStatusSummaryResponse>({
+    url: `/api/projects/${projectId}/secrets/status-summary`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetApiProjectsProjectIdSecretsStatusSummaryQueryKey = (
+  projectId?: string,
+) => {
+  return [`/api/projects/${projectId}/secrets/status-summary`] as const;
+};
+
+export const getGetApiProjectsProjectIdSecretsStatusSummaryQueryOptions = <
+  TData = Awaited<
+    ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>
+  >,
+  TError = ErrorType<ProblemDetails>,
+>(
+  projectId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>>,
+        TError,
+        TData
+      >
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetApiProjectsProjectIdSecretsStatusSummaryQueryKey(projectId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>>
+  > = ({ signal }) =>
+    getApiProjectsProjectIdSecretsStatusSummary(projectId, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!projectId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiProjectsProjectIdSecretsStatusSummaryQueryResult =
+  NonNullable<
+    Awaited<ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>>
+  >;
+export type GetApiProjectsProjectIdSecretsStatusSummaryQueryError =
+  ErrorType<ProblemDetails>;
+
+export function useGetApiProjectsProjectIdSecretsStatusSummary<
+  TData = Awaited<
+    ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>
+  >,
+  TError = ErrorType<ProblemDetails>,
+>(
+  projectId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>
+          >
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiProjectsProjectIdSecretsStatusSummary<
+  TData = Awaited<
+    ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>
+  >,
+  TError = ErrorType<ProblemDetails>,
+>(
+  projectId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>
+          >
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiProjectsProjectIdSecretsStatusSummary<
+  TData = Awaited<
+    ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>
+  >,
+  TError = ErrorType<ProblemDetails>,
+>(
+  projectId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiProjectsProjectIdSecretsStatusSummary<
+  TData = Awaited<
+    ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>
+  >,
+  TError = ErrorType<ProblemDetails>,
+>(
+  projectId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiProjectsProjectIdSecretsStatusSummary>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetApiProjectsProjectIdSecretsStatusSummaryQueryOptions(
+      projectId,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
 
 export const putApiProjectsProjectIdSecretsKey = (
   projectId: string,
