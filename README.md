@@ -329,7 +329,7 @@ The API seeds the bootstrap SuperAdmin on every startup when `Bootstrap__SuperAd
 │   │   └── src/applications/ # super-admin · workspace
 │   ├── daemon/               # Agent runtime (Cursor SDK, SignalR, bootstrap, tools)
 │   └── local-db/             # Docker Compose for Postgres
-├── .claude/skills/           # Agent skills (Orval, SignalR, runtime deploy, …)
+├── .agents/skills/           # Agent skills (Orval, SignalR, runtime deploy, …) — .claude/skills symlinks here
 ├── scripts/                  # setup, swagger gen, daemon publish, migrations
 ├── Dockerfile                # Production API + bundled frontend
 ├── Dockerfile.runtime-base   # Fly agent runtime machine image

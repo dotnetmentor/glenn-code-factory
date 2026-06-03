@@ -62,8 +62,9 @@ Paths below use the managed runtime root. Locally, substitute your clone path.
 
 ## Skills Reference
 
-When the user needs specific functionality, use these skills from `.claude/skills/`
-(this is the canonical skills location for this repo):
+When the user needs specific functionality, use these skills from `.agents/skills/`
+(the canonical skills location; `.claude/skills` is a symlink to it so Claude Code
+discovers them too):
 
 | Need | Skill | Key Points |
 |------|-------|------------|
@@ -141,7 +142,7 @@ See [`packages/dotnet-api/CLAUDE.md`](packages/dotnet-api/CLAUDE.md) for:
 ## Quick Reference
 
 **Add file upload:**
-1. Read `.claude/skills/file-upload/SKILL.md`
+1. Read `.agents/skills/file-upload/SKILL.md`
 2. Inject `IFileStorageService`
 3. Use `SaveFileAsync()` / `GetFileUrlAsync()`
 
