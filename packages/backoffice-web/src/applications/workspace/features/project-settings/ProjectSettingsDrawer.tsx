@@ -27,6 +27,7 @@ import { AgentSettingsTab } from './tabs/AgentSettingsTab'
 import { BranchesSettingsTab } from './tabs/BranchesSettingsTab'
 import { RuntimesTab } from './tabs/RuntimesTab'
 import { EnvironmentTab } from './tabs/env/EnvironmentTab'
+import { useMissingRequiredEnvCount } from './tabs/env/useMissingRequiredEnvCount'
 
 /**
  * Tab identifiers for the project-settings drawer. Each value is a stable
@@ -87,7 +88,7 @@ const TAB_DESCRIPTORS: readonly TabDescriptor[] = [
   { value: 'activity', label: 'Activity' },
 ] as const
 
-import { chromeTokens, surfaceTokens } from '../../shared/designTokens'
+import { chromeTokens, semanticTokens, surfaceTokens } from '../../shared/designTokens'
 
 const tokens = { ...surfaceTokens, ...chromeTokens }
 
@@ -164,6 +165,14 @@ export function ProjectSettingsDrawer({
   }, [open, resolvedInitial])
 
   const projectName = projectQuery.data?.name ?? 'Project'
+
+  // Surface missing required env vars on the Environment nav item so the user
+  // sees the gap without opening the tab. Branch-scoped; 0 when no branch.
+  const missingRequiredEnvCount = useMissingRequiredEnvCount(
+    projectId,
+    branchId,
+    open,
+  )
 
   // Cross-link to the bottom log panel from the Services tab. The provider
   // for this context wraps {@code ProjectWorkspaceShell}, so the call here
@@ -304,7 +313,43 @@ export function ProjectSettingsDrawer({
                 <Tab
                   key={descriptor.value}
                   value={descriptor.value}
-                  label={descriptor.label}
+                  label={
+                    descriptor.value === 'environment' &&
+                    missingRequiredEnvCount > 0 ? (
+                      <Box
+                        component="span"
+                        sx={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                        }}
+                      >
+                        {descriptor.label}
+                        <Box
+                          component="span"
+                          aria-label={`${missingRequiredEnvCount} required variable${missingRequiredEnvCount === 1 ? '' : 's'} missing`}
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            minWidth: 16,
+                            height: 16,
+                            px: 0.5,
+                            borderRadius: '8px',
+                            backgroundColor: semanticTokens.error,
+                            color: '#fff',
+                            fontSize: '0.625rem',
+                            fontWeight: 700,
+                            lineHeight: 1,
+                          }}
+                        >
+                          {missingRequiredEnvCount}
+                        </Box>
+                      </Box>
+                    ) : (
+                      descriptor.label
+                    )
+                  }
                   disableRipple
                   sx={{
                     alignItems: { xs: 'center', sm: 'flex-start' },

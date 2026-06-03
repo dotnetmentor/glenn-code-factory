@@ -25,6 +25,7 @@ import {
 } from '../../../../shared/designTokens'
 import { useBranchEnvVars } from './useBranchEnvVars'
 import { useProjectEnvVars } from './useProjectEnvVars'
+import { missingRequiredEnvItems } from './requiredEnvStatus'
 import { EnvVarRow } from './EnvVarRow'
 import { EnvVarDialog, type EnvVarDialogValues } from './EnvVarDialog'
 import { DeleteEnvVarDialog } from './DeleteEnvVarDialog'
@@ -65,18 +66,10 @@ export function EnvironmentTab({ projectId, branchId }: EnvironmentTabProps) {
     [branchEnv.overrideItems],
   )
 
-  const missingItems: RequiredEnvStatusItem[] = useMemo(() => {
-    if (!branchEnv.status) return []
-    const missingSet = new Set(branchEnv.status.missing)
-    const fromRequired = branchEnv.status.required.filter(
-      (r) => !r.satisfied && missingSet.has(r.key),
-    )
-    const covered = new Set(fromRequired.map((r) => r.key))
-    const bareMissing: RequiredEnvStatusItem[] = branchEnv.status.missing
-      .filter((k) => !covered.has(k))
-      .map((k) => ({ service: 'Unknown', key: k, satisfied: false }))
-    return [...fromRequired, ...bareMissing]
-  }, [branchEnv.status])
+  const missingItems: RequiredEnvStatusItem[] = useMemo(
+    () => missingRequiredEnvItems(branchEnv.status),
+    [branchEnv.status],
+  )
 
   const satisfiedRequired = useMemo(
     () => (branchEnv.status?.required ?? []).filter((r) => r.satisfied),
