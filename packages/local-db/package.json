@@ -1,7 +1,7 @@
 {
-  "name": "@orchestrator/local-db",
+  "name": "@glenn/local-db",
   "version": "1.0.0",
-  "description": "Local PostgreSQL database for orchestrator development",
+  "description": "Local PostgreSQL database for GlennCode Factory development",
   "scripts": {
     "start": "docker compose up -d && npm run wait-for-db",
     "stop": "docker compose down",

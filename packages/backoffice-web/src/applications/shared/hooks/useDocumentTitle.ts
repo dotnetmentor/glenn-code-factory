@@ -6,9 +6,9 @@ import { useEffect } from 'react'
  *
  * <p>Used by the workspace shell's calm canvas routes (landing, settings,
  * new-session) so browser tabs read e.g. {@code "Welcome back · acme ·
- * GlennCode"} instead of the static fallback. Per-branch IDE routes have
- * their own {@code useProjectTabTitle} hook that bakes in runtime state
- * ({@code "agent-template — sleeping"}) and SignalR-driven badge dots — this
+ * GlennCode Factory"} instead of the static fallback. Per-branch IDE routes
+ * have their own {@code useProjectTabTitle} hook that bakes in runtime state
+ * ({@code "my-project — sleeping"}) and SignalR-driven badge dots — this
  * hook is intentionally simpler and doesn't try to compete with that.</p>
  *
  * <p>Pass {@code null}, {@code undefined}, or an empty string to leave the

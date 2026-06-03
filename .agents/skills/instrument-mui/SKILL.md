@@ -5,7 +5,7 @@ description: Material UI styling for this project's Instrument Mono design syste
 
 # Instrument Mono + Material UI
 
-This project runs **MUI v7** (`@mui/material` ^7.3). Read `.agents/skills/material-ui-styling/AGENTS.md` first for the official styling decision tree (`sx` → `styled` → theme → global).
+This project runs **MUI v7** (`@mui/material` ^7.3). Read `.claude/skills/material-ui-styling/AGENTS.md` first for the official styling decision tree (`sx` → `styled` → theme → global).
 
 ## Styling priority (narrowest scope first)
 

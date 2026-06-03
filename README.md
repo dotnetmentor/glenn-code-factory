@@ -210,7 +210,7 @@ After import, run publish + subdomain steps in [`docs/operator-setup.md`](docs/o
 
 ```bash
 git clone <your-repo-url>
-cd agent-template   # or your fork name
+cd glenn-code-factory   # or your fork name
 ```
 
 ### 2. Environment file
@@ -264,7 +264,7 @@ See [Shared: local control plane](#shared-local-control-plane) for what this sta
 3. Request OTP — with `Email__Provider=Console`, the code is printed in the **API terminal** (not sent by email)
 4. Verify OTP → you receive a JWT and land as SuperAdmin
 
-The API seeds the bootstrap SuperAdmin on every startup when `Bootstrap__SuperAdminEmail` is set. You can also run `npm run create-admin` to register an additional admin via the API.
+The API seeds the bootstrap SuperAdmin on every startup when `Bootstrap__SuperAdminEmail` is set. Additional admins can be invited from **Super Admin → Users** once you're logged in.
 
 ---
 
@@ -279,14 +279,15 @@ The API seeds the bootstrap SuperAdmin on every startup when `Bootstrap__SuperAd
 │   │   └── src/applications/ # super-admin · workspace
 │   ├── daemon/               # Agent runtime (Cursor SDK, SignalR, bootstrap, tools)
 │   └── local-db/             # Docker Compose for Postgres
-├── .claude/skills/           # Agent skills (Orval, SignalR, runtime deploy, …)
+├── .agents/skills/           # Agent skills (Orval, SignalR, runtime deploy, …) — .claude/skills symlinks here
 ├── scripts/                  # setup, swagger gen, daemon publish, migrations
 ├── docs/                     # operator-setup.md (canonical), runtime-volume-layout.md
 ├── Dockerfile                # Production API + bundled frontend
 ├── Dockerfile.runtime-base   # Fly agent runtime machine image
 ├── render.yaml               # Render.com blueprint (self-host)
 ├── .env.example              # All env vars documented
-└── CLAUDE.md                 # Instructions for AI coding agents
+├── AGENTS.md                 # Instructions for AI coding agents (shared)
+└── CLAUDE.md                 # Claude Code entry point — imports AGENTS.md
 ```
 
 Backend conventions: [`packages/dotnet-api/CLAUDE.md`](packages/dotnet-api/CLAUDE.md)
@@ -368,6 +369,8 @@ After blueprint deploy, set secret env vars in the Render dashboard (`SystemSett
 
 **GitHub Actions (auto-publish on `main`):** set `CiPublish__ApiKey` on Render (`openssl rand -base64 48`), then add GitHub secrets `CONTROL_PLANE_API` (your Render URL) and `CONTROL_PLANE_PUBLISH_API_KEY` (same value). CI talks to the API only — no Postgres access. Fly registry login uses `GET /api/ci/registry-credentials` (returns the org `Fly:ApiToken` from System Settings).
 
+**Forking to your own Fly app:** the runtime base image defaults to `glenn-runtime-base`. To publish under your own name without editing source, set GitHub repository **variables** `RUNTIME_IMAGE_NAME` and `RUNTIME_IMAGE_REGISTRY` (used by the `Runtime Base Image` workflow), the `RuntimeImages:DefaultImageName` config / `VITE_RUNTIME_IMAGE_REGISTRY` build var for the UI, or pass `APP=… IMAGE_NAME=… REGISTRY=…` to the publish scripts.
+
 **CiPublish key hygiene (required):** that API key can publish daemon bundles, register runtime images (auto-activated as the spawn target), and read the Fly PAT for registry push. Store it only in GitHub **protected** environments/secrets on `main`, rotate `CiPublish__ApiKey` and `Fly:ApiToken` together if it leaks, and use `workflow_dispatch` with `force` when you intentionally need to republish a commit that already exists in the catalog.
 
 **Note:** SignalR uses an in-memory backplane — run **one instance** unless you add Redis.
@@ -408,7 +411,7 @@ End-to-end checklist: [How to set up end-to-end](#how-to-set-up-end-to-end). Do 
 
 ## For AI coding agents
 
-See [`CLAUDE.md`](CLAUDE.md) for build conventions, subagent delegation, Orval patterns, and the skills index.
+See [`AGENTS.md`](AGENTS.md) for build conventions, subagent delegation, Orval patterns, and the skills index. It's shared across tools — Claude Code reads [`CLAUDE.md`](CLAUDE.md) (which imports `AGENTS.md`); Cursor and other agents read `AGENTS.md` directly.
 
 On a managed platform, spec + kanban workflow is injected via `packages/daemon/src/harness/`.
 

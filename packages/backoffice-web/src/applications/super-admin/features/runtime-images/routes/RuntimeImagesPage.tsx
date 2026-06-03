@@ -30,8 +30,9 @@ import {
 } from '../../../../../api/queries-commands'
 import { RegisteredImagesTable } from '../components/RegisteredImagesTable'
 import { RegistryTagsTable } from '../components/RegistryTagsTable'
+import { RUNTIME_IMAGE_REGISTRY, RUNTIME_IMAGE_NAME } from '../runtimeRegistry'
 
-const REGISTRY = 'registry.fly.io/glenn-runtime-base'
+const REGISTRY = RUNTIME_IMAGE_REGISTRY
 
 interface SnackState {
   open: boolean
@@ -83,9 +84,12 @@ export function RuntimeImagesPage() {
   const registeredQuery = useGetApiAdminRuntimeImages(undefined, {
     query: { staleTime: 30_000 },
   })
-  const registryQuery = useGetApiAdminRuntimeImagesRegistryTags(undefined, {
-    query: { refetchOnWindowFocus: false, staleTime: 60_000 },
-  })
+  const registryQuery = useGetApiAdminRuntimeImagesRegistryTags(
+    { imageName: RUNTIME_IMAGE_NAME },
+    {
+      query: { refetchOnWindowFocus: false, staleTime: 60_000 },
+    },
+  )
 
   const registeredImages = registeredQuery.data?.items ?? []
   const registryTags = registryQuery.data ?? []
@@ -102,7 +106,9 @@ export function RuntimeImagesPage() {
     queryClient.invalidateQueries({ queryKey: getGetApiAdminRuntimeImagesQueryKey() })
   const invalidateRegistry = () =>
     queryClient.invalidateQueries({
-      queryKey: getGetApiAdminRuntimeImagesRegistryTagsQueryKey(),
+      queryKey: getGetApiAdminRuntimeImagesRegistryTagsQueryKey({
+        imageName: RUNTIME_IMAGE_NAME,
+      }),
     })
 
   const statusMutation = usePatchApiAdminRuntimeImagesIdStatus({

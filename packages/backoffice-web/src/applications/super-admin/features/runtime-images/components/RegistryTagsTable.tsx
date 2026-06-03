@@ -11,6 +11,7 @@ import { DataGrid } from '@mui/x-data-grid'
 import type { GridColDef } from '@mui/x-data-grid'
 import { formatDistanceToNow } from 'date-fns'
 import { RegistryTagDto } from '../../../../../api/queries-commands'
+import { RUNTIME_IMAGE_REGISTRY } from '../runtimeRegistry'
 
 interface RegistryTagsTableProps {
   rows: RegistryTagDto[]
@@ -203,7 +204,7 @@ export function RegistryTagsTable({
                     fontSize: '0.8rem',
                   }}
                 >
-                  registry.fly.io/glenn-runtime-base
+                  {RUNTIME_IMAGE_REGISTRY}
                 </Box>{' '}
                 yet.
               </Typography>

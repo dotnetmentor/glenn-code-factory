@@ -579,7 +579,7 @@ describe('SupervisordController.reconcileServices', () => {
         DATABASE_URL: 'Host=localhost;Port=43594;Database=app;Username=postgres',
         SystemSettings__EncryptionKey: 'GK6tTahlL+iG0r7oNQbd+7cGGic+9f9mILDtHMLSQV0=',
         Jwt__Key: 'vkKmnGRt+I4GqAq1JoZYDA/xUCc6WNjUuh4qKtFkkHutJ4yNYOw+I5cvTlaz5iuI',
-        Bootstrap__SuperAdminEmail: 'william.holmberg@dotnetmentor.se',
+        Bootstrap__SuperAdminEmail: 'admin@example.com',
         Runtime__PublicApiUrl: 'http://localhost:5338',
       },
     })
