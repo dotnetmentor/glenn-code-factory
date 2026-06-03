@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
+  Badge,
   Box,
   IconButton,
   Tooltip,
@@ -11,6 +12,7 @@ import MenuIcon from '@mui/icons-material/Menu'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { useQueryClient } from '@tanstack/react-query'
 import { ProjectSettingsDrawer, type ProjectSettingsTab } from '../../project-settings'
+import { useProjectEnvStatusSummary } from '../../project-settings/tabs/env/useProjectEnvStatusSummary'
 import {
   RuntimeState,
   getGetApiConversationsIdQueryKey,
@@ -287,6 +289,11 @@ export function ChatChrome({
   // we delegate to it and skip rendering our own drawer to avoid two
   // independent dialogs sharing the same surface. The local-state path
   // remains the fallback for standalone / smoke-test callers.
+  // Cross-branch env health — drives a dot on the settings cog so a missing
+  // required var is visible without opening the drawer (and on any branch, not
+  // just the one in view).
+  const envStatus = useProjectEnvStatusSummary(projectId)
+
   const isSettingsLifted = onOpenSettings !== undefined
   const [localSettingsOpen, setLocalSettingsOpen] = useState(false)
   const [localSettingsInitialTab, setLocalSettingsInitialTab] =
@@ -580,27 +587,49 @@ export function ChatChrome({
           surfaced from the bottom tab bar in the canvas instead, so we don't
           paint two entry points fighting for the same 375px-wide strip. */}
       {!hideSettingsCog && (
-        <Tooltip title="Project settings">
-          <IconButton
-            size="small"
-            aria-label="Project settings"
-            onClick={() => openSettings('general')}
-            sx={{
-              // Hold the cog at its intrinsic 30px size so a tight chrome (a
-              // long conversation title plus a wide RuntimePill) can't squeeze
-              // it to 0 width and visually float it past the chat panel's
-              // right edge.
-              flexShrink: 0,
-              color: tokens.textMuted,
-              p: 0.75,
-              '&:hover': {
-                color: tokens.textPrimary,
-                backgroundColor: tokens.chipHoverBg,
-              },
-            }}
+        <Tooltip
+          title={
+            envStatus.hasAnyMissing
+              ? `Project settings — required variables missing on ${envStatus.branchesWithMissing} branch${envStatus.branchesWithMissing === 1 ? '' : 'es'}`
+              : 'Project settings'
+          }
+        >
+          <Badge
+            color="error"
+            variant="dot"
+            overlap="circular"
+            invisible={!envStatus.hasAnyMissing}
+            // Tuck the dot just inside the cog's top-right so it reads as a
+            // status on the gear, not a separate control.
+            sx={{ '& .MuiBadge-badge': { right: 5, top: 5 } }}
           >
-            <SettingsIcon sx={{ fontSize: 18 }} />
-          </IconButton>
+            <IconButton
+              size="small"
+              aria-label={
+                envStatus.hasAnyMissing
+                  ? 'Project settings (required variables missing)'
+                  : 'Project settings'
+              }
+              onClick={() =>
+                openSettings(envStatus.hasAnyMissing ? 'environment' : 'general')
+              }
+              sx={{
+                // Hold the cog at its intrinsic 30px size so a tight chrome (a
+                // long conversation title plus a wide RuntimePill) can't squeeze
+                // it to 0 width and visually float it past the chat panel's
+                // right edge.
+                flexShrink: 0,
+                color: tokens.textMuted,
+                p: 0.75,
+                '&:hover': {
+                  color: tokens.textPrimary,
+                  backgroundColor: tokens.chipHoverBg,
+                },
+              }}
+            >
+              <SettingsIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Badge>
         </Tooltip>
       )}
 

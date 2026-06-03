@@ -13095,6 +13095,86 @@
         }
       }
     },
+    "/api/projects/{projectId}/secrets/status-summary": {
+      "get": {
+        "tags": [
+          "ProjectSecrets"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectEnvStatusSummaryResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectEnvStatusSummaryResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectEnvStatusSummaryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{projectId}/secrets/{key}": {
       "put": {
         "tags": [
@@ -24488,6 +24568,35 @@
         ],
         "type": "string"
       },
+      "BranchEnvMissingSummary": {
+        "required": [
+          "branchId",
+          "branchName",
+          "missingCount",
+          "missingKeys"
+        ],
+        "type": "object",
+        "properties": {
+          "branchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": "string"
+          },
+          "missingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "missingKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "BranchEnvVarItem": {
         "required": [
           "isSecret",
@@ -29597,6 +29706,31 @@
           "modelSlug": {
             "type": "string",
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectEnvStatusSummaryResponse": {
+        "required": [
+          "branches",
+          "branchesWithMissing",
+          "requiredCount"
+        ],
+        "type": "object",
+        "properties": {
+          "requiredCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "branchesWithMissing": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "branches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BranchEnvMissingSummary"
+            }
           }
         },
         "additionalProperties": false

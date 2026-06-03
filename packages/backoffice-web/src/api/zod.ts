@@ -2924,6 +2924,22 @@ export const postApiProjectsProjectIdSecretsBody = zod.object({
 })
 
 
+export const getApiProjectsProjectIdSecretsStatusSummaryParams = zod.object({
+  "projectId": zod.uuid()
+})
+
+export const getApiProjectsProjectIdSecretsStatusSummaryResponse = zod.object({
+  "requiredCount": zod.number(),
+  "branchesWithMissing": zod.number(),
+  "branches": zod.array(zod.object({
+  "branchId": zod.uuid(),
+  "branchName": zod.string(),
+  "missingCount": zod.number(),
+  "missingKeys": zod.array(zod.string())
+}))
+})
+
+
 export const putApiProjectsProjectIdSecretsKeyParams = zod.object({
   "projectId": zod.uuid(),
   "key": zod.string()
