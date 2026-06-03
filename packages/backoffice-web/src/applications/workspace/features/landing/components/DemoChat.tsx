@@ -138,9 +138,10 @@ export function DemoChat({ state }: { state: MovieState }) {
         </IconButton>
       </Stack>
 
-      {/* Transcript */}
-      <Box ref={scrollRef} sx={{ flex: 1, overflowY: 'auto', px: 2, py: 2 }}>
-        <Stack spacing={1.5}>
+      {/* Transcript — vertically centered while short (margin-auto), and still
+          scrolls to the latest message once it overflows. */}
+      <Box ref={scrollRef} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 2, py: 2, display: 'flex', flexDirection: 'column' }}>
+        <Stack spacing={1.5} sx={{ my: 'auto' }}>
           {state.chat.map((item: ChatItem, i) => {
             if (item.kind === 'tool') {
               return <ToolChip key={i} label={item.label} detail={item.detail} tone={item.tone} />
