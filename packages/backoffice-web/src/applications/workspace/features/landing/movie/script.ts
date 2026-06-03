@@ -71,66 +71,66 @@ export const CINEMATIC_SERIF =
 const REPO_AT = 1000
 const TYPE_START = 2600
 const TYPE_END = 5800
-export const FINALE_AT = 30800
+export const FINALE_AT = 33600
 
 // ── Chat transcript ──────────────────────────────────────────────────────────
 
 export const CHAT_ITEMS: ChatItem[] = [
   { kind: 'bubble', at: TYPE_START, role: 'user', text: USER_MESSAGE },
   { kind: 'bubble', at: 6400, role: 'assistant', text: 'Let me look at your repo first…' },
-  { kind: 'tool', at: 7000, label: 'Analyzing repository', detail: 'detecting stack', tone: 'default' },
+  { kind: 'tool', at: 7200, label: 'Analyzing repository', detail: 'detecting stack', tone: 'default' },
   {
     kind: 'bubble',
-    at: 8400,
+    at: 8600,
     role: 'assistant',
     text: 'Looks like a .NET API, a React frontend, and Postgres. I’ll spin those up in the sandbox.',
   },
-  { kind: 'bubble', at: 11900, role: 'assistant', text: 'Sandbox is up and running. Let’s build. 🚀' },
-  { kind: 'tool', at: 13000, label: 'Writing spec', detail: 'Waitlist Landing', tone: 'default' },
-  { kind: 'bubble', at: 17600, role: 'assistant', text: 'Spec accepted — breaking it into tasks.' },
-  { kind: 'tool', at: 18300, label: 'WaitlistForm.tsx', detail: 'email + submit', tone: 'default' },
-  { kind: 'tool', at: 19300, label: 'POST /api/waitlist', detail: 'persist signup', tone: 'default' },
-  { kind: 'bubble', at: 23200, role: 'assistant', text: 'Running it in the sandbox to check it works…' },
-  { kind: 'tool', at: 24400, label: 'Preview', detail: 'empty email slipped through', tone: 'warn' },
-  { kind: 'tool', at: 26000, label: 'Fix', detail: 'added email validation', tone: 'success' },
-  { kind: 'bubble', at: 27200, role: 'assistant', text: 'Fixed and verified. Here it is — live. Try it 👇' },
+  { kind: 'bubble', at: 14800, role: 'assistant', text: 'Sandbox is up and running. Let’s build. 🚀' },
+  { kind: 'tool', at: 15800, label: 'Writing spec', detail: 'Waitlist Landing', tone: 'default' },
+  { kind: 'bubble', at: 20800, role: 'assistant', text: 'Spec accepted — breaking it into tasks.' },
+  { kind: 'tool', at: 21500, label: 'WaitlistForm.tsx', detail: 'email + submit', tone: 'default' },
+  { kind: 'tool', at: 22500, label: 'POST /api/waitlist', detail: 'persist signup', tone: 'default' },
+  { kind: 'bubble', at: 26200, role: 'assistant', text: 'Running it in the sandbox to check it works…' },
+  { kind: 'tool', at: 27400, label: 'Preview', detail: 'empty email slipped through', tone: 'warn' },
+  { kind: 'tool', at: 29000, label: 'Fix', detail: 'added email validation', tone: 'success' },
+  { kind: 'bubble', at: 30200, role: 'assistant', text: 'Fixed and verified. Here it is — live. Try it 👇' },
 ]
 
 // ── Services tab (the runtime-spec beat) ───────────────────────────────────────
 
 export const SERVICES: ServiceScript[] = [
-  { id: 'api', label: '.NET API', detail: 'dotnet · :5338', at: 9400 },
-  { id: 'web', label: 'React (Vite)', detail: 'node · :5173', at: 10300 },
-  { id: 'db', label: 'Postgres', detail: 'database · :5432', at: 11200 },
+  { id: 'api', label: '.NET API', detail: 'dotnet · :5338', at: 11800 },
+  { id: 'web', label: 'React (Vite)', detail: 'node · :5173', at: 13000 },
+  { id: 'db', label: 'Postgres', detail: 'database · :5432', at: 14200 },
 ]
 
 // ── Spec tab ───────────────────────────────────────────────────────────────
 
 export const SPEC_TITLE = 'Waitlist Landing'
 export const SPEC_LINES: Array<{ at: number; text: string }> = [
-  { at: 14200, text: 'Hero with a one-line pitch' },
-  { at: 15000, text: 'Email capture + “what would you build?”' },
-  { at: 15800, text: 'Persist signups to the database' },
-  { at: 16600, text: 'Validate email before accepting' },
+  { at: 16800, text: 'Hero with a one-line pitch' },
+  { at: 17600, text: 'Email capture + “what would you build?”' },
+  { at: 18400, text: 'Persist signups to the database' },
+  { at: 19200, text: 'Validate email before accepting' },
 ]
-export const SPEC_ACCEPTED_AT = 17300
+export const SPEC_ACCEPTED_AT = 20000
 
 // ── Kanban tab ───────────────────────────────────────────────────────────────
 
 export const KANBAN_CARDS: KanbanCardScript[] = [
-  { id: 'form', title: 'Waitlist form UI', moves: [[18200, 'backlog'], [18800, 'doing'], [20400, 'done']] },
-  { id: 'api', title: 'POST /api/waitlist', moves: [[18200, 'backlog'], [19600, 'doing'], [21200, 'done']] },
-  { id: 'validate', title: 'Email validation', moves: [[18200, 'backlog'], [20800, 'doing'], [22800, 'done']] },
+  { id: 'form', title: 'Waitlist form UI', moves: [[21000, 'backlog'], [21600, 'doing'], [23200, 'done']] },
+  { id: 'api', title: 'POST /api/waitlist', moves: [[21000, 'backlog'], [22400, 'doing'], [24000, 'done']] },
+  { id: 'validate', title: 'Email validation', moves: [[21000, 'backlog'], [23600, 'doing'], [25600, 'done']] },
 ]
 
 // ── Tab switches ──────────────────────────────────────────────────────────────
 
 const TAB_SWITCHES: Array<[number, AppTab]> = [
   [0, 'preview'],
-  [8700, 'services'],
-  [13400, 'spec'],
-  [18200, 'kanban'],
-  [23400, 'preview'],
+  [10600, 'services'],
+  [16000, 'spec'],
+  [21000, 'kanban'],
+  [26200, 'preview'],
 ]
 
 // ── Camera focus track ─────────────────────────────────────────────────────────
@@ -138,9 +138,9 @@ const TAB_SWITCHES: Array<[number, AppTab]> = [
 const FOCUS_TRACK: Array<[number, MovieFocus]> = [
   [0, 'overview'],
   [2000, 'chat'], // lean in as the request types + repo analysis
-  [8700, 'app'], // pan to watch services boot, then spec / tasks
-  [23600, 'chat'], // pan back to watch the agent test & self-correct
-  [27600, 'app'], // settle on the live preview for the finale
+  [10600, 'app'], // dwell on the detected-stack message, then pan to services
+  [26400, 'chat'], // pan back to watch the agent test & self-correct
+  [30400, 'app'], // settle on the live preview for the finale
 ]
 
 // ── Captions (the "explaining parts") ─────────────────────────────────────────
@@ -148,12 +148,12 @@ const FOCUS_TRACK: Array<[number, MovieFocus]> = [
 const CAPTIONS: Array<[number, string]> = [
   [REPO_AT, 'Point GlennCode at any repo — or start fresh.'],
   [TYPE_START, 'Just describe what you want.'],
-  [7000, 'First it reads your repo to learn the stack.'],
-  [8700, 'It detects your services and spins them up in a sandbox.'],
-  [13400, 'Then it writes a spec, so you both agree on the plan.'],
-  [18200, 'It works the board — one task at a time.'],
-  [23400, 'It runs your project in the sandbox and tests it itself.'],
-  [23600, 'Short feedback loops: it catches its own bugs and fixes them.'],
+  [7200, 'First it reads your repo to learn the stack.'],
+  [10600, 'It detects your services and spins them up in a sandbox.'],
+  [16000, 'Then it writes a spec, so you both agree on the plan.'],
+  [21000, 'It works the board — one task at a time.'],
+  [26200, 'It runs your project in the sandbox and tests it itself.'],
+  [26400, 'Short feedback loops: it catches its own bugs and fixes them.'],
   [FINALE_AT, 'This waitlist is real — built live, running in a sandbox. Sign up right inside it.'],
 ]
 
@@ -227,8 +227,8 @@ export function deriveMovie(elapsed: number): MovieState {
   }
 
   let preview: PreviewPhase = 'idle'
-  if (elapsed >= 27300) preview = 'live'
-  else if (elapsed >= 23400) preview = 'building'
+  if (elapsed >= 30300) preview = 'live'
+  else if (elapsed >= 26200) preview = 'building'
 
   const caption = lastBefore(CAPTIONS, elapsed, CAPTIONS[0][1])
   const focus = lastBefore(FOCUS_TRACK, elapsed, 'overview')
