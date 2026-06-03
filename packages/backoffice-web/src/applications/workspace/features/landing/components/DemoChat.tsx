@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import { Box, IconButton, Stack, Typography } from '@mui/material'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import SettingsIcon from '@mui/icons-material/Settings'
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded'
+import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import { RuntimeState } from '@/api/queries-commands'
 import {
   surfaceTokens,
@@ -10,9 +12,10 @@ import {
   workspaceFontFamily,
   semanticTokens,
   workspaceChromeHeight,
+  workspaceShadows,
 } from '../../../shared/designTokens'
 import { StatusDot } from '../../../shared/primitives'
-import type { ChatItem, MovieState } from '../movie/script'
+import { MODEL_NAME, type ChatItem, type MovieState } from '../movie/script'
 
 const SANS = workspaceFontFamily.sans
 const MONO = workspaceFontFamily.mono
@@ -160,17 +163,88 @@ export function DemoChat({ state }: { state: MovieState }) {
         </Stack>
       </Box>
 
-      {/* Composer (static, decorative) */}
-      <Box sx={{ flexShrink: 0, p: 1.5, borderTop: `1px solid ${surfaceTokens.hairline}` }}>
+      {/* Composer with a Cursor-SDK model picker (decorative; the opening beat
+          "selects" Composer 2.5). */}
+      <Box sx={{ flexShrink: 0, p: 1.5, borderTop: `1px solid ${surfaceTokens.hairline}`, position: 'relative' }}>
+        {/* Opening-beat model menu */}
+        {state.modelMenuOpen && (
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 'calc(100% - 10px)',
+              left: 18,
+              zIndex: 6,
+              minWidth: 220,
+              p: 0.75,
+              borderRadius: 1.5,
+              backgroundColor: surfaceTokens.surface,
+              border: `1px solid ${surfaceTokens.hairline}`,
+              boxShadow: workspaceShadows.menu,
+              animation: 'wsMenu 160ms ease',
+              '@keyframes wsMenu': { from: { opacity: 0, transform: 'translateY(4px)' }, to: { opacity: 1 } },
+            }}
+          >
+            <Typography sx={{ fontFamily: MONO, fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: surfaceTokens.textFaint, px: 1, py: 0.5 }}>
+              Cursor SDK
+            </Typography>
+            {[
+              { name: MODEL_NAME, selected: true },
+              { name: 'Composer 2', selected: false },
+              { name: 'Auto', selected: false },
+            ].map((m) => (
+              <Stack
+                key={m.name}
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                sx={{
+                  px: 1, py: 0.75, borderRadius: 1,
+                  backgroundColor: m.selected ? chromeTokens.accentSurface : 'transparent',
+                }}
+              >
+                <AutoAwesomeRoundedIcon sx={{ fontSize: 13, color: m.selected ? surfaceTokens.textPrimary : surfaceTokens.textFaint }} />
+                <Typography sx={{ flex: 1, fontFamily: SANS, fontSize: '0.82rem', fontWeight: m.selected ? 600 : 500, color: m.selected ? surfaceTokens.textPrimary : surfaceTokens.textMuted }}>
+                  {m.name}
+                </Typography>
+                {m.selected && <CheckRoundedIcon sx={{ fontSize: 14, color: surfaceTokens.textPrimary }} />}
+              </Stack>
+            ))}
+          </Box>
+        )}
+
         <Box
           sx={{
-            px: 1.75,
+            px: 1.5,
             py: 1.25,
             borderRadius: 2,
             backgroundColor: workspaceColors.inputBg,
             border: `1px solid ${surfaceTokens.hairline}`,
           }}
         >
+          {/* Toolbar: the model pill (always shows the selected model) */}
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={0.5}
+            sx={{
+              alignSelf: 'flex-start',
+              width: 'fit-content',
+              px: 0.9,
+              py: 0.4,
+              mb: 1,
+              borderRadius: 1,
+              backgroundColor: workspaceColors.chipBg,
+              border: `1px solid ${state.modelMenuOpen ? chromeTokens.accentBorder : surfaceTokens.hairline}`,
+              transition: 'border-color 200ms ease',
+            }}
+          >
+            <AutoAwesomeRoundedIcon sx={{ fontSize: 13, color: surfaceTokens.textMuted }} />
+            <Typography sx={{ fontFamily: SANS, fontSize: '0.76rem', fontWeight: 600, color: surfaceTokens.textPrimary }}>
+              {MODEL_NAME}
+            </Typography>
+            <KeyboardArrowDownIcon sx={{ fontSize: 14, color: surfaceTokens.textFaint }} />
+          </Stack>
+
           <Typography sx={{ fontFamily: SANS, fontSize: '0.875rem', color: surfaceTokens.textFaint }}>
             {state.repoConnected ? 'Describe what you want to build…' : 'Connecting your repo…'}
           </Typography>

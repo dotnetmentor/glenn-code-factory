@@ -116,9 +116,15 @@ function ServicesView({ state }: { state: MovieState }) {
         <Typography sx={{ fontFamily: SANS, fontWeight: 700, fontSize: '1.1rem', letterSpacing: '-0.01em', color: surfaceTokens.textPrimary }}>
           Sandbox services
         </Typography>
-        <Typography sx={{ fontFamily: SANS, fontSize: '0.8rem', color: surfaceTokens.textFaint, mt: 0.25, mb: 2 }}>
-          Detected from your repo
-        </Typography>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.4, mb: 2 }}>
+          <Typography sx={{ fontFamily: SANS, fontSize: '0.8rem', color: surfaceTokens.textFaint }}>
+            Detected from your repo
+          </Typography>
+          <Box sx={{ width: 3, height: 3, borderRadius: '50%', backgroundColor: surfaceTokens.textFaint }} />
+          <Typography sx={{ fontFamily: MONO, fontSize: '0.72rem', color: surfaceTokens.textMuted }}>
+            Fly.io micro-VM · boots in seconds
+          </Typography>
+        </Stack>
         <Stack spacing={1}>
           {state.services.map((s) => (
             <Stack
