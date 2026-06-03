@@ -37,10 +37,10 @@ const MIN_VOLUME_GB = 1
 const MAX_VOLUME_GB = 500
 const PERFORMANCE_MIN_RAM_PER_CPU = 2048
 
-const DEFAULT_CPU_KIND: CpuKind = 'shared'
-const DEFAULT_CPUS = 1
-const DEFAULT_MEMORY_MB = 2048
-const DEFAULT_VOLUME_GB = 5
+const DEFAULT_CPU_KIND: CpuKind = 'performance'
+const DEFAULT_CPUS = 2
+const DEFAULT_MEMORY_MB = 4096
+const DEFAULT_VOLUME_GB = 10
 
 export interface BranchRuntimeHardwareSnapshot {
   branchId: string

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Source.Infrastructure;
@@ -12,9 +13,11 @@ using Source.Infrastructure;
 namespace api.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260602192606_AddWaitlistSignup")]
+    partial class AddWaitlistSignup
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2200,12 +2203,12 @@ namespace api.Migrations
                     b.Property<int>("RuntimeCpus")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(2);
+                        .HasDefaultValue(1);
 
                     b.Property<int>("RuntimeMemoryMb")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(4096);
+                        .HasDefaultValue(2048);
 
                     b.Property<int>("RuntimeVolumeSizeGb")
                         .ValueGeneratedOnAdd()
@@ -2600,12 +2603,12 @@ namespace api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)")
-                        .HasDefaultValue("performance");
+                        .HasDefaultValue("shared");
 
                     b.Property<int>("Cpus")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(2);
+                        .HasDefaultValue(1);
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -2661,7 +2664,7 @@ namespace api.Migrations
                     b.Property<int>("MemoryMb")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(4096);
+                        .HasDefaultValue(2048);
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");

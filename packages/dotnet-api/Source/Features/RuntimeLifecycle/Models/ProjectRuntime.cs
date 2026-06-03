@@ -105,13 +105,13 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     /// (not just read live from the project) so the spec that booted this
     /// machine is always auditable, even after the project's defaults move on.
     /// </summary>
-    public string CpuKind { get; set; } = "shared";
+    public string CpuKind { get; set; } = Project.DefaultRuntimeCpuKind;
 
     /// <summary>vCPU count for this runtime's machine. Snapshotted from <c>Project.RuntimeCpus</c>.</summary>
-    public int Cpus { get; set; } = 1;
+    public int Cpus { get; set; } = Project.DefaultRuntimeCpus;
 
     /// <summary>RAM in MiB for this runtime's machine. Snapshotted from <c>Project.RuntimeMemoryMb</c>.</summary>
-    public int MemoryMb { get; set; } = 2048;
+    public int MemoryMb { get; set; } = Project.DefaultRuntimeMemoryMb;
 
     /// <summary>
     /// Per-runtime override of the global idle-suspend threshold, in minutes.
