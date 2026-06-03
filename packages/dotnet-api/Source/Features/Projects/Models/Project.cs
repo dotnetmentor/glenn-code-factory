@@ -38,8 +38,8 @@ public class Project : Entity, IAuditable, ISoftDelete
     public int RuntimeVolumeSizeGb { get; set; } = DefaultRuntimeVolumeSizeGb;
 
     public const string DefaultRuntimeCpuKind = "performance";
-    public const int DefaultRuntimeCpus = 1;
-    public const int DefaultRuntimeMemoryMb = 2048;
+    public const int DefaultRuntimeCpus = 2;
+    public const int DefaultRuntimeMemoryMb = 4096;
     public const int DefaultRuntimeVolumeSizeGb = 10;
     public const int MinRuntimeCpus = 1;
     public const int MaxRuntimeCpus = 16;

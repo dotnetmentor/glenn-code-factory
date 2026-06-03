@@ -562,8 +562,8 @@ public class ApplicationDbContext : IdentityDbContext<User>
 
             // Per-project runtime spec — Fly machine sizing used when spawning
             // any *new* ProjectRuntime under this project. HasDefaultValue makes
-            // the EF migration backfill existing rows with the conservative
-            // shared-cpu-1x / 2 GiB / 5 GiB tuple, matching the historical
+            // the EF migration backfill existing rows with the historical
+            // performance-2x / 4 GiB tuple for projects that never set a spec,
             // MachineGuest() defaults so nothing changes for projects that
             // haven't opted into a custom spec yet.
             entity.Property(e => e.RuntimeCpuKind)
@@ -933,13 +933,13 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.Property(e => e.CpuKind)
                 .IsRequired()
                 .HasMaxLength(16)
-                .HasDefaultValue("shared");
+                .HasDefaultValue(Project.DefaultRuntimeCpuKind);
             entity.Property(e => e.Cpus)
                 .IsRequired()
-                .HasDefaultValue(1);
+                .HasDefaultValue(Project.DefaultRuntimeCpus);
             entity.Property(e => e.MemoryMb)
                 .IsRequired()
-                .HasDefaultValue(2048);
+                .HasDefaultValue(Project.DefaultRuntimeMemoryMb);
 
             // "Find the runtime for project X" — dominant lookup.
             entity.HasIndex(e => e.ProjectId)
