@@ -7,6 +7,7 @@ import {
   workspaceFontFamily,
   semanticTokens,
 } from '../../../shared/designTokens'
+import { CINEMATIC_SERIF } from '../movie/script'
 
 const SANS = workspaceFontFamily.sans
 
@@ -49,11 +50,11 @@ export function LiveWaitlistForm() {
   return (
     <Stack spacing={2.5} sx={{ width: '100%', maxWidth: 420, mx: 'auto', px: 3, py: 4 }}>
       <Box sx={{ textAlign: 'center' }}>
-        <Typography sx={{ fontFamily: SANS, fontWeight: 600, fontSize: '1.35rem', letterSpacing: '-0.02em', color: surfaceTokens.textPrimary }}>
-          Build software by describing it.
+        <Typography sx={{ fontFamily: CINEMATIC_SERIF, fontWeight: 400, fontSize: '2.1rem', lineHeight: 1.1, letterSpacing: '0.005em', color: surfaceTokens.textPrimary }}>
+          Shorten the feedback loop.
         </Typography>
-        <Typography sx={{ fontFamily: SANS, fontSize: '0.9rem', color: surfaceTokens.textMuted, mt: 0.75 }}>
-          Join the waitlist for early access.
+        <Typography sx={{ fontFamily: SANS, fontSize: '0.95rem', color: surfaceTokens.textMuted, mt: 1 }}>
+          Idea → running software → tested → shipped, in one place. Join the waitlist.
         </Typography>
       </Box>
 

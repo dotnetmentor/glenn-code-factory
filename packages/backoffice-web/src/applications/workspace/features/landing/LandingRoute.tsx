@@ -10,7 +10,7 @@ import {
   workspaceFontFamily,
 } from '../../shared/designTokens'
 import { useMovie } from './movie/useMovie'
-import type { MovieFocus } from './movie/script'
+import { CINEMATIC_SERIF, type MovieFocus } from './movie/script'
 import { DemoSidebar } from './components/DemoSidebar'
 import { DemoChat } from './components/DemoChat'
 import { DemoAppPanel } from './components/DemoAppPanel'
@@ -233,13 +233,13 @@ export function LandingRoute() {
           <Fade in key={state.caption} timeout={500}>
             <Typography
               sx={{
-                fontFamily: SANS,
-                fontSize: { xs: '1rem', md: '1.35rem' },
-                fontWeight: 500,
-                letterSpacing: '-0.01em',
-                lineHeight: 1.4,
-                color: 'rgba(255,255,255,0.94)',
-                maxWidth: 820,
+                fontFamily: CINEMATIC_SERIF,
+                fontSize: { xs: '1.25rem', md: '1.7rem' },
+                fontWeight: 400,
+                letterSpacing: '0.005em',
+                lineHeight: 1.35,
+                color: 'rgba(255,255,255,0.96)',
+                maxWidth: 860,
               }}
             >
               {state.caption}

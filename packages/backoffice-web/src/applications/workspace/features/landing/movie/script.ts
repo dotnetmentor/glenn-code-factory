@@ -61,6 +61,14 @@ export const FINALE_AT = 25600
 /** The line the visitor watches type itself in. */
 export const USER_MESSAGE = 'Build me a waitlist landing page for my new app.'
 
+/**
+ * Cinematic display serif for the landing's narration subtitles + finale
+ * headline (Instrument Serif, loaded in index.html). Falls back to a system
+ * serif so the cinematic treatment survives even where the CDN is blocked.
+ */
+export const CINEMATIC_SERIF =
+  "'Instrument Serif', 'Fraunces', Georgia, 'Times New Roman', serif"
+
 // ── Chat transcript ──────────────────────────────────────────────────────────
 
 export const CHAT_ITEMS: ChatItem[] = [
