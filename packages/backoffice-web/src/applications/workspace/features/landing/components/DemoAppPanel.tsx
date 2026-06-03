@@ -210,10 +210,13 @@ function PreviewChromeBar() {
   )
 }
 
-function PreviewView({ state }: { state: MovieState }) {
+function PreviewView({ state, bare = false }: { state: MovieState; bare?: boolean }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: workspaceColors.canvasBg }}>
-      <PreviewChromeBar />
+      {/* Browser chrome collapses away at the finale so the live document stands alone. */}
+      <Box sx={{ flexShrink: 0, maxHeight: bare ? 0 : workspaceChromeHeight, opacity: bare ? 0 : 1, overflow: 'hidden', transition: 'max-height 900ms ease, opacity 500ms ease' }}>
+        <PreviewChromeBar />
+      </Box>
       {/* Viewport */}
       <Box sx={{ flex: 1, overflowY: 'auto', display: 'grid', placeItems: 'center' }}>
         {state.preview === 'live' ? (
@@ -253,14 +256,19 @@ function PreviewView({ state }: { state: MovieState }) {
  * scripted by {@link MovieState}. Only the Preview tab's "live" state mounts a
  * real, interactive component.
  */
-export function DemoAppPanel({ state }: { state: MovieState }) {
+export function DemoAppPanel({ state, bare = false }: { state: MovieState; bare?: boolean }) {
+  // At the finale (`bare`) the tab strip collapses and the live preview document
+  // is all that remains — the same mounted form, now standing on its own.
+  const showPreview = bare || state.activeTab === 'preview'
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 }}>
-      <TabStrip active={state.activeTab} />
+      <Box sx={{ flexShrink: 0, maxHeight: bare ? 0 : workspaceChromeHeight, opacity: bare ? 0 : 1, overflow: 'hidden', transition: 'max-height 900ms ease, opacity 500ms ease' }}>
+        <TabStrip active={state.activeTab} />
+      </Box>
       <Box sx={{ flex: 1, minHeight: 0 }}>
-        {state.activeTab === 'spec' && <SpecView state={state} />}
-        {state.activeTab === 'kanban' && <KanbanView state={state} />}
-        {state.activeTab === 'preview' && <PreviewView state={state} />}
+        {!bare && state.activeTab === 'spec' && <SpecView state={state} />}
+        {!bare && state.activeTab === 'kanban' && <KanbanView state={state} />}
+        {showPreview && <PreviewView state={state} bare={bare} />}
       </Box>
     </Box>
   )

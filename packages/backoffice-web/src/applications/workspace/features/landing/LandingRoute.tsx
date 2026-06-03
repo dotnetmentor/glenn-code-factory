@@ -14,7 +14,6 @@ import type { MovieFocus } from './movie/script'
 import { DemoSidebar } from './components/DemoSidebar'
 import { DemoChat } from './components/DemoChat'
 import { DemoAppPanel } from './components/DemoAppPanel'
-import { LiveWaitlistForm } from './components/LiveWaitlistForm'
 
 const SANS = workspaceFontFamily.sans
 
@@ -41,11 +40,12 @@ function cameraTransform(focus: MovieFocus): string {
  * Public marketing landing at `/` for logged-out visitors. It looks and feels
  * like the real workspace IDE shell, then auto-plays a one-shot cinematic
  * "movie" of GlennCode building a waitlist landing page. A virtual camera zooms
- * to whatever the system is doing; at the finale every other element fades away
- * and the genuinely-live waitlist form takes center stage.
+ * to whatever the system is doing.
  *
- * See ./movie/script.ts for the choreography and ./components/LiveWaitlistForm
- * for the one real, wired-to-backend piece.
+ * At the finale the sidebar, chat, tab strip and browser chrome melt away while
+ * the **same live preview document** (the wired-to-backend waitlist form) expands
+ * and centers — one continuous element, not a separate hero. See ./movie/script.ts
+ * for the choreography and ./components/LiveWaitlistForm for the real piece.
  */
 export function LandingRoute() {
   const theme = useTheme()
@@ -54,9 +54,11 @@ export function LandingRoute() {
   const { state, replay } = useMovie()
   const finale = state.atFinale
 
-  // The camera only runs on wide viewports — on mobile the panels stack and a
-  // zoom would just clip them. Disabled at the finale (stage is fading out).
+  // Camera runs on wide viewports only; at the finale it eases back to neutral
+  // (scale 1) so the expanding preview panel maps to the real viewport.
   const transform = !isNarrow && !finale ? cameraTransform(state.focus) : 'none'
+
+  const shellOrNone = (on: boolean) => (on ? {} : workspacePanelShellSx)
 
   return (
     <Box
@@ -70,8 +72,8 @@ export function LandingRoute() {
         overflow: 'hidden',
       }}
     >
-      {/* ── Workspace stage (sidebar + chat + app panel), driven by the camera.
-          Fades + recedes at the finale so the waitlist can take over. ── */}
+      {/* ── Workspace stage. The camera transforms it; at the finale the camera
+          eases to neutral and the side panels collapse, leaving the preview. ── */}
       <Box
         sx={{
           position: 'absolute',
@@ -79,38 +81,36 @@ export function LandingRoute() {
           display: 'flex',
           flexDirection: 'row',
           transformOrigin: '0 0',
-          transform: finale ? 'scale(1.04)' : transform,
-          opacity: finale ? 0 : 1,
-          filter: finale ? 'blur(6px)' : 'none',
-          pointerEvents: finale ? 'none' : 'auto',
-          transition:
-            'transform 1100ms cubic-bezier(.22,.61,.36,1), opacity 700ms ease, filter 700ms ease',
+          transform,
+          // Slower, more luxurious camera moves (pan to spec + finale ease-out).
+          transition: 'transform 1500ms cubic-bezier(.22,.61,.36,1)',
           ...(!isNarrow && {
-            p: workspaceCanvasInset.desktopPadding,
-            gap: workspaceCanvasInset.panelGap,
+            p: finale ? 0 : workspaceCanvasInset.desktopPadding,
+            gap: finale ? 0 : workspaceCanvasInset.panelGap,
             [`@media (min-width: ${theme.breakpoints.values.lg}px)`]: {
-              gap: workspaceCanvasInset.panelGapLg,
+              gap: finale ? 0 : workspaceCanvasInset.panelGapLg,
             },
           }),
         }}
       >
-        {/* Sidebar — dims slightly when the camera is leaning into a panel. */}
+        {/* Sidebar — collapses to nothing at the finale. */}
         {!isNarrow && (
           <Box
             sx={{
-              width: workspaceSidebarWidth,
+              width: finale ? 0 : workspaceSidebarWidth,
               flexShrink: 0,
               height: '100%',
-              opacity: state.focus === 'overview' ? 1 : 0.5,
-              transition: 'opacity 600ms ease',
-              ...workspacePanelShellSx,
+              opacity: finale ? 0 : state.focus === 'overview' ? 1 : 0.5,
+              overflow: 'hidden',
+              transition: 'width 1400ms cubic-bezier(.22,.61,.36,1), opacity 700ms ease',
+              ...shellOrNone(finale),
             }}
           >
             <DemoSidebar />
           </Box>
         )}
 
-        {/* Right canvas: chat + app panel side by side */}
+        {/* Right canvas: chat + app panel */}
         <Box
           component="main"
           sx={{
@@ -119,73 +119,67 @@ export function LandingRoute() {
             height: '100%',
             display: 'flex',
             flexDirection: { xs: 'column', md: 'row' },
-            gap: isNarrow ? 0 : workspaceCanvasInset.panelGap,
+            gap: isNarrow || finale ? 0 : workspaceCanvasInset.panelGap,
             [`@media (min-width: ${theme.breakpoints.values.lg}px)`]: {
-              gap: workspaceCanvasInset.panelGapLg,
+              gap: finale ? 0 : workspaceCanvasInset.panelGapLg,
             },
           }}
         >
+          {/* Chat — collapses to nothing at the finale. */}
           <Box
             sx={{
-              flex: { xs: '0 0 auto', md: '0 0 40%' },
+              flexGrow: 0,
+              flexShrink: finale ? 1 : 0,
+              flexBasis: finale ? 0 : { xs: 'auto', md: '40%' },
+              width: finale ? 0 : undefined,
               minHeight: 0,
-              height: { xs: '45%', md: '100%' },
-              opacity: state.focus === 'app' ? 0.45 : 1,
-              transition: 'opacity 600ms ease',
-              ...workspacePanelShellSx,
+              height: { xs: finale ? 0 : '45%', md: '100%' },
+              opacity: finale ? 0 : state.focus === 'app' ? 0.45 : 1,
+              overflow: 'hidden',
+              transition: 'flex-basis 1400ms cubic-bezier(.22,.61,.36,1), width 1400ms cubic-bezier(.22,.61,.36,1), height 1400ms ease, opacity 700ms ease',
+              ...shellOrNone(finale),
             }}
           >
             <DemoChat state={state} />
           </Box>
+
+          {/* App panel — grows to fill at the finale; `bare` strips its chrome so
+              the live document is all that remains. */}
           <Box
             sx={{
               flex: 1,
               minWidth: 0,
               minHeight: 0,
-              height: { xs: '55%', md: '100%' },
-              opacity: state.focus === 'chat' ? 0.45 : 1,
-              transition: 'opacity 600ms ease',
-              ...workspacePanelShellSx,
+              height: { xs: finale ? '100%' : '55%', md: '100%' },
+              opacity: !finale && state.focus === 'chat' ? 0.45 : 1,
+              transition: 'opacity 700ms ease',
+              ...shellOrNone(finale),
             }}
           >
-            <DemoAppPanel state={state} />
+            <DemoAppPanel state={state} bare={finale} />
           </Box>
         </Box>
       </Box>
 
-      {/* ── Finale hero — full focus on the live waitlist. Fades in over the
-          receding stage; the form is the conversion. ── */}
+      {/* Run the demo again — fades in at the finale. */}
       <Box
         sx={{
           position: 'absolute',
-          inset: 0,
+          bottom: isNarrow ? 16 : 28,
+          left: 0,
+          right: 0,
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
           justifyContent: 'center',
-          px: 3,
+          zIndex: 18,
           opacity: finale ? 1 : 0,
-          transform: finale ? 'scale(1)' : 'scale(0.96)',
           pointerEvents: finale ? 'auto' : 'none',
-          transition: 'opacity 800ms ease 250ms, transform 800ms cubic-bezier(.22,.61,.36,1) 250ms',
+          transition: 'opacity 700ms ease 600ms',
         }}
       >
-        <Box
-          sx={{
-            width: '100%',
-            maxWidth: 480,
-            ...workspacePanelShellSx,
-            boxShadow: '0 30px 80px -20px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.06)',
-          }}
-        >
-          <LiveWaitlistForm />
-        </Box>
-
         <Button
           onClick={replay}
           startIcon={<ReplayRoundedIcon sx={{ fontSize: 16 }} />}
           sx={{
-            mt: 3,
             textTransform: 'none',
             fontFamily: SANS,
             fontSize: '0.82rem',
@@ -223,8 +217,7 @@ export function LandingRoute() {
         Log in
       </Button>
 
-      {/* Narrating caption — the "explaining parts". Hidden at the finale so the
-          waitlist owns the screen. */}
+      {/* Narrating caption — hidden at the finale so the waitlist owns the screen. */}
       <Box
         sx={{
           position: 'absolute',
