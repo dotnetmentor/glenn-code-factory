@@ -226,7 +226,7 @@ public class GithubInstallEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Callback_rejects_install_into_different_workspace()
+    public async Task Callback_redirects_with_friendly_conflict_when_install_belongs_to_another_workspace()
     {
         var alice = await RegisterUserAsync();
         var bob = await RegisterUserAsync();
@@ -245,9 +245,13 @@ public class GithubInstallEndpointsTests : IntegrationTestBase
         var c2 = NoFollowRedirectClient(authCookie: null);
         c2.DefaultRequestHeaders.Add("Cookie", $"gh_install_state={bState}");
         var response = await c2.GetAsync($"/api/github/install/callback?installation_id=999&state={Uri.EscapeDataString(bState)}");
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await response.Content.ReadAsStringAsync();
-        body.Should().Contain("different workspace");
+
+        // Not a raw 400 — the user is bounced back home with a clear, actionable
+        // snackbar (install=conflict + the conflicting account login).
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        var location = response.Headers.Location!.ToString();
+        location.Should().Contain("install=conflict");
+        location.Should().Contain("conflictAccount=shared");
     }
 
     // -----------------------------------------------------------------------

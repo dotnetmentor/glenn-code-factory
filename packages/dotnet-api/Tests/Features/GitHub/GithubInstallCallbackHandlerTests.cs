@@ -207,7 +207,7 @@ public class GithubInstallCallbackHandlerTests : HandlerTestBase
     }
 
     [Fact]
-    public async Task Handler_400_when_installation_already_belongs_to_another_workspace()
+    public async Task Handler_returns_friendly_conflict_when_installation_belongs_to_another_workspace()
     {
         var workspaceA = await SeedWorkspaceAsync(slug: "a-ws");
         var workspaceB = await SeedWorkspaceAsync(slug: "b-ws");
@@ -224,14 +224,22 @@ public class GithubInstallCallbackHandlerTests : HandlerTestBase
 
         var token = _state.Issue(workspaceB, TimeSpan.FromMinutes(5));
 
-        var handler = BuildHandler(out _);
+        var handler = BuildHandler(out var sync);
 
         var result = await handler.Handle(
             new HandleGithubInstallCallbackCommand(token, token, 99L, "install"),
             CancellationToken.None);
 
-        result.IsSuccess.Should().BeFalse();
-        result.Error.Should().Contain("different workspace");
+        // The install does NOT attach, but we surface a friendly, actionable
+        // conflict (named account + other workspace) so the controller can
+        // redirect the user home with a clear snackbar instead of a raw 400.
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Conflict.Should().BeTrue();
+        result.Value.ConflictAccountLogin.Should().Be("shared");
+        result.Value.ConflictWorkspaceName.Should().Be("a-ws");
+        result.Value.GithubInstallationId.Should().Be(Guid.Empty);
+        // No repo sync — nothing was attached to workspace B.
+        sync.VerifyNoOtherCalls();
     }
 
     [Fact]

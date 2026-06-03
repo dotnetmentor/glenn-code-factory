@@ -334,13 +334,17 @@ interface ConnectGitHubCardProps {
  * GitHub installations — without one the user literally cannot create a
  * project, so we want this to be impossible to miss without being noisy.
  *
- * <p>Deep-links to the workspace settings page; the Integrations section
- * lives there. We don't pre-select the Integrations tab via URL hash today
- * (the settings page renders all four sections stacked vertically), so the
- * user will scroll to find it — a future polish pass can add a {@code
- * #integrations} anchor and {@code scrollIntoView} on mount.</p>
+ * <p>The button starts the GitHub App install flow directly (a 302 to
+ * GitHub via {@code /api/workspaces/{slug}/github/install/start}) instead of
+ * routing through the settings page. Sending the user to settings first made
+ * them land on the General section and hunt for the Integrations card — one
+ * confusing hop for what should be a single, obvious action.</p>
  */
 function ConnectGitHubCard({ slug }: ConnectGitHubCardProps) {
+  const startInstall = () => {
+    window.location.href = `/api/workspaces/${encodeURIComponent(slug)}/github/install/start`
+  }
+
   return (
     <Box
       sx={{
@@ -401,8 +405,7 @@ function ConnectGitHubCard({ slug }: ConnectGitHubCardProps) {
         </Stack>
       </Stack>
       <Button
-        component={RouterLink}
-        to={`/w/${slug}/settings`}
+        onClick={startInstall}
         variant="pill" color="primary"
         endIcon={<ArrowForwardIcon sx={{ fontSize: 16 }} />}
         sx={{

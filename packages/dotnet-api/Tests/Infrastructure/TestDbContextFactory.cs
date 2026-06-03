@@ -1,6 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,6 +10,7 @@ using Source.Features.RuntimeLifecycle.Events;
 using Source.Features.RuntimeTokens.Services;
 using Source.Infrastructure;
 using Source.Infrastructure.Interceptors;
+using Source.Infrastructure.Services.Email;
 
 namespace Api.Tests.Infrastructure;
 
@@ -151,6 +153,17 @@ public static class TestDbContextFactory
         // first Encrypt/Decrypt — fans out to this handler through the wired
         // MediatR pipeline, so the cache must be resolvable or activation throws.
         services.AddSingleton<Source.Features.SystemSettings.Services.SystemSettingsCache>();
+
+        // IEmailService — required by auto-discovered email-sending handlers
+        // (e.g. SendWorkspaceInviteEmailHandler on WorkspaceInviteCreated, and
+        // SendWelcomeEmailHandler on UserCreated). A noop mock keeps DI happy;
+        // tests asserting on delivery resolve this same singleton.
+        services.AddSingleton<IEmailService>(new Mock<IEmailService>().Object);
+
+        // IConfiguration — some handlers read settings (e.g. the invite-email
+        // handler reads App:FrontendBaseUrl). An empty configuration is enough;
+        // handlers fall back to relative links when the key is absent.
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
 
         services.AddScoped<DomainEventInterceptor>();
 

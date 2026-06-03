@@ -29,6 +29,20 @@ public sealed record HandleGithubInstallCallbackResponse
     public required string WorkspaceSlug { get; init; }
     public required Guid GithubInstallationId { get; init; }
     public required bool Pending { get; init; }
+
+    /// <summary>
+    /// Set when the chosen GitHub account/org is already connected to a
+    /// *different* workspace. The install did NOT attach. The controller
+    /// redirects the user back to their workspace home with a friendly,
+    /// actionable snackbar instead of dumping a raw 400 JSON page mid-redirect.
+    /// </summary>
+    public bool Conflict { get; init; }
+
+    /// <summary>The GitHub account/org login that's already connected elsewhere (e.g. <c>acme</c>).</summary>
+    public string? ConflictAccountLogin { get; init; }
+
+    /// <summary>Display name of the workspace the installation is already attached to.</summary>
+    public string? ConflictWorkspaceName { get; init; }
 }
 
 public sealed class HandleGithubInstallCallbackHandler
@@ -92,8 +106,27 @@ public sealed class HandleGithubInstallCallbackHandler
             .SingleOrDefaultAsync(i => i.InstallationId == installationId, cancellationToken);
         if (existing is not null && existing.WorkspaceId != workspace.Id)
         {
-            return Result.Failure<HandleGithubInstallCallbackResponse>(
-                "Installation belongs to a different workspace");
+            // A GitHub App installation is one-per-account on GitHub's side, so a
+            // second workspace trying to connect the same org round-trips the same
+            // installationId and lands here. Don't hard-400 with an opaque
+            // "Installation belongs to a different workspace" — name the account
+            // and the workspace it's attached to so the user knows exactly what to
+            // do (disconnect it there, or pick a different account).
+            var otherWorkspace = await _db.Workspaces
+                .AsNoTracking()
+                .SingleOrDefaultAsync(w => w.Id == existing.WorkspaceId, cancellationToken);
+            _logger.LogWarning(
+                "GitHub install conflict: installation {InstallationId} ({Account}) already attached to workspace {OtherWorkspaceId}; requested by workspace {WorkspaceId}",
+                installationId, existing.AccountLogin, existing.WorkspaceId, workspace.Id);
+            return Result.Success(new HandleGithubInstallCallbackResponse
+            {
+                WorkspaceSlug = workspace.Slug,
+                GithubInstallationId = Guid.Empty,
+                Pending = false,
+                Conflict = true,
+                ConflictAccountLogin = existing.AccountLogin,
+                ConflictWorkspaceName = otherWorkspace?.Name,
+            });
         }
 
         // 3. setup_action == "request" means the user requested the App but an org admin still

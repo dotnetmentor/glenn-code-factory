@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
+  Box,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
   Stack,
   TextField,
+  Tooltip,
+  Typography,
 } from '@mui/material'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   getGetApiWorkspacesSlugInvitesQueryKey,
@@ -43,6 +48,11 @@ export function InviteDialog({ open, onClose, slug, canInviteOwner }: InviteDial
   const [role, setRole] = useState<WorkspaceRole>(WorkspaceRole.Member)
   const [touched, setTouched] = useState({ email: false, role: false })
   const [serverError, setServerError] = useState<string | null>(null)
+  // The accept link for the just-created invite. We keep the dialog open and
+  // show this so the inviter always has a link to share by hand — email
+  // delivery may be disabled (dev console transport) or land in spam.
+  const [createdLink, setCreatedLink] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const createInvite = usePostApiWorkspacesSlugInvites()
 
@@ -53,8 +63,22 @@ export function InviteDialog({ open, onClose, slug, canInviteOwner }: InviteDial
       setRole(WorkspaceRole.Member)
       setTouched({ email: false, role: false })
       setServerError(null)
+      setCreatedLink(null)
+      setCopied(false)
     }
   }, [open])
+
+  const handleCopy = async () => {
+    if (!createdLink) return
+    try {
+      await navigator.clipboard.writeText(createdLink)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard can be unavailable (insecure context); the link is still
+      // selectable in the field as a fallback.
+    }
+  }
 
   const trimmedEmail = email.trim()
 
@@ -77,10 +101,10 @@ export function InviteDialog({ open, onClose, slug, canInviteOwner }: InviteDial
     createInvite.mutate(
       { slug, data: { email: trimmedEmail, role } },
       {
-        onSuccess: () => {
+        onSuccess: (response) => {
           showSuccess(`Invite sent to ${trimmedEmail}.`)
           queryClient.invalidateQueries({ queryKey: getGetApiWorkspacesSlugInvitesQueryKey(slug) })
-          onClose()
+          setCreatedLink(`${window.location.origin}/invite/${response.token}`)
         },
         onError: (error) => {
           const detail = (error?.response?.data as ProblemDetails | undefined)?.detail
@@ -89,6 +113,41 @@ export function InviteDialog({ open, onClose, slug, canInviteOwner }: InviteDial
           setServerError(detail)
         },
       },
+    )
+  }
+
+  if (createdLink) {
+    return (
+      <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+        <DialogTitle>Invite created</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              We emailed an invite to <strong>{trimmedEmail}</strong>. You can also
+              share this link directly — it expires in 7 days.
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TextField
+                value={createdLink}
+                fullWidth
+                size="small"
+                InputProps={{ readOnly: true }}
+                inputProps={{ 'aria-label': 'Invite link', onFocus: (e) => e.target.select() }}
+              />
+              <Tooltip title={copied ? 'Copied' : 'Copy link'}>
+                <IconButton onClick={handleCopy} aria-label="Copy invite link" size="small">
+                  <ContentCopyIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={onClose} variant="contained">
+            Done
+          </Button>
+        </DialogActions>
+      </Dialog>
     )
   }
 
