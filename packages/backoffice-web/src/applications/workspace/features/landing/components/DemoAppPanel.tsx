@@ -3,6 +3,7 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import ViewKanbanOutlinedIcon from '@mui/icons-material/ViewKanbanOutlined'
 import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
+import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined'
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import DesktopWindowsOutlinedIcon from '@mui/icons-material/DesktopWindowsOutlined'
 import TabletMacOutlinedIcon from '@mui/icons-material/TabletMacOutlined'
@@ -16,7 +17,8 @@ import {
   semanticTokens,
   workspaceChromeHeight,
 } from '../../../shared/designTokens'
-import { SegmentedTabs } from '../../../shared/primitives'
+import { SegmentedTabs, StatusDot } from '../../../shared/primitives'
+import { RuntimeState } from '@/api/queries-commands'
 import type { AppTab, KanbanColumn, MovieState } from '../movie/script'
 import { KANBAN_CARDS, SPEC_TITLE } from '../movie/script'
 import { LiveWaitlistForm } from './LiveWaitlistForm'
@@ -25,6 +27,7 @@ const SANS = workspaceFontFamily.sans
 const MONO = workspaceFontFamily.mono
 
 const TAB_ITEMS = [
+  { id: 'services' as const, label: 'Setup', icon: DnsOutlinedIcon },
   { id: 'spec' as const, label: 'Spec', icon: DescriptionOutlinedIcon },
   { id: 'kanban' as const, label: 'Tasks', icon: ViewKanbanOutlinedIcon },
   { id: 'preview' as const, label: 'Preview', icon: PublicOutlinedIcon },
@@ -100,6 +103,54 @@ function SpecView({ state }: { state: MovieState }) {
           </Typography>
         </Stack>
       )}
+      </Box>
+    </Box>
+  )
+}
+
+/** Runtime-spec beat: detected services boot, then come online in the sandbox. */
+function ServicesView({ state }: { state: MovieState }) {
+  return (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', p: 3, overflowY: 'auto' }}>
+      <Box sx={{ maxWidth: 460, mx: 'auto', width: '100%' }}>
+        <Typography sx={{ fontFamily: SANS, fontWeight: 700, fontSize: '1.1rem', letterSpacing: '-0.01em', color: surfaceTokens.textPrimary }}>
+          Sandbox services
+        </Typography>
+        <Typography sx={{ fontFamily: SANS, fontSize: '0.8rem', color: surfaceTokens.textFaint, mt: 0.25, mb: 2 }}>
+          Detected from your repo
+        </Typography>
+        <Stack spacing={1}>
+          {state.services.map((s) => (
+            <Stack
+              key={s.id}
+              direction="row"
+              alignItems="center"
+              spacing={1.25}
+              sx={{
+                px: 1.5,
+                py: 1.25,
+                borderRadius: 1.5,
+                backgroundColor: surfaceTokens.surface,
+                border: `1px solid ${surfaceTokens.hairline}`,
+                animation: 'wsFade 320ms ease',
+                '@keyframes wsFade': { from: { opacity: 0, transform: 'translateY(4px)' }, to: { opacity: 1 } },
+              }}
+            >
+              <StatusDot state={s.online ? RuntimeState.Online : RuntimeState.Booting} size={9} hideTooltip />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontFamily: SANS, fontSize: '0.9rem', fontWeight: 600, color: surfaceTokens.textPrimary }}>
+                  {s.label}
+                </Typography>
+                <Typography sx={{ fontFamily: MONO, fontSize: '0.72rem', color: surfaceTokens.textFaint }}>
+                  {s.detail}
+                </Typography>
+              </Box>
+              <Typography sx={{ fontFamily: MONO, fontSize: '0.72rem', color: s.online ? semanticTokens.success : surfaceTokens.textMuted }}>
+                {s.online ? 'online' : 'starting…'}
+              </Typography>
+            </Stack>
+          ))}
+        </Stack>
       </Box>
     </Box>
   )
@@ -266,6 +317,7 @@ export function DemoAppPanel({ state, bare = false }: { state: MovieState; bare?
         <TabStrip active={state.activeTab} />
       </Box>
       <Box sx={{ flex: 1, minHeight: 0 }}>
+        {!bare && state.activeTab === 'services' && <ServicesView state={state} />}
         {!bare && state.activeTab === 'spec' && <SpecView state={state} />}
         {!bare && state.activeTab === 'kanban' && <KanbanView state={state} />}
         {showPreview && <PreviewView state={state} bare={bare} />}
