@@ -12,6 +12,14 @@ export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
 const LOG_LEVELS: readonly LogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
 
+/** Agent backend discriminator (claude-agent-backend spec). */
+export type AgentBackend = 'cursor' | 'claude'
+
+const AGENT_BACKENDS: readonly AgentBackend[] = ['cursor', 'claude']
+
+const DEFAULT_AGENT_BACKEND: AgentBackend = 'cursor'
+const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-8'
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // Permissive semver-ish: MAJOR.MINOR.PATCH with optional pre-release suffix.
 const VERSION_REGEX = /^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$/
@@ -64,6 +72,8 @@ interface DaemonConfigInit {
   pushRetryQuietIntervalMs: number
   processKillEscalationMs: number
   envFilePath: string
+  defaultBackend: AgentBackend
+  claudeDefaultModel: string
 }
 
 export class DaemonConfig {
@@ -81,6 +91,19 @@ export class DaemonConfig {
   readonly pushRetryQuietIntervalMs: number
   readonly processKillEscalationMs: number
   readonly envFilePath: string
+
+  /**
+   * Which agent backend services a turn when the StartTurn payload omits an
+   * explicit `backend`. Default `cursor` (claude-agent-backend spec, Phase 1
+   * rollout). Set via env `AGENT_BACKEND`.
+   */
+  readonly defaultBackend: AgentBackend
+  /**
+   * Default Claude model id when a Claude-backed turn omits a model. Set via
+   * env `CLAUDE_DEFAULT_MODEL`; default `claude-opus-4-8`. Aliases (opus /
+   * sonnet / haiku / fable) are accepted and resolved by ClaudeFactory.
+   */
+  readonly claudeDefaultModel: string
 
   // Token is mutable so UpdateConfig from main API can rotate it without tearing down
   // the SignalR connection. SignalRClient's accessTokenFactory re-reads on every
@@ -104,6 +127,8 @@ export class DaemonConfig {
     this.pushRetryQuietIntervalMs = init.pushRetryQuietIntervalMs
     this.processKillEscalationMs = init.processKillEscalationMs
     this.envFilePath = init.envFilePath
+    this.defaultBackend = init.defaultBackend
+    this.claudeDefaultModel = init.claudeDefaultModel
     this.#runtimeToken = init.runtimeToken
   }
 
@@ -137,6 +162,8 @@ export class DaemonConfig {
       pushRetryQuietIntervalMs: this.pushRetryQuietIntervalMs,
       processKillEscalationMs: this.processKillEscalationMs,
       envFilePath: this.envFilePath,
+      defaultBackend: this.defaultBackend,
+      claudeDefaultModel: this.claudeDefaultModel,
       runtimeToken: REDACTED,
     }
   }
@@ -302,6 +329,31 @@ export class DaemonConfig {
       }
     }
 
+    // --- Optional: AGENT_BACKEND (claude-agent-backend spec) ---
+    // Default `cursor` so nothing changes until an operator opts in. An
+    // unrecognised value is a config error rather than a silent fallback.
+    let defaultBackend: AgentBackend = DEFAULT_AGENT_BACKEND
+    const rawBackend = env['AGENT_BACKEND']
+    if (rawBackend !== undefined && rawBackend !== '') {
+      if (!isAgentBackend(rawBackend)) {
+        problems.push(
+          `AGENT_BACKEND is invalid: must be one of ${AGENT_BACKENDS.join('|')}, got ${rawBackend}`,
+        )
+      } else {
+        defaultBackend = rawBackend
+      }
+    }
+
+    // --- Optional: CLAUDE_DEFAULT_MODEL ---
+    // Default `claude-opus-4-8`. No shape validation — the value is an opaque
+    // model id/alias handed to the SDK, which surfaces its own "model not
+    // found" error if it's wrong.
+    let claudeDefaultModel = DEFAULT_CLAUDE_MODEL
+    const rawClaudeModel = env['CLAUDE_DEFAULT_MODEL']
+    if (rawClaudeModel !== undefined && rawClaudeModel !== '') {
+      claudeDefaultModel = rawClaudeModel
+    }
+
     if (problems.length > 0) {
       throw new DaemonConfigError(problems)
     }
@@ -321,6 +373,8 @@ export class DaemonConfig {
       pushRetryQuietIntervalMs,
       processKillEscalationMs,
       envFilePath,
+      defaultBackend,
+      claudeDefaultModel,
     })
   }
 }
@@ -347,6 +401,10 @@ function validateJwtShape(token: string): string | null {
 
 function isLogLevel(value: string): value is LogLevel {
   return (LOG_LEVELS as readonly string[]).includes(value)
+}
+
+function isAgentBackend(value: string): value is AgentBackend {
+  return (AGENT_BACKENDS as readonly string[]).includes(value)
 }
 
 interface NumericRange {

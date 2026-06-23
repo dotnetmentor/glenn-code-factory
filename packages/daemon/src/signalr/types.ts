@@ -54,6 +54,17 @@ export type {
  */
 export type AgentSecretsDto = {
   cursorApiKey: string | null
+  /**
+   * Anthropic API key for the Claude Agent SDK backend (BYOK). Resolved by
+   * `RuntimeHub.GetSecrets()` through the same project envelope → SystemSettings
+   * → env-var fallback chain as `cursorApiKey`, and consumed by `ClaudeFactory`'s
+   * BYOK env handoff: the SDK reads `ANTHROPIC_API_KEY` from the agent process's
+   * env. `null` when not configured (the wire reality; the generated DTO emits
+   * it TypeScript-optional, so we re-declare nullable here for parity with
+   * `cursorApiKey`). Populated by Phase 2's `GetSecrets` extension; until then
+   * the field is always `null` and the Claude backend is unreachable without it.
+   */
+  anthropicApiKey: string | null
 }
 
 // Loosened wire-compat variants. The .NET DTOs declare these fields as

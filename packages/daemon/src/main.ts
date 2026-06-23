@@ -143,6 +143,7 @@ import {
 } from './tools/fetchToolDescription.js'
 import { buildCachedGitBranchResolver } from './turn/gitBranchResolver.js'
 import { buildCursorFactory } from './turn/CursorFactory.js'
+import { buildClaudeFactory } from './turn/ClaudeFactory.js'
 import { QuietModeManager } from './turn/QuietModeManager.js'
 import { TurnRunner } from './turn/TurnRunner.js'
 import type { CustomTool } from './turn/types.js'
@@ -551,19 +552,39 @@ const defaultMainDeps: MainDeps = {
     customTools,
     logger,
   ) => {
+    // Shared per-turn resolvers — the Cursor and Claude factories project the
+    // same MCP registry + runtime-token + git-branch into their respective SDK
+    // option shapes. Built once and handed to both.
+    const getGitBranch = buildCachedGitBranchResolver({ cwd: GIT_CWD })
+
     const cursorFactory = buildCursorFactory({
       logger,
       mcpRegistry,
       getRuntimeToken: () => config.runtimeToken,
-      getGitBranch: buildCachedGitBranchResolver({ cwd: GIT_CWD }),
+      getGitBranch,
       projectRepoDir: GIT_CWD,
       defaultModel: { id: 'auto' },
+    })
+
+    // claude-agent-backend spec, Phase 1. Built alongside Cursor and injected
+    // into the factory map; selected per-turn by the `backend` discriminator
+    // (default `cursor`, so nothing changes until opted in). The Claude default
+    // model comes from config (env `CLAUDE_DEFAULT_MODEL`, default
+    // `claude-opus-4-8`).
+    const claudeFactory = buildClaudeFactory({
+      logger,
+      mcpRegistry,
+      getRuntimeToken: () => config.runtimeToken,
+      getGitBranch,
+      projectRepoDir: GIT_CWD,
+      defaultModel: config.claudeDefaultModel,
     })
 
     return new TurnRunner({
       signalr,
       config,
-      cursorFactory,
+      agentFactories: { cursor: cursorFactory, claude: claudeFactory },
+      defaultBackend: config.defaultBackend,
       customTools,
       daemonToolsMcpServer,
       logger,

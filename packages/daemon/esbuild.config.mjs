@@ -22,7 +22,7 @@ const options = {
   banner: {
     js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
   },
-  external: ['@cursor/sdk'],
+  external: ['@cursor/sdk', '@anthropic-ai/claude-agent-sdk'],
   loader: {
     '.md': 'text',
   },

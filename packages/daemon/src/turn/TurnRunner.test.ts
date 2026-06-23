@@ -78,6 +78,7 @@ function makeSignalrStub(): SignalrStub {
   // below swaps this resolved value to assert the refusal path.
   const getSecrets = vi.fn(async (): Promise<AgentSecretsDto> => ({
     cursorApiKey: 'test-cursor-key',
+    anthropicApiKey: null,
   }))
 
   const stub = {
@@ -214,7 +215,11 @@ function build(opts: BuildOpts = {}) {
   const runner = new TurnRunner({
     signalr: sig.stub,
     config,
-    cursorFactory: cursor.factory,
+    // Both backend slots point at the same fake factory; tests exercise the
+    // default (cursor) path. A Claude-specific test can override the payload's
+    // `backend` to route to the claude slot.
+    agentFactories: { cursor: cursor.factory, claude: cursor.factory },
+    defaultBackend: config.defaultBackend,
     daemonToolsMcpServer,
     ...(opts.hooks !== undefined ? { afterPromptHooks: opts.hooks } : {}),
     logger: log as unknown as import('pino').Logger,
@@ -689,6 +694,7 @@ describe('TurnRunner', () => {
     // credentials anywhere on the stack.
     sig.getSecrets.mockResolvedValueOnce({
       cursorApiKey: null,
+      anthropicApiKey: null,
     })
 
     await sig.fireStartTurn(makeStartTurn())
@@ -739,6 +745,7 @@ describe('TurnRunner', () => {
 
     sig.getSecrets.mockResolvedValueOnce({
       cursorApiKey: null,
+      anthropicApiKey: null,
     })
 
     await sig.fireStartTurn(makeStartTurn())

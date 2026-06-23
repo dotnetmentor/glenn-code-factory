@@ -79,10 +79,27 @@ type TurnRunnerEvents = {
   activity: []
 }
 
+/**
+ * The per-backend factory map. Keyed by the `backend` discriminator
+ * (claude-agent-backend spec). TurnRunner selects one per turn from the
+ * StartTurn payload's `backend` field, falling back to `defaultBackend`.
+ */
+export type AgentFactoryMap = Record<'cursor' | 'claude', AgentFactory>
+
 interface TurnRunnerDeps {
   signalr: SignalRClient
   config: DaemonConfig
-  cursorFactory: AgentFactory
+  /**
+   * Per-backend agent factories. Replaces the old single `cursorFactory` —
+   * TurnRunner now picks `agentFactories[backend]` per turn. Both keys are
+   * always wired by `main.ts`; the selection defaults to `defaultBackend`.
+   */
+  agentFactories: AgentFactoryMap
+  /**
+   * Backend used when a StartTurn payload omits an explicit `backend`. Sourced
+   * from `DaemonConfig.defaultBackend` (env `AGENT_BACKEND`, default `cursor`).
+   */
+  defaultBackend: 'cursor' | 'claude'
   customTools?: readonly CustomTool[]
   daemonToolsMcpServer: DaemonToolsMcpServer
   afterPromptHooks?: readonly AfterPromptHook[]
@@ -93,7 +110,8 @@ interface TurnRunnerDeps {
 export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
   readonly #signalr: SignalRClient
   readonly #config: DaemonConfig
-  readonly #cursorFactory: AgentFactory
+  readonly #agentFactories: AgentFactoryMap
+  readonly #defaultBackend: 'cursor' | 'claude'
   readonly #customTools: readonly CustomTool[]
   readonly #daemonToolsMcpServer: DaemonToolsMcpServer
   readonly #afterPromptHooks: readonly AfterPromptHook[]
@@ -107,7 +125,8 @@ export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
     super()
     this.#signalr = deps.signalr
     this.#config = deps.config
-    this.#cursorFactory = deps.cursorFactory
+    this.#agentFactories = deps.agentFactories
+    this.#defaultBackend = deps.defaultBackend
     this.#customTools = deps.customTools ?? []
     this.#daemonToolsMcpServer = deps.daemonToolsMcpServer
     this.#afterPromptHooks = deps.afterPromptHooks ?? []
@@ -247,27 +266,36 @@ export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
 
     try {
       const secrets = await this.#signalr.getSecrets()
+      // Resolve the backend BEFORE the credential gate so we check the key the
+      // selected backend actually needs. Same defensive cast pattern the code
+      // uses for `model` (the .NET StartTurnPayload may not yet ship `backend`).
+      const backend = this.#resolveBackend(p)
       const hasCursorKey =
         typeof secrets.cursorApiKey === 'string' && secrets.cursorApiKey !== ''
+      const hasAnthropicKey =
+        typeof secrets.anthropicApiKey === 'string' && secrets.anthropicApiKey !== ''
       this.#logger.info(
-        { sessionId: p.sessionId, turnId, hasCursorKey },
+        { sessionId: p.sessionId, turnId, backend, hasCursorKey, hasAnthropicKey },
         'secrets.received',
       )
 
-      if (!hasCursorKey) {
+      const hasRequiredKey = backend === 'claude' ? hasAnthropicKey : hasCursorKey
+      if (!hasRequiredKey) {
+        const keyLabel = backend === 'claude' ? 'Anthropic' : 'Cursor'
+        const message = `No ${keyLabel} API key configured for this project.`
         this.#logger.warn(
-          { sessionId: p.sessionId, turnId },
-          'no_credentials: GetSecrets returned no Cursor API key — refusing turn',
+          { sessionId: p.sessionId, turnId, backend },
+          `no_credentials: GetSecrets returned no ${keyLabel} API key — refusing turn`,
         )
         const noCredsPayload: EmitEventPayload = {
           sessionId: p.sessionId,
           kind: AgentEventKind.Status,
           runStatus: AgentEventRunStatus.Error,
-          statusMessage: 'No Cursor API key configured for this project.',
+          statusMessage: message,
           eventData: JSON.stringify({
             type: 'no_credentials',
             reason: 'no_credentials',
-            message: 'No Cursor API key configured for this project.',
+            message,
           }),
           emittedAt: new Date().toISOString(),
         }
@@ -348,9 +376,15 @@ export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
       }
       this.#daemonToolsMcpServer.setTurnContext(toolContext)
       try {
-        const stream = this.#cursorFactory(
-          this.#buildTurnOptions(p, turnId, abort.signal, secrets),
+        const turnOptions = this.#buildTurnOptions(p, turnId, abort.signal, secrets)
+        // `backend` resolved above (credential gate); options carry the same
+        // value so the factory map index and the option agree.
+        const factory = this.#agentFactories[backend]
+        this.#logger.info(
+          { sessionId: p.sessionId, turnId, backend },
+          'turn.backend.selected',
         )
+        const stream = factory(turnOptions)
         const mapperCtx: MapperContext = { didEmitVisibleContent: false }
         let sawSyntheticError: { subtype: string; error: string } | undefined
         let sawTerminalErrorStatus:
@@ -534,6 +568,19 @@ export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
     await this.cancel(p.reason)
   }
 
+  /**
+   * Resolve the backend for a turn from the StartTurn payload, falling back to
+   * the daemon's configured default. Defensive cast — the .NET StartTurnPayload
+   * may not ship `backend` yet (Phase 3 adds it to the contract), so we read it
+   * tolerantly the same way `model` is read. An unrecognised value falls back
+   * to the default rather than throwing.
+   */
+  #resolveBackend(p: StartTurnPayload): 'cursor' | 'claude' {
+    const raw = (p as unknown as { backend?: unknown }).backend
+    if (raw === 'cursor' || raw === 'claude') return raw
+    return this.#defaultBackend
+  }
+
   #buildTurnOptions(
     p: StartTurnPayload,
     turnId: string,
@@ -547,11 +594,27 @@ export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
       ? mcpUrlsRaw.filter((u): u is string => typeof u === 'string')
       : []
 
+    // Defensive reads — same pattern as `model`. The .NET StartTurnPayload
+    // gains `backend` / `reasoningEffort` / `yolo` in a later phase; until
+    // then these are absent and the daemon falls back to its defaults.
+    const backend = this.#resolveBackend(p)
+    const maybeEffort = (p as unknown as { reasoningEffort?: unknown }).reasoningEffort
+    const reasoningEffort =
+      maybeEffort === 'low' ||
+      maybeEffort === 'medium' ||
+      maybeEffort === 'high' ||
+      maybeEffort === 'xhigh' ||
+      maybeEffort === 'max'
+        ? maybeEffort
+        : undefined
+    const yolo = (p as unknown as { yolo?: unknown }).yolo === true
+
     const opts: TurnOptions = {
       prompt: p.prompt,
       cwd: REPO_DIR,
       abortSignal: signal,
       secrets,
+      backend,
     }
 
     const resumeId = p.agentId
@@ -559,6 +622,8 @@ export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
       opts.resume = resumeId
     }
     if (model !== undefined) opts.model = model
+    if (reasoningEffort !== undefined) opts.reasoningEffort = reasoningEffort
+    if (yolo) opts.yolo = true
 
     const mcpServers: Record<string, unknown> = {}
     if (mcpUrls.length > 0) Object.assign(mcpServers, this.#buildMcpServers(mcpUrls))
