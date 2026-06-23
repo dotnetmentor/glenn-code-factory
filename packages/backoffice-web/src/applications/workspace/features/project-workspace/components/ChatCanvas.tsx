@@ -61,7 +61,7 @@ import {
   deriveTerminalStatusFromEvents,
 } from './TurnPhaseChrome'
 import type { TerminalRunStatus } from './TurnFooter'
-import { readAgentModelOverride } from '../hooks/useAgentModelOverride'
+import { readAgentOverride } from '../hooks/useAgentModelOverride'
 import { clearLastBranchConversationId } from '../hooks/branchConversationMemory'
 import {
   RuntimeProposalCard,
@@ -2773,15 +2773,22 @@ export function ChatCanvas({
       }
     })
     try {
-      // Per-conversation model override is sticky in localStorage (see
-      // {@link useAgentModelOverride}). Read it at submit time so the choice
-      // flips for the NEXT turn even if the user switched models mid-stream.
-      const overrideForSend = readAgentModelOverride(conversationId)
+      // Per-conversation agent override is sticky in localStorage (see
+      // {@link useAgentOverride}). Read it at submit time so the choice flips
+      // for the NEXT turn even if the user switched mid-stream. The record
+      // carries the backend, the active backend's model id, and the Claude
+      // reasoning effort; we map each onto the right payload slot.
+      const overrideForSend = readAgentOverride(conversationId)
       // If the user attached files in the empty state we minted a conversation
       // id client-side; forward that exact id so the backend stamps the draft
       // attachments (UploadedAt!=null && SessionId==null) onto this turn and
       // creates the conversation under it instead of generating its own.
       const conversationIdForSubmit = conversationId ?? mintedConversationId
+      // Cursor model rides the `modelId` slot; Claude model rides
+      // `claudeModelId` so the audit row attributes the model to the right
+      // backend. `backend` is only sent when it diverges from the default
+      // (cursor) so the Cursor path stays byte-for-byte identical to before.
+      const isClaude = overrideForSend?.backend === 'claude'
       const res = await connection.submitPrompt({
         projectId,
         branchId,
@@ -2789,7 +2796,19 @@ export function ChatCanvas({
         ...(conversationIdForSubmit
           ? { conversationId: conversationIdForSubmit }
           : {}),
-        ...(overrideForSend ? { agentModelId: overrideForSend } : {}),
+        ...(isClaude
+          ? {
+              backend: 'claude',
+              ...(overrideForSend?.model
+                ? { claudeModelId: overrideForSend.model }
+                : {}),
+              ...(overrideForSend?.reasoningEffort
+                ? { reasoningEffort: overrideForSend.reasoningEffort }
+                : {}),
+            }
+          : overrideForSend?.model
+            ? { modelId: overrideForSend.model }
+            : {}),
         yolo: true,
       })
       // Soft-queue (P3.4): if the backend parked this prompt behind an

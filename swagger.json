@@ -2182,6 +2182,64 @@
         }
       }
     },
+    "/api/claude-models/active": {
+      "get": {
+        "tags": [
+          "ClaudeModels"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ClaudeModelDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ClaudeModelDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ClaudeModelDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cloudflare/subdomains": {
       "get": {
         "tags": [
@@ -11731,6 +11789,125 @@
             "application/*+json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdateProjectCursorModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/claude-model": {
+      "patch": {
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectClaudeModelRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectClaudeModelRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectClaudeModelRequest"
               }
             }
           }
@@ -23887,6 +24064,8 @@
       },
       "AgentSession": {
         "required": [
+          "agentBackend",
+          "claudeModel",
           "conversation",
           "conversationId",
           "createdAt",
@@ -23929,6 +24108,17 @@
             "type": "string",
             "nullable": true
           },
+          "agentBackend": {
+            "type": "string"
+          },
+          "claudeSessionId": {
+            "type": "string",
+            "nullable": true
+          },
+          "reasoningEffort": {
+            "type": "string",
+            "nullable": true
+          },
           "startedAt": {
             "type": "string",
             "format": "date-time",
@@ -23961,6 +24151,11 @@
             "nullable": true
           },
           "modelId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "claudeModelId": {
             "type": "string",
             "format": "uuid",
             "nullable": true
@@ -24011,6 +24206,9 @@
           },
           "model": {
             "$ref": "#/components/schemas/CursorModel"
+          },
+          "claudeModel": {
+            "$ref": "#/components/schemas/ClaudeModel"
           },
           "events": {
             "type": "array",
@@ -24882,6 +25080,129 @@
         },
         "additionalProperties": false
       },
+      "ClaudeModel": {
+        "required": [
+          "createdAt",
+          "displayName",
+          "domainEvents",
+          "id",
+          "isActive",
+          "isDeleted",
+          "isSystemDefault",
+          "slug",
+          "sortOrder",
+          "supportsReasoning",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "domainEvents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IDomainEvent"
+            },
+            "readOnly": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "isSystemDefault": {
+            "type": "boolean"
+          },
+          "supportsReasoning": {
+            "type": "boolean"
+          },
+          "defaultEffort": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "isDeleted": {
+            "type": "boolean"
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "deletedBy": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClaudeModelDto": {
+        "required": [
+          "displayName",
+          "id",
+          "isActive",
+          "isSystemDefault",
+          "slug",
+          "sortOrder",
+          "supportsReasoning"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "isSystemDefault": {
+            "type": "boolean"
+          },
+          "supportsReasoning": {
+            "type": "boolean"
+          },
+          "defaultEffort": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "ClonePresetRequest": {
         "required": [
           "newSlug"
@@ -24940,6 +25261,7 @@
       },
       "Conversation": {
         "required": [
+          "agentBackend",
           "branch",
           "branchId",
           "createdAt",
@@ -24970,6 +25292,9 @@
           "projectId": {
             "type": "string",
             "format": "uuid"
+          },
+          "agentBackend": {
+            "type": "string"
           },
           "branchId": {
             "type": "string",
@@ -29035,6 +29360,7 @@
         "required": [
           "agentPermissions",
           "branches",
+          "claudeModel",
           "createdAt",
           "domainEvents",
           "githubInstallation",
@@ -29164,7 +29490,20 @@
           "model": {
             "$ref": "#/components/schemas/CursorModel"
           },
+          "claudeModelId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "readOnly": true
+          },
+          "claudeModel": {
+            "$ref": "#/components/schemas/ClaudeModel"
+          },
           "encryptedCursorApiKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "encryptedAnthropicApiKey": {
             "type": "string",
             "nullable": true
           },
@@ -29595,6 +29934,15 @@
             "nullable": true
           },
           "modelSlug": {
+            "type": "string",
+            "nullable": true
+          },
+          "claudeModelId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "claudeModelSlug": {
             "type": "string",
             "nullable": true
           }
@@ -33471,6 +33819,7 @@
       },
       "UpdateProjectByokRequest": {
         "required": [
+          "setAnthropicApiKey",
           "setCursorApiKey"
         ],
         "type": "object",
@@ -33481,6 +33830,13 @@
           "cursorApiKey": {
             "type": "string",
             "nullable": true
+          },
+          "setAnthropicApiKey": {
+            "type": "boolean"
+          },
+          "anthropicApiKey": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -33488,7 +33844,9 @@
       "UpdateProjectByokResponse": {
         "required": [
           "allowProjectCursorApiKeyOverride",
+          "hasAnthropicApiKey",
           "hasCursorApiKey",
+          "hasEffectiveAnthropicApiKey",
           "hasEffectiveCursorApiKey",
           "hasWorkspaceCursorApiKey",
           "projectId"
@@ -33510,6 +33868,23 @@
           },
           "hasEffectiveCursorApiKey": {
             "type": "boolean"
+          },
+          "hasAnthropicApiKey": {
+            "type": "boolean"
+          },
+          "hasEffectiveAnthropicApiKey": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateProjectClaudeModelRequest": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           }
         },
         "additionalProperties": false

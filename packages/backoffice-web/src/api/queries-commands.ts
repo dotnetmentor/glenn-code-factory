@@ -185,6 +185,11 @@ export interface AgentSession {
   status: AgentSessionStatus;
   /** @nullable */
   agentId?: string | null;
+  agentBackend: string;
+  /** @nullable */
+  claudeSessionId?: string | null;
+  /** @nullable */
+  reasoningEffort?: string | null;
   /** @nullable */
   startedAt?: string | null;
   /** @nullable */
@@ -199,6 +204,8 @@ export interface AgentSession {
   cancelReason?: string | null;
   /** @nullable */
   modelId?: string | null;
+  /** @nullable */
+  claudeModelId?: string | null;
   /** @nullable */
   totalCostUsd?: number | null;
   /** @nullable */
@@ -216,6 +223,7 @@ export interface AgentSession {
   conversation: Conversation;
   runtime: ProjectRuntime;
   model: CursorModel;
+  claudeModel: ClaudeModel;
   events: AgentEvent[];
   runResult: RunResult;
 }
@@ -512,6 +520,42 @@ export interface CiRegistryCredentialsDto {
   password: string;
 }
 
+export interface ClaudeModel {
+  readonly domainEvents: readonly IDomainEvent[];
+  id: string;
+  slug: string;
+  displayName: string;
+  /** @nullable */
+  description?: string | null;
+  isSystemDefault: boolean;
+  supportsReasoning: boolean;
+  /** @nullable */
+  defaultEffort?: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  isDeleted: boolean;
+  /** @nullable */
+  deletedAt?: string | null;
+  /** @nullable */
+  deletedBy?: string | null;
+}
+
+export interface ClaudeModelDto {
+  id: string;
+  slug: string;
+  displayName: string;
+  /** @nullable */
+  description?: string | null;
+  isSystemDefault: boolean;
+  supportsReasoning: boolean;
+  /** @nullable */
+  defaultEffort?: string | null;
+  isActive: boolean;
+  sortOrder: number;
+}
+
 export interface ClonePresetRequest {
   newSlug: string;
   /** @nullable */
@@ -533,6 +577,7 @@ export interface Conversation {
   readonly domainEvents: readonly IDomainEvent[];
   id: string;
   projectId: string;
+  agentBackend: string;
   branchId: string;
   branch: ProjectBranch;
   title: string;
@@ -1973,7 +2018,12 @@ export interface Project {
   readonly modelId?: string | null;
   model: CursorModel;
   /** @nullable */
+  readonly claudeModelId?: string | null;
+  claudeModel: ClaudeModel;
+  /** @nullable */
   encryptedCursorApiKey?: string | null;
+  /** @nullable */
+  encryptedAnthropicApiKey?: string | null;
   /** @nullable */
   templateId?: string | null;
   template: ProjectTemplate;
@@ -2080,6 +2130,10 @@ export interface ProjectDto {
   modelId?: string | null;
   /** @nullable */
   modelSlug?: string | null;
+  /** @nullable */
+  claudeModelId?: string | null;
+  /** @nullable */
+  claudeModelSlug?: string | null;
 }
 
 export interface ProjectKanbanCardDto {
@@ -3455,6 +3509,9 @@ export interface UpdateProjectByokRequest {
   setCursorApiKey: boolean;
   /** @nullable */
   cursorApiKey?: string | null;
+  setAnthropicApiKey: boolean;
+  /** @nullable */
+  anthropicApiKey?: string | null;
 }
 
 export interface UpdateProjectByokResponse {
@@ -3463,6 +3520,13 @@ export interface UpdateProjectByokResponse {
   hasWorkspaceCursorApiKey: boolean;
   allowProjectCursorApiKeyOverride: boolean;
   hasEffectiveCursorApiKey: boolean;
+  hasAnthropicApiKey: boolean;
+  hasEffectiveAnthropicApiKey: boolean;
+}
+
+export interface UpdateProjectClaudeModelRequest {
+  /** @nullable */
+  modelId?: string | null;
 }
 
 export interface UpdateProjectCursorModelRequest {
@@ -7350,6 +7414,148 @@ export function useGetApiCiRegistryCredentials<
   queryKey: DataTag<QueryKey, TData, TError>;
 } {
   const queryOptions = getGetApiCiRegistryCredentialsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const getApiClaudeModelsActive = (signal?: AbortSignal) => {
+  return customClient<ClaudeModelDto[]>({
+    url: `/api/claude-models/active`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetApiClaudeModelsActiveQueryKey = () => {
+  return [`/api/claude-models/active`] as const;
+};
+
+export const getGetApiClaudeModelsActiveQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<
+      Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+      TError,
+      TData
+    >
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetApiClaudeModelsActiveQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiClaudeModelsActive>>
+  > = ({ signal }) => getApiClaudeModelsActive(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiClaudeModelsActiveQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiClaudeModelsActive>>
+>;
+export type GetApiClaudeModelsActiveQueryError = ErrorType<ProblemDetails>;
+
+export function useGetApiClaudeModelsActive<
+  TData = Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+          TError,
+          Awaited<ReturnType<typeof getApiClaudeModelsActive>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiClaudeModelsActive<
+  TData = Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+          TError,
+          Awaited<ReturnType<typeof getApiClaudeModelsActive>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiClaudeModelsActive<
+  TData = Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiClaudeModelsActive<
+  TData = Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiClaudeModelsActive>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetApiClaudeModelsActiveQueryOptions(options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<
     TData,
@@ -20737,6 +20943,88 @@ export const usePatchApiProjectsProjectIdCursorModel = <
 > => {
   const mutationOptions =
     getPatchApiProjectsProjectIdCursorModelMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const patchApiProjectsProjectIdClaudeModel = (
+  projectId: string,
+  updateProjectClaudeModelRequest: UpdateProjectClaudeModelRequest,
+) => {
+  return customClient<ProjectDto>({
+    url: `/api/projects/${projectId}/claude-model`,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    data: updateProjectClaudeModelRequest,
+  });
+};
+
+export const getPatchApiProjectsProjectIdClaudeModelMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof patchApiProjectsProjectIdClaudeModel>>,
+    TError,
+    { projectId: string; data: UpdateProjectClaudeModelRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof patchApiProjectsProjectIdClaudeModel>>,
+  TError,
+  { projectId: string; data: UpdateProjectClaudeModelRequest },
+  TContext
+> => {
+  const mutationKey = ["patchApiProjectsProjectIdClaudeModel"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof patchApiProjectsProjectIdClaudeModel>>,
+    { projectId: string; data: UpdateProjectClaudeModelRequest }
+  > = (props) => {
+    const { projectId, data } = props ?? {};
+
+    return patchApiProjectsProjectIdClaudeModel(projectId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PatchApiProjectsProjectIdClaudeModelMutationResult = NonNullable<
+  Awaited<ReturnType<typeof patchApiProjectsProjectIdClaudeModel>>
+>;
+export type PatchApiProjectsProjectIdClaudeModelMutationBody =
+  UpdateProjectClaudeModelRequest;
+export type PatchApiProjectsProjectIdClaudeModelMutationError =
+  ErrorType<ProblemDetails>;
+
+export const usePatchApiProjectsProjectIdClaudeModel = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof patchApiProjectsProjectIdClaudeModel>>,
+      TError,
+      { projectId: string; data: UpdateProjectClaudeModelRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof patchApiProjectsProjectIdClaudeModel>>,
+  TError,
+  { projectId: string; data: UpdateProjectClaudeModelRequest },
+  TContext
+> => {
+  const mutationOptions =
+    getPatchApiProjectsProjectIdClaudeModelMutationOptions(options);
 
   return useMutation(mutationOptions, queryClient);
 };

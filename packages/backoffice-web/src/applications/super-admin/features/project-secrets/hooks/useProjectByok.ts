@@ -20,6 +20,8 @@ export type ProjectByokStatus = {
   hasWorkspaceCursorApiKey: boolean
   allowProjectCursorApiKeyOverride: boolean
   hasEffectiveCursorApiKey: boolean
+  hasAnthropicApiKey: boolean
+  hasEffectiveAnthropicApiKey: boolean
 } | null
 
 /**
@@ -57,6 +59,7 @@ export function useProjectByok({ projectId, onSuccess, onError }: UseProjectByok
         projectId,
         data: {
           setCursorApiKey: false,
+          setAnthropicApiKey: false,
         },
       })
       .then((response: UpdateProjectByokResponse) => {
@@ -66,6 +69,8 @@ export function useProjectByok({ projectId, onSuccess, onError }: UseProjectByok
           hasWorkspaceCursorApiKey: response.hasWorkspaceCursorApiKey,
           allowProjectCursorApiKeyOverride: response.allowProjectCursorApiKeyOverride,
           hasEffectiveCursorApiKey: response.hasEffectiveCursorApiKey,
+          hasAnthropicApiKey: response.hasAnthropicApiKey,
+          hasEffectiveAnthropicApiKey: response.hasEffectiveAnthropicApiKey,
         })
         setIsOwner(true)
         setIsLoadingStatus(false)
@@ -97,6 +102,8 @@ export function useProjectByok({ projectId, onSuccess, onError }: UseProjectByok
       hasWorkspaceCursorApiKey: response.hasWorkspaceCursorApiKey,
       allowProjectCursorApiKeyOverride: response.allowProjectCursorApiKeyOverride,
       hasEffectiveCursorApiKey: response.hasEffectiveCursorApiKey,
+      hasAnthropicApiKey: response.hasAnthropicApiKey,
+      hasEffectiveAnthropicApiKey: response.hasEffectiveAnthropicApiKey,
     })
     invalidateProject()
   }
@@ -107,6 +114,7 @@ export function useProjectByok({ projectId, onSuccess, onError }: UseProjectByok
       data: {
         setCursorApiKey: true,
         cursorApiKey: value,
+        setAnthropicApiKey: false,
       },
     })
     applyResponse(response)
@@ -120,6 +128,35 @@ export function useProjectByok({ projectId, onSuccess, onError }: UseProjectByok
       data: {
         setCursorApiKey: true,
         cursorApiKey: null,
+        setAnthropicApiKey: false,
+      },
+    })
+    applyResponse(response)
+    onSuccess?.('Cleared')
+    return response
+  }
+
+  const saveAnthropicApiKey = async (value: string) => {
+    const response = await updateMutation.mutateAsync({
+      projectId,
+      data: {
+        setCursorApiKey: false,
+        setAnthropicApiKey: true,
+        anthropicApiKey: value,
+      },
+    })
+    applyResponse(response)
+    onSuccess?.('Saved')
+    return response
+  }
+
+  const clearAnthropicApiKey = async () => {
+    const response = await updateMutation.mutateAsync({
+      projectId,
+      data: {
+        setCursorApiKey: false,
+        setAnthropicApiKey: true,
+        anthropicApiKey: null,
       },
     })
     applyResponse(response)
@@ -134,5 +171,7 @@ export function useProjectByok({ projectId, onSuccess, onError }: UseProjectByok
     isUpdating: updateMutation.isPending,
     saveCursorApiKey,
     clearCursorApiKey,
+    saveAnthropicApiKey,
+    clearAnthropicApiKey,
   }
 }

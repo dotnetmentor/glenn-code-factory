@@ -4,6 +4,8 @@ import {
   Box,
   ListItemIcon,
   ListItemText,
+  Menu,
+  MenuItem,
   Popover,
   TextField,
   Tooltip,
@@ -11,10 +13,16 @@ import {
 import CheckIcon from '@mui/icons-material/Check'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import {
+  useGetApiClaudeModelsActive,
   useGetApiCursorModelsActive,
   useGetApiProjectsProjectId,
+  type ClaudeModelDto,
 } from '../../../../../api/queries-commands'
-import { useAgentModelOverride } from '../hooks/useAgentModelOverride'
+import {
+  useAgentOverride,
+  type AgentBackend,
+  type ReasoningEffort,
+} from '../hooks/useAgentModelOverride'
 
 import {
   workspaceAccent,
@@ -27,6 +35,23 @@ const COLOR_PRIMARY = workspaceText.primary
 const COLOR_ACCENT = workspaceAccent.ink
 
 const DEFAULT_OPTION_ID = '__use-project-default__'
+
+/**
+ * Reasoning dropdown options. The stored value is the SDK {@code effort}; the
+ * label is the user-facing rung. {@code xhigh} is the power-user rung between
+ * High and Max — present so a model whose {@code defaultEffort} is {@code xhigh}
+ * renders a sensible label, but it sits inline in the same menu.
+ */
+const REASONING_OPTIONS: ReadonlyArray<{
+  effort: ReasoningEffort
+  label: string
+}> = [
+  { effort: 'low', label: 'Low' },
+  { effort: 'medium', label: 'Medium' },
+  { effort: 'high', label: 'High' },
+  { effort: 'xhigh', label: 'X-High' },
+  { effort: 'max', label: 'Max' },
+]
 
 interface ComposerModelPickerInlineProps {
   projectId: string
@@ -42,8 +67,15 @@ type PickerOption = {
 }
 
 /**
- * Ambient per-conversation Cursor model picker backed by an MUI Autocomplete.
- * Selection is persisted per-conversation via {@link useAgentModelOverride}.
+ * Ambient per-conversation agent picker backed by an MUI Autocomplete.
+ *
+ * <p>Backend defaults to Cursor, in which case this renders byte-for-byte what
+ * it always did: a single muted model-picker button sourcing the Cursor model
+ * catalog. The Claude backend adds two unobtrusive sibling controls — a backend
+ * toggle and (only for reasoning-capable Claude models) a reasoning dropdown —
+ * reusing the exact same trigger-button + popover styling.</p>
+ *
+ * <p>All selection is persisted per-conversation via {@link useAgentOverride}.</p>
  */
 export function ComposerModelPickerInline({
   projectId,
@@ -57,7 +89,17 @@ export function ComposerModelPickerInline({
     query: { staleTime: 30_000, enabled: !!projectId },
   })
 
-  const activeModels: PickerOption[] = useMemo(
+  const { value: override, patch, clear } = useAgentOverride(conversationId)
+  const backend = override.backend
+
+  // Lazily fetch the Claude catalog only once the conversation is on (or being
+  // switched to) the Claude backend — keeps the Cursor default path from
+  // issuing an extra request it never needs.
+  const claudeModelsQuery = useGetApiClaudeModelsActive({
+    query: { staleTime: 30_000, enabled: !!projectId && backend === 'claude' },
+  })
+
+  const cursorModels: PickerOption[] = useMemo(
     () =>
       (cursorModelsQuery.data ?? []).map((m) => ({
         id: m.id,
@@ -69,20 +111,62 @@ export function ComposerModelPickerInline({
     [cursorModelsQuery.data],
   )
 
-  const { value: overrideId, setOverride } = useAgentModelOverride(conversationId)
+  const claudeModels: PickerOption[] = useMemo(
+    () =>
+      (claudeModelsQuery.data ?? []).map((m) => ({
+        id: m.id,
+        displayName: m.displayName,
+        slug: m.slug,
+        aliases: [],
+        isDefaultSentinel: false,
+      })),
+    [claudeModelsQuery.data],
+  )
+
+  // Quick lookup for reasoning capability + default effort by Claude model id.
+  const claudeModelById = useMemo(() => {
+    const map = new Map<string, ClaudeModelDto>()
+    for (const m of claudeModelsQuery.data ?? []) map.set(m.id, m)
+    return map
+  }, [claudeModelsQuery.data])
 
   const project = projectQuery.data ?? null
-  const projectDefaultModelId = project?.modelId ?? null
-  const projectDefaultModelSlug = project?.modelSlug ?? null
+  const projectDefaultModelId =
+    backend === 'claude'
+      ? (project?.claudeModelId ?? null)
+      : (project?.modelId ?? null)
+  const projectDefaultModelSlug =
+    backend === 'claude'
+      ? (project?.claudeModelSlug ?? null)
+      : (project?.modelSlug ?? null)
 
-  const effectiveModelId = overrideId ?? projectDefaultModelId ?? null
+  // The active model id for this backend: explicit override wins, else the
+  // project/catalog default. (For Claude, a null project default falls through
+  // to "system default" labelling.)
+  const overrideModelId = override.model
+  const effectiveModelId = overrideModelId ?? projectDefaultModelId ?? null
+
+  const activeModels = backend === 'claude' ? claudeModels : cursorModels
+
+  // For the Claude system default, surface the catalog row flagged
+  // isSystemDefault so the label isn't a bare "Default".
+  const claudeSystemDefault = useMemo(
+    () =>
+      backend === 'claude'
+        ? ((claudeModelsQuery.data ?? []).find((m) => m.isSystemDefault) ?? null)
+        : null,
+    [backend, claudeModelsQuery.data],
+  )
+
   const effectiveModel = useMemo(
     () => activeModels.find((m) => m.id === effectiveModelId) ?? null,
     [activeModels, effectiveModelId],
   )
   const effectiveLabel = (() => {
     if (effectiveModel) return effectiveModel.displayName
-    if (overrideId === null && projectDefaultModelSlug) return projectDefaultModelSlug
+    if (projectDefaultModelSlug) return projectDefaultModelSlug
+    if (backend === 'claude' && claudeSystemDefault)
+      return claudeSystemDefault.displayName
     return 'Default'
   })()
 
@@ -90,20 +174,46 @@ export function ComposerModelPickerInline({
     () => [
       {
         id: DEFAULT_OPTION_ID,
-        displayName: 'Use project default',
-        slug: projectDefaultModelSlug ?? 'System default',
+        displayName:
+          backend === 'claude' ? 'Use system default' : 'Use project default',
+        slug:
+          projectDefaultModelSlug ??
+          (backend === 'claude'
+            ? (claudeSystemDefault?.slug ?? 'System default')
+            : 'System default'),
         aliases: [],
         isDefaultSentinel: true,
       },
       ...activeModels,
     ],
-    [activeModels, projectDefaultModelSlug],
+    [activeModels, backend, projectDefaultModelSlug, claudeSystemDefault],
   )
 
-  const selectedRowId = overrideId ?? DEFAULT_OPTION_ID
+  const selectedRowId = overrideModelId ?? DEFAULT_OPTION_ID
 
+  // ── reasoning state ────────────────────────────────────────────────────────
+  // The reasoning control only exists for a reasoning-capable Claude model.
+  const selectedClaudeModel =
+    backend === 'claude' && effectiveModelId
+      ? (claudeModelById.get(effectiveModelId) ?? null)
+      : null
+  const showReasoning =
+    backend === 'claude' && (selectedClaudeModel?.supportsReasoning ?? false)
+  const defaultEffort = coerceEffort(selectedClaudeModel?.defaultEffort)
+  const effectiveEffort: ReasoningEffort | null =
+    override.reasoningEffort ?? defaultEffort
+  const reasoningLabel =
+    REASONING_OPTIONS.find((o) => o.effort === effectiveEffort)?.label ??
+    'Default'
+
+  // ── popover / menu anchors ──────────────────────────────────────────────────
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [searchInput, setSearchInput] = useState('')
+  const [backendAnchor, setBackendAnchor] = useState<HTMLElement | null>(null)
+  const [reasoningAnchor, setReasoningAnchor] = useState<HTMLElement | null>(
+    null,
+  )
+
   const openPopover = (e: MouseEvent<HTMLElement>) => {
     setSearchInput('')
     setAnchor(e.currentTarget)
@@ -116,16 +226,136 @@ export function ComposerModelPickerInline({
     closePopover()
     if (!conversationId) return
     if (!next) return
-    setOverride(next.isDefaultSentinel ? null : next.id)
+    // Selecting the sentinel resets only the model (keeping the backend); other
+    // options write the chosen id under the current backend.
+    if (next.isDefaultSentinel) {
+      if (backend === 'cursor' && override.reasoningEffort === null) {
+        // Pure cursor + no effort → fully default, clear the record entirely so
+        // legacy/clean state is preserved exactly as before.
+        clear()
+      } else {
+        patch({ model: null })
+      }
+      return
+    }
+    patch({ model: next.id })
+  }
+
+  const onSelectBackend = (next: AgentBackend) => {
+    setBackendAnchor(null)
+    if (!conversationId) return
+    if (next === backend) return
+    // Switching backend resets the model selection (the id spaces don't overlap)
+    // and drops any reasoning effort so the new model's default applies.
+    patch({ backend: next, model: null, reasoningEffort: null })
+  }
+
+  const onSelectReasoning = (next: ReasoningEffort | null) => {
+    setReasoningAnchor(null)
+    if (!conversationId) return
+    patch({ reasoningEffort: next })
   }
 
   if (!conversationId) return null
-  if (activeModels.length === 0) return null
+  // The Cursor default path stays identical to before: if the Cursor catalog
+  // hasn't loaded (or is empty) render nothing — same guard as the original.
+  if (backend === 'cursor' && cursorModels.length === 0) return null
 
   const popoverOpen = Boolean(anchor)
+  const triggerButtonSx = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 0.25,
+    border: 0,
+    background: 'none',
+    padding: '2px 4px',
+    fontSize: '0.6875rem',
+    fontWeight: 500,
+    color: COLOR_MUTED,
+    cursor: 'pointer',
+    letterSpacing: '-0.005em',
+    fontFamily: 'inherit',
+    lineHeight: 1.3,
+    borderRadius: 0.5,
+    transition: 'color 120ms ease',
+    '&:hover': {
+      color: COLOR_PRIMARY,
+    },
+    '&:focus-visible': {
+      outline: `1px solid ${COLOR_ACCENT}`,
+      outlineOffset: 1,
+    },
+  } as const
 
   return (
-    <>
+    <Box
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.25,
+        minWidth: 0,
+      }}
+    >
+      {/* Backend selector — reuses the muted trigger-button + Menu pattern. */}
+      <Tooltip title="Switch agent backend" enterDelay={400}>
+        <Box
+          component="button"
+          type="button"
+          onClick={(e: MouseEvent<HTMLElement>) =>
+            setBackendAnchor(e.currentTarget)
+          }
+          aria-haspopup="menu"
+          aria-expanded={Boolean(backendAnchor)}
+          aria-label="Switch agent backend"
+          sx={triggerButtonSx}
+        >
+          <Box component="span">{backend === 'claude' ? 'Claude' : 'Cursor'}</Box>
+          <KeyboardArrowDownIcon sx={{ fontSize: 12, opacity: 0.55 }} />
+        </Box>
+      </Tooltip>
+      <Menu
+        open={Boolean(backendAnchor)}
+        anchorEl={backendAnchor}
+        onClose={() => setBackendAnchor(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        slotProps={{
+          paper: {
+            sx: {
+              mb: 0.5,
+              minWidth: 160,
+              border: 1,
+              borderColor: 'instrument.hairline',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+            },
+          },
+        }}
+      >
+        {(['cursor', 'claude'] as const).map((b) => (
+          <MenuItem
+            key={b}
+            dense
+            selected={b === backend}
+            onClick={() => onSelectBackend(b)}
+            sx={{ fontSize: '0.8125rem' }}
+          >
+            <ListItemIcon sx={{ color: COLOR_ACCENT, minWidth: 28 }}>
+              {b === backend ? (
+                <CheckIcon fontSize="small" />
+              ) : (
+                <Box sx={{ width: 20, height: 20 }} />
+              )}
+            </ListItemIcon>
+            {b === 'claude' ? 'Claude' : 'Cursor'}
+          </MenuItem>
+        ))}
+      </Menu>
+
+      <Box component="span" sx={{ color: COLOR_MUTED, fontSize: '0.6875rem', opacity: 0.5 }}>
+        /
+      </Box>
+
+      {/* Model picker — identical trigger + searchable Popover as before. */}
       <Tooltip title="Switch agent model" enterDelay={400}>
         <Box
           component="button"
@@ -134,30 +364,7 @@ export function ComposerModelPickerInline({
           aria-haspopup="listbox"
           aria-expanded={popoverOpen}
           aria-label="Switch agent model"
-          sx={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 0.25,
-            border: 0,
-            background: 'none',
-            padding: '2px 4px',
-            fontSize: '0.6875rem',
-            fontWeight: 500,
-            color: COLOR_MUTED,
-            cursor: 'pointer',
-            letterSpacing: '-0.005em',
-            fontFamily: 'inherit',
-            lineHeight: 1.3,
-            borderRadius: 0.5,
-            transition: 'color 120ms ease',
-            '&:hover': {
-              color: COLOR_PRIMARY,
-            },
-            '&:focus-visible': {
-              outline: `1px solid ${COLOR_ACCENT}`,
-              outlineOffset: 1,
-            },
-          }}
+          sx={triggerButtonSx}
         >
           <Box
             component="span"
@@ -337,6 +544,99 @@ export function ComposerModelPickerInline({
           forcePopupIcon={false}
         />
       </Popover>
-    </>
+
+      {/* Reasoning dropdown — Claude + reasoning-capable model only. */}
+      {showReasoning && (
+        <>
+          <Box
+            component="span"
+            sx={{ color: COLOR_MUTED, fontSize: '0.6875rem', opacity: 0.5 }}
+          >
+            /
+          </Box>
+          <Tooltip title="Reasoning effort" enterDelay={400}>
+            <Box
+              component="button"
+              type="button"
+              onClick={(e: MouseEvent<HTMLElement>) =>
+                setReasoningAnchor(e.currentTarget)
+              }
+              aria-haspopup="menu"
+              aria-expanded={Boolean(reasoningAnchor)}
+              aria-label="Reasoning effort"
+              sx={triggerButtonSx}
+            >
+              <Box component="span">{reasoningLabel}</Box>
+              <KeyboardArrowDownIcon sx={{ fontSize: 12, opacity: 0.55 }} />
+            </Box>
+          </Tooltip>
+          <Menu
+            open={Boolean(reasoningAnchor)}
+            anchorEl={reasoningAnchor}
+            onClose={() => setReasoningAnchor(null)}
+            anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+            transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+            slotProps={{
+              paper: {
+                sx: {
+                  mb: 0.5,
+                  minWidth: 160,
+                  border: 1,
+                  borderColor: 'instrument.hairline',
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+                },
+              },
+            }}
+          >
+            <MenuItem
+              dense
+              selected={override.reasoningEffort === null}
+              onClick={() => onSelectReasoning(null)}
+              sx={{ fontSize: '0.8125rem' }}
+            >
+              <ListItemIcon sx={{ color: COLOR_ACCENT, minWidth: 28 }}>
+                {override.reasoningEffort === null ? (
+                  <CheckIcon fontSize="small" />
+                ) : (
+                  <Box sx={{ width: 20, height: 20 }} />
+                )}
+              </ListItemIcon>
+              {`Default${defaultEffort ? ` (${defaultEffort})` : ''}`}
+            </MenuItem>
+            {REASONING_OPTIONS.map((o) => {
+              const selected = override.reasoningEffort === o.effort
+              return (
+                <MenuItem
+                  key={o.effort}
+                  dense
+                  selected={selected}
+                  onClick={() => onSelectReasoning(o.effort)}
+                  sx={{ fontSize: '0.8125rem' }}
+                >
+                  <ListItemIcon sx={{ color: COLOR_ACCENT, minWidth: 28 }}>
+                    {selected ? (
+                      <CheckIcon fontSize="small" />
+                    ) : (
+                      <Box sx={{ width: 20, height: 20 }} />
+                    )}
+                  </ListItemIcon>
+                  {o.label}
+                </MenuItem>
+              )
+            })}
+          </Menu>
+        </>
+      )}
+    </Box>
   )
+}
+
+function coerceEffort(raw: unknown): ReasoningEffort | null {
+  return raw === 'low' ||
+    raw === 'medium' ||
+    raw === 'high' ||
+    raw === 'xhigh' ||
+    raw === 'max'
+    ? raw
+    : null
 }

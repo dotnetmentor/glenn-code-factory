@@ -390,6 +390,20 @@ export const getApiCiRegistryCredentialsResponse = zod.object({
 })
 
 
+export const getApiClaudeModelsActiveResponseItem = zod.object({
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number()
+})
+export const getApiClaudeModelsActiveResponse = zod.array(getApiClaudeModelsActiveResponseItem)
+
+
 export const getApiCloudflareSubdomainsResponseItem = zod.object({
   "id": zod.uuid(),
   "hostname": zod.string(),
@@ -2634,7 +2648,9 @@ export const postApiProjectsResponse = zod.object({
   "runtimeMemoryMb": zod.number(),
   "runtimeVolumeSizeGb": zod.number(),
   "modelId": zod.uuid().nullish(),
-  "modelSlug": zod.string().nullish()
+  "modelSlug": zod.string().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModelSlug": zod.string().nullish()
 })
 
 
@@ -2659,7 +2675,9 @@ export const getApiProjectsProjectIdResponse = zod.object({
   "runtimeMemoryMb": zod.number(),
   "runtimeVolumeSizeGb": zod.number(),
   "modelId": zod.uuid().nullish(),
-  "modelSlug": zod.string().nullish()
+  "modelSlug": zod.string().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModelSlug": zod.string().nullish()
 })
 
 
@@ -2785,7 +2803,40 @@ export const patchApiProjectsProjectIdCursorModelResponse = zod.object({
   "runtimeMemoryMb": zod.number(),
   "runtimeVolumeSizeGb": zod.number(),
   "modelId": zod.uuid().nullish(),
-  "modelSlug": zod.string().nullish()
+  "modelSlug": zod.string().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModelSlug": zod.string().nullish()
+})
+
+
+export const patchApiProjectsProjectIdClaudeModelParams = zod.object({
+  "projectId": zod.uuid()
+})
+
+export const patchApiProjectsProjectIdClaudeModelBody = zod.object({
+  "modelId": zod.uuid().nullish()
+})
+
+export const patchApiProjectsProjectIdClaudeModelResponse = zod.object({
+  "id": zod.uuid(),
+  "name": zod.string(),
+  "workspaceId": zod.uuid(),
+  "defaultBranchId": zod.uuid(),
+  "defaultBranchName": zod.string(),
+  "runtimeId": zod.uuid(),
+  "runtimeState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
+  "githubRepoOwner": zod.string(),
+  "githubRepoName": zod.string(),
+  "githubInstallationId": zod.uuid().nullish(),
+  "previewPort": zod.number(),
+  "runtimeCpuKind": zod.string(),
+  "runtimeCpus": zod.number(),
+  "runtimeMemoryMb": zod.number(),
+  "runtimeVolumeSizeGb": zod.number(),
+  "modelId": zod.uuid().nullish(),
+  "modelSlug": zod.string().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModelSlug": zod.string().nullish()
 })
 
 
@@ -2795,7 +2846,9 @@ export const postApiProjectsProjectIdByokParams = zod.object({
 
 export const postApiProjectsProjectIdByokBody = zod.object({
   "setCursorApiKey": zod.boolean(),
-  "cursorApiKey": zod.string().nullish()
+  "cursorApiKey": zod.string().nullish(),
+  "setAnthropicApiKey": zod.boolean(),
+  "anthropicApiKey": zod.string().nullish()
 })
 
 export const postApiProjectsProjectIdByokResponse = zod.object({
@@ -2803,7 +2856,9 @@ export const postApiProjectsProjectIdByokResponse = zod.object({
   "hasCursorApiKey": zod.boolean(),
   "hasWorkspaceCursorApiKey": zod.boolean(),
   "allowProjectCursorApiKeyOverride": zod.boolean(),
-  "hasEffectiveCursorApiKey": zod.boolean()
+  "hasEffectiveCursorApiKey": zod.boolean(),
+  "hasAnthropicApiKey": zod.boolean(),
+  "hasEffectiveAnthropicApiKey": zod.boolean()
 })
 
 
@@ -3566,6 +3621,7 @@ export const getApiAdminRuntimesResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -3585,6 +3641,9 @@ export const getApiAdminRuntimesResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -3593,6 +3652,7 @@ export const getApiAdminRuntimesResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -3629,6 +3689,25 @@ export const getApiAdminRuntimesResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -3736,7 +3815,28 @@ export const getApiAdminRuntimesResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -4216,7 +4316,28 @@ export const getApiAdminRuntimesResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -4255,6 +4376,7 @@ export const getApiAdminRuntimesResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -4274,6 +4396,9 @@ export const getApiAdminRuntimesResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -4282,6 +4407,7 @@ export const getApiAdminRuntimesResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -4318,6 +4444,25 @@ export const getApiAdminRuntimesResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -4854,6 +4999,7 @@ export const getApiAdminRuntimesIdResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -4873,6 +5019,9 @@ export const getApiAdminRuntimesIdResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -4881,6 +5030,7 @@ export const getApiAdminRuntimesIdResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -4917,6 +5067,25 @@ export const getApiAdminRuntimesIdResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -5024,7 +5193,28 @@ export const getApiAdminRuntimesIdResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -5504,7 +5694,28 @@ export const getApiAdminRuntimesIdResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -5543,6 +5754,7 @@ export const getApiAdminRuntimesIdResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -5562,6 +5774,9 @@ export const getApiAdminRuntimesIdResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -5570,6 +5785,7 @@ export const getApiAdminRuntimesIdResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -5606,6 +5822,25 @@ export const getApiAdminRuntimesIdResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -6198,6 +6433,7 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -6217,6 +6453,9 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -6225,6 +6464,7 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -6261,6 +6501,25 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -6368,7 +6627,28 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -6848,7 +7128,28 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -6887,6 +7188,7 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -6906,6 +7208,9 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -6914,6 +7219,7 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -6950,6 +7256,25 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -7470,6 +7795,7 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -7489,6 +7815,9 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -7497,6 +7826,7 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -7533,6 +7863,25 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -7640,7 +7989,28 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -8120,7 +8490,28 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -8159,6 +8550,7 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -8178,6 +8570,9 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -8186,6 +8581,7 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -8222,6 +8618,25 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -8742,6 +9157,7 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -8761,6 +9177,9 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -8769,6 +9188,7 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -8805,6 +9225,25 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -8912,7 +9351,28 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -9392,7 +9852,28 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -9431,6 +9912,7 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -9450,6 +9932,9 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -9458,6 +9943,7 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -9494,6 +9980,25 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -10014,6 +10519,7 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -10033,6 +10539,9 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -10041,6 +10550,7 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -10077,6 +10587,25 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),
@@ -10184,7 +10713,28 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -10664,7 +11214,28 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
   "deletedAt": zod.iso.datetime({}).nullish(),
   "deletedBy": zod.string().nullish()
 }),
+  "claudeModelId": zod.uuid().nullish(),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
   "encryptedCursorApiKey": zod.string().nullish(),
+  "encryptedAnthropicApiKey": zod.string().nullish(),
   "templateId": zod.uuid().nullish(),
   "template": zod.object({
   "domainEvents": zod.array(zod.object({
@@ -10703,6 +11274,7 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
 })),
   "id": zod.uuid(),
   "projectId": zod.uuid(),
+  "agentBackend": zod.string(),
   "branchId": zod.uuid(),
   "branch": zod.unknown(),
   "title": zod.string(),
@@ -10722,6 +11294,9 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
   "prompt": zod.string(),
   "status": zod.enum(['Pending', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Canceling']),
   "agentId": zod.string().nullish(),
+  "agentBackend": zod.string(),
+  "claudeSessionId": zod.string().nullish(),
+  "reasoningEffort": zod.string().nullish(),
   "startedAt": zod.iso.datetime({}).nullish(),
   "completedAt": zod.iso.datetime({}).nullish(),
   "failureReason": zod.string().nullish(),
@@ -10730,6 +11305,7 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
   "queuePosition": zod.number().nullish(),
   "cancelReason": zod.string().nullish(),
   "modelId": zod.uuid().nullish(),
+  "claudeModelId": zod.uuid().nullish(),
   "totalCostUsd": zod.number().nullish(),
   "inputTokens": zod.number().nullish(),
   "outputTokens": zod.number().nullish(),
@@ -10766,6 +11342,25 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
   "displayName": zod.string().nullish(),
   "isDefault": zod.boolean()
 })),
+  "sortOrder": zod.number(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({}),
+  "isDeleted": zod.boolean(),
+  "deletedAt": zod.iso.datetime({}).nullish(),
+  "deletedBy": zod.string().nullish()
+}),
+  "claudeModel": zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "slug": zod.string(),
+  "displayName": zod.string(),
+  "description": zod.string().nullish(),
+  "isSystemDefault": zod.boolean(),
+  "supportsReasoning": zod.boolean(),
+  "defaultEffort": zod.string().nullish(),
+  "isActive": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.iso.datetime({}),
   "updatedAt": zod.iso.datetime({}),

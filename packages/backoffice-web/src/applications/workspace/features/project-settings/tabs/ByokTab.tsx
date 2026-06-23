@@ -36,6 +36,8 @@ export function ByokTab({ projectId }: ByokTabProps) {
     isUpdating,
     saveCursorApiKey,
     clearCursorApiKey,
+    saveAnthropicApiKey,
+    clearAnthropicApiKey,
   } = useProjectByok({
     projectId,
     onSuccess: (msg) => showSuccess(msg),
@@ -76,9 +78,10 @@ export function ByokTab({ projectId }: ByokTabProps) {
           Credentials
         </Typography>
         <Typography sx={bodySx}>
-          Optional per-project Cursor key. When unset, this project uses the
-          workspace default from workspace settings. Values are encrypted at rest
-          and never sent back to the browser.
+          Optional per-project agent keys. The Cursor key falls back to the
+          workspace default from workspace settings when unset; the Anthropic key
+          powers the Claude agent backend for this project. Values are encrypted
+          at rest and never sent back to the browser.
         </Typography>
       </Box>
 
@@ -122,6 +125,18 @@ export function ByokTab({ projectId }: ByokTabProps) {
           isPending={pending}
           onSave={(v) => runWith(() => saveCursorApiKey(v))}
           onClear={() => runWith(() => clearCursorApiKey())}
+        />
+      )}
+
+      {!isLoadingStatus && isOwner === true && status && (
+        <CredentialRow
+          label="Anthropic API key (project)"
+          helper="Required to run the Claude agent backend for this project. Encrypted at rest and never sent back to the browser. Clear to remove it."
+          isConfigured={status.hasAnthropicApiKey}
+          isUpdating={isUpdating}
+          isPending={pending}
+          onSave={(v) => runWith(() => saveAnthropicApiKey(v))}
+          onClear={() => runWith(() => clearAnthropicApiKey())}
         />
       )}
     </Stack>
