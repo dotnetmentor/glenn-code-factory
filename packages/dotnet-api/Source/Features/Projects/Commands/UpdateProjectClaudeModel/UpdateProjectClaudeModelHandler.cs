@@ -5,27 +5,35 @@ using Source.Infrastructure;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
 
-namespace Source.Features.Projects.Commands.UpdateProjectCursorModel;
+namespace Source.Features.Projects.Commands.UpdateProjectClaudeModel;
 
-public sealed class UpdateProjectCursorModelHandler
-    : ICommandHandler<UpdateProjectCursorModelCommand, Result<ProjectDto>>
+/// <summary>
+/// Handler for <see cref="UpdateProjectClaudeModelCommand"/>. Mirrors
+/// <c>UpdateProjectCursorModelHandler</c>: validate the model id against the
+/// active <c>ClaudeModels</c> catalog, persist via
+/// <c>Project.SetClaudeModel(...)</c>, then return the refreshed
+/// <see cref="ProjectDto"/> (carrying both the Cursor and Claude defaults so
+/// the frontend can hydrate either picker).
+/// </summary>
+public sealed class UpdateProjectClaudeModelHandler
+    : ICommandHandler<UpdateProjectClaudeModelCommand, Result<ProjectDto>>
 {
     public const string NotFoundPrefix = "not-found:";
     public const string InvalidModelError = "invalid_model";
 
     private readonly ApplicationDbContext _db;
-    private readonly ILogger<UpdateProjectCursorModelHandler> _logger;
+    private readonly ILogger<UpdateProjectClaudeModelHandler> _logger;
 
-    public UpdateProjectCursorModelHandler(
+    public UpdateProjectClaudeModelHandler(
         ApplicationDbContext db,
-        ILogger<UpdateProjectCursorModelHandler> logger)
+        ILogger<UpdateProjectClaudeModelHandler> logger)
     {
         _db = db;
         _logger = logger;
     }
 
     public async Task<Result<ProjectDto>> Handle(
-        UpdateProjectCursorModelCommand request,
+        UpdateProjectClaudeModelCommand request,
         CancellationToken cancellationToken)
     {
         var project = await _db.Projects
@@ -38,7 +46,7 @@ public sealed class UpdateProjectCursorModelHandler
 
         if (request.ModelId is { } modelId)
         {
-            var modelOk = await _db.CursorModels
+            var modelOk = await _db.ClaudeModels
                 .AsNoTracking()
                 .AnyAsync(m => m.Id == modelId && m.IsActive, cancellationToken);
             if (!modelOk)
@@ -47,12 +55,12 @@ public sealed class UpdateProjectCursorModelHandler
             }
         }
 
-        project.SetModel(request.ModelId);
+        project.SetClaudeModel(request.ModelId);
         await _db.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
-            "UpdateProjectModel: project {ProjectId} default model set to {ModelId}.",
-            project.Id, project.ModelId);
+            "UpdateProjectClaudeModel: project {ProjectId} default Claude model set to {ModelId}.",
+            project.Id, project.ClaudeModelId);
 
         var defaultBranch = await _db.ProjectBranches
             .AsNoTracking()
@@ -67,12 +75,12 @@ public sealed class UpdateProjectCursorModelHandler
             .Select(r => new { r.Id, r.State })
             .FirstOrDefaultAsync(cancellationToken);
 
-        string? modelSlug = null;
-        if (project.ModelId is { } id)
+        string? cursorSlug = null;
+        if (project.ModelId is { } cursorId)
         {
-            modelSlug = await _db.CursorModels
+            cursorSlug = await _db.CursorModels
                 .AsNoTracking()
-                .Where(m => m.Id == id)
+                .Where(m => m.Id == cursorId)
                 .Select(m => m.Slug)
                 .FirstOrDefaultAsync(cancellationToken);
         }
@@ -104,7 +112,7 @@ public sealed class UpdateProjectCursorModelHandler
             RuntimeMemoryMb: project.RuntimeMemoryMb,
             RuntimeVolumeSizeGb: project.RuntimeVolumeSizeGb,
             ModelId: project.ModelId,
-            ModelSlug: modelSlug,
+            ModelSlug: cursorSlug,
             ClaudeModelId: project.ClaudeModelId,
             ClaudeModelSlug: claudeSlug));
     }

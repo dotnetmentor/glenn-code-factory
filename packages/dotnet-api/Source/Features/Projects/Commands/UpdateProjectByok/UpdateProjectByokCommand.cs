@@ -13,7 +13,8 @@ public readonly record struct OptionalSecret(bool IsSet, string? Value)
 public sealed record UpdateProjectByokCommand(
     Guid ProjectId,
     string CallingUserId,
-    OptionalSecret CursorApiKey
+    OptionalSecret CursorApiKey,
+    OptionalSecret AnthropicApiKey
 ) : ICommand<Result<UpdateProjectByokResponse>>;
 
 public sealed record UpdateProjectByokResponse(
@@ -21,4 +22,6 @@ public sealed record UpdateProjectByokResponse(
     bool HasCursorApiKey,
     bool HasWorkspaceCursorApiKey,
     bool AllowProjectCursorApiKeyOverride,
-    bool HasEffectiveCursorApiKey);
+    bool HasEffectiveCursorApiKey,
+    bool HasAnthropicApiKey,
+    bool HasEffectiveAnthropicApiKey);

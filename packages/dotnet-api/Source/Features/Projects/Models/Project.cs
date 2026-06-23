@@ -1,3 +1,4 @@
+using Source.Features.ClaudeModels.Models;
 using Source.Features.CursorModels.Models;
 using Source.Features.GitHub.Models;
 using Source.Features.ProjectTemplates.Models;
@@ -62,8 +63,26 @@ public class Project : Entity, IAuditable, ISoftDelete
     public Guid? ModelId { get; private set; }
     public virtual CursorModel? Model { get; private set; }
 
+    /// <summary>
+    /// Default Claude model for new sessions on this project when the
+    /// conversation's <c>AgentBackend</c> is <c>"claude"</c>. <c>null</c> falls
+    /// back to the <c>ClaudeModels</c> system default. Parallels
+    /// <see cref="ModelId"/> (the Cursor default) — per-backend default FKs,
+    /// mirroring the old multi-backend schema.
+    /// </summary>
+    public Guid? ClaudeModelId { get; private set; }
+    public virtual ClaudeModel? ClaudeModel { get; private set; }
+
     /// <summary>BYOK Cursor API key, encrypted under the project's DEK.</summary>
     public string? EncryptedCursorApiKey { get; set; }
+
+    /// <summary>
+    /// BYOK Anthropic API key, encrypted under the project's DEK. Resolved for
+    /// the daemon's <c>GetSecrets</c> the same way the Cursor key is
+    /// (project envelope → host env var). Null when no project-scoped key is
+    /// configured.
+    /// </summary>
+    public string? EncryptedAnthropicApiKey { get; set; }
 
     public Guid? TemplateId { get; set; }
     public ProjectTemplate? Template { get; set; }
@@ -221,6 +240,28 @@ public class Project : Entity, IAuditable, ISoftDelete
         }
 
         EncryptedCursorApiKey = envelope;
+        return Result.Success();
+    }
+
+    public Result SetClaudeModel(Guid? modelId)
+    {
+        if (ClaudeModelId == modelId)
+        {
+            return Result.Success();
+        }
+
+        ClaudeModelId = modelId;
+        return Result.Success();
+    }
+
+    public Result SetEncryptedAnthropicApiKey(string? envelope)
+    {
+        if (string.Equals(EncryptedAnthropicApiKey, envelope, StringComparison.Ordinal))
+        {
+            return Result.Success();
+        }
+
+        EncryptedAnthropicApiKey = envelope;
         return Result.Success();
     }
 

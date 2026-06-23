@@ -681,7 +681,9 @@ public sealed class CreateProjectHandler : ICommandHandler<CreateProjectCommand,
                 RuntimeMemoryMb: project.RuntimeMemoryMb,
                 RuntimeVolumeSizeGb: project.RuntimeVolumeSizeGb,
                 ModelId: project.ModelId,
-                ModelSlug: null),
+                ModelSlug: null,
+                ClaudeModelId: project.ClaudeModelId,
+                ClaudeModelSlug: null),
             Conflict: null));
     }
 

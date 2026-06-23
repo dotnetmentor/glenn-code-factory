@@ -1,3 +1,4 @@
+using Source.Features.ClaudeModels.Models;
 using Source.Features.Conversations.Events;
 using Source.Features.CursorModels.Models;
 using Source.Features.RuntimeLifecycle.Models;
@@ -22,8 +23,39 @@ public class AgentSession : Entity, IAuditable
     /// <summary>
     /// Cursor SDK persistent agent identity captured on first response. Used
     /// to resume context on subsequent turns via <c>Agent.resume(agentId)</c>.
+    /// Cursor-backend only — the Claude resume id lives in
+    /// <see cref="ClaudeSessionId"/>.
     /// </summary>
     public string? AgentId { get; set; }
+
+    /// <summary>
+    /// The coding-agent backend that ran this turn: <c>"cursor"</c> (default)
+    /// or <c>"claude"</c>. Snapshotted from the parent
+    /// <see cref="Conversation.AgentBackend"/> at dispatch so the audit trail
+    /// stays accurate even if the conversation is later flipped to another
+    /// backend. Stored as <c>varchar(32)</c>.
+    /// </summary>
+    public string AgentBackend { get; set; } = AgentBackends.Cursor;
+
+    /// <summary>
+    /// Claude Agent SDK session id captured from the SDK's <c>system.init</c>
+    /// frame on first response. Used to resume context on subsequent turns via
+    /// the SDK's <c>resume</c> option — the Claude-backend analogue of
+    /// <see cref="AgentId"/>. Kept distinct (rather than overloading
+    /// <see cref="AgentId"/>) so the two backends' resume ids never collide and
+    /// a conversation can in principle carry both. Null until the first
+    /// Claude-backed turn succeeds.
+    /// </summary>
+    public string? ClaudeSessionId { get; set; }
+
+    /// <summary>
+    /// Reasoning effort chosen for this turn (<c>low</c> | <c>medium</c> |
+    /// <c>high</c> | <c>xhigh</c> | <c>max</c>). Null means "fall back to the
+    /// model's <see cref="ClaudeModel.DefaultEffort"/>". Only meaningful when
+    /// <see cref="AgentBackend"/> is <c>"claude"</c> and the chosen model
+    /// supports reasoning.
+    /// </summary>
+    public string? ReasoningEffort { get; set; }
 
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
@@ -34,9 +66,18 @@ public class AgentSession : Entity, IAuditable
     public string? CancelReason { get; set; }
 
     /// <summary>
-    /// Per-session model override. <c>null</c> means fall back to the project default.
+    /// Per-session Cursor model override. <c>null</c> means fall back to the
+    /// project default. Cursor-backend only.
     /// </summary>
     public Guid? ModelId { get; set; }
+
+    /// <summary>
+    /// Per-session Claude model override. <c>null</c> means fall back to the
+    /// project's Claude default (then the <c>ClaudeModels</c> system default).
+    /// Claude-backend only. Parallels <see cref="ModelId"/> — per-backend model
+    /// FKs, mirroring the old multi-backend schema.
+    /// </summary>
+    public Guid? ClaudeModelId { get; set; }
 
     public decimal? TotalCostUsd { get; set; }
     public int? InputTokens { get; set; }
@@ -51,6 +92,7 @@ public class AgentSession : Entity, IAuditable
     public Conversation Conversation { get; set; } = null!;
     public ProjectRuntime Runtime { get; set; } = null!;
     public CursorModel? Model { get; set; }
+    public ClaudeModel? ClaudeModel { get; set; }
     public ICollection<AgentEvent> Events { get; set; } = new List<AgentEvent>();
 
     /// <summary>

@@ -19,4 +19,6 @@ public record ProjectDto(
     int RuntimeMemoryMb,
     int RuntimeVolumeSizeGb,
     Guid? ModelId,
-    string? ModelSlug);
+    string? ModelSlug,
+    Guid? ClaudeModelId,
+    string? ClaudeModelSlug);

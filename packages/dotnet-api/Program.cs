@@ -153,6 +153,9 @@ builder.Services.AddScoped<
     Source.Features.SignalR.Services.ICursorApiKeyResolver,
     Source.Features.SignalR.Services.CursorApiKeyResolver>();
 builder.Services.AddScoped<
+    Source.Features.SignalR.Services.IAnthropicApiKeyResolver,
+    Source.Features.SignalR.Services.AnthropicApiKeyResolver>();
+builder.Services.AddScoped<
     Source.Features.SignalR.Services.IAgentSecretsResolver,
     Source.Features.SignalR.Services.AgentSecretsResolver>();
 // Scoped: resolves the effective AgentPermissionsConfig for a project per turn.

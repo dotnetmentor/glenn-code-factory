@@ -21,7 +21,18 @@ public record DispatchTurnArgs(
     string? EventOriginUserId,
     bool ForceQueue = false,
     Guid? ModelId = null,
-    bool Yolo = false);
+    bool Yolo = false,
+    // Multi-backend (claude-agent-backend Phase 2). All default so existing
+    // callers compile unchanged and the Cursor path is byte-for-byte preserved.
+    // Backend is the per-turn backend ("cursor" | "claude"); null means
+    // "inherit the conversation's AgentBackend" (which itself defaults to
+    // cursor). ClaudeModelId is the per-turn Claude model override; ResumeId is
+    // the backend-appropriate resume id (Cursor AgentId or Claude session id) —
+    // when supplied it takes precedence over AgentId for the Claude path.
+    string? Backend = null,
+    Guid? ClaudeModelId = null,
+    string? ReasoningEffort = null,
+    string? ClaudeResumeId = null);
 
 public record DispatchTurnResult(Guid SessionId, bool Queued, int? QueuePosition);
 
@@ -71,6 +82,8 @@ public sealed class TurnDispatcher : ITurnDispatcher
             {
                 p.ModelId,
                 ModelSlug = p.Model != null && p.Model.IsActive ? p.Model.Slug : null,
+                p.ClaudeModelId,
+                ClaudeModelSlug = p.ClaudeModel != null && p.ClaudeModel.IsActive ? p.ClaudeModel.Slug : null,
             })
             .FirstOrDefaultAsync(ct);
         if (projectDefaults is null)
@@ -79,26 +92,90 @@ public sealed class TurnDispatcher : ITurnDispatcher
                 $"TurnDispatcher: project {args.ProjectId} not found; cannot dispatch.");
         }
 
+        // Backend selection: per-turn override → conversation default → cursor.
+        // Resolved up-front because it drives which model catalog / resume id we
+        // read below. The Cursor path is unchanged when backend == "cursor".
+        var conversationBackend = await _db.Conversations
+            .AsNoTracking()
+            .Where(c => c.Id == args.ConversationId)
+            .Select(c => c.AgentBackend)
+            .FirstOrDefaultAsync(ct);
+        var backend = args.Backend
+            ?? (string.IsNullOrWhiteSpace(conversationBackend) ? AgentBackends.Cursor : conversationBackend);
+
+        // Per-backend model resolution. Each backend reads its own catalog +
+        // project default; the other backend's model id is left null on the
+        // session so the audit row attributes the model to the right backend.
         string? resolvedModelSlug = null;
-        Guid? resolvedModelId = null;
-        if (args.ModelId is { } sessionModelId)
+        Guid? resolvedCursorModelId = null;
+        Guid? resolvedClaudeModelId = null;
+
+        if (backend == AgentBackends.Claude)
         {
-            resolvedModelSlug = await _db.CursorModels
-                .AsNoTracking()
-                .Where(m => m.Id == sessionModelId && m.IsActive)
-                .Select(m => m.Slug)
-                .FirstOrDefaultAsync(ct);
-            if (resolvedModelSlug is not null)
+            if (args.ClaudeModelId is { } sessionClaudeModelId)
             {
-                resolvedModelId = sessionModelId;
+                resolvedModelSlug = await _db.ClaudeModels
+                    .AsNoTracking()
+                    .Where(m => m.Id == sessionClaudeModelId && m.IsActive)
+                    .Select(m => m.Slug)
+                    .FirstOrDefaultAsync(ct);
+                if (resolvedModelSlug is not null)
+                {
+                    resolvedClaudeModelId = sessionClaudeModelId;
+                }
+            }
+
+            if (resolvedModelSlug is null)
+            {
+                resolvedModelSlug = projectDefaults.ClaudeModelSlug;
+                resolvedClaudeModelId = projectDefaults.ClaudeModelId;
+            }
+
+            // Fall back to the ClaudeModels system default when neither the turn
+            // nor the project pinned a model — keeps the daemon from guessing.
+            if (resolvedModelSlug is null)
+            {
+                var systemDefault = await _db.ClaudeModels
+                    .AsNoTracking()
+                    .Where(m => m.IsSystemDefault && m.IsActive)
+                    .Select(m => new { m.Id, m.Slug })
+                    .FirstOrDefaultAsync(ct);
+                if (systemDefault is not null)
+                {
+                    resolvedModelSlug = systemDefault.Slug;
+                    resolvedClaudeModelId = systemDefault.Id;
+                }
+            }
+        }
+        else
+        {
+            if (args.ModelId is { } sessionModelId)
+            {
+                resolvedModelSlug = await _db.CursorModels
+                    .AsNoTracking()
+                    .Where(m => m.Id == sessionModelId && m.IsActive)
+                    .Select(m => m.Slug)
+                    .FirstOrDefaultAsync(ct);
+                if (resolvedModelSlug is not null)
+                {
+                    resolvedCursorModelId = sessionModelId;
+                }
+            }
+
+            if (resolvedModelSlug is null)
+            {
+                resolvedModelSlug = projectDefaults.ModelSlug;
+                resolvedCursorModelId = projectDefaults.ModelId;
             }
         }
 
-        if (resolvedModelSlug is null)
-        {
-            resolvedModelSlug = projectDefaults.ModelSlug;
-            resolvedModelId = projectDefaults.ModelId;
-        }
+        // Resume id is backend-specific. AgentId carries the Cursor resume id
+        // today; for Claude the caller passes ClaudeResumeId (the SDK session
+        // id captured on a prior turn). We persist each on its own column.
+        var cursorAgentId = backend == AgentBackends.Cursor ? args.AgentId : null;
+        var claudeSessionId = backend == AgentBackends.Claude
+            ? (args.ClaudeResumeId ?? args.AgentId)
+            : null;
 
         var pullBeforeStart = !await _db.AgentSessions
             .AnyAsync(s => s.RuntimeId == runtime.Id, ct);
@@ -109,8 +186,12 @@ public sealed class TurnDispatcher : ITurnDispatcher
             RuntimeId = runtime.Id,
             Prompt = args.Prompt,
             Status = AgentSessionStatus.Pending,
-            AgentId = args.AgentId,
-            ModelId = resolvedModelId,
+            AgentBackend = backend,
+            AgentId = cursorAgentId,
+            ClaudeSessionId = claudeSessionId,
+            ModelId = resolvedCursorModelId,
+            ClaudeModelId = resolvedClaudeModelId,
+            ReasoningEffort = backend == AgentBackends.Claude ? args.ReasoningEffort : null,
         };
         _db.AgentSessions.Add(session);
 

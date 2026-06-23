@@ -13,6 +13,7 @@ using Source.Features.Projects.Commands.UnarchiveBranch;
 using Source.Features.Projects.Commands.RenameProject;
 using Source.Features.Projects.Commands.UpdatePreviewPort;
 using Source.Features.Projects.Commands.UpdateProjectByok;
+using Source.Features.Projects.Commands.UpdateProjectClaudeModel;
 using Source.Features.Projects.Commands.UpdateProjectCursorModel;
 using Source.Features.Projects.Commands.UpdateRuntimeSpec;
 using Source.Features.Projects.Models;
@@ -543,6 +544,71 @@ public class ProjectsController : BaseApiController
     }
 
     /// <summary>
+    /// Set (or clear) the project's <b>default Claude model</b>. Mirrors
+    /// <see cref="UpdateCursorModel"/> exactly: <c>null</c> clears the project
+    /// default and lets the daemon's <c>ClaudeFactory</c> fall back to the
+    /// <c>ClaudeModels</c> system default; a non-null id must reference an
+    /// active <c>ClaudeModels</c> row. Used when the conversation's
+    /// <c>AgentBackend</c> is <c>"claude"</c>, but settable any time so the
+    /// frontend keeps both backends' picker state stable across backend flips.
+    ///
+    /// <para><b>Validation.</b> Same shape as <see cref="UpdateCursorModel"/>:
+    /// 400 with <c>invalid_model</c> on a bad id, 404 on a missing project.</para>
+    /// </summary>
+    [HttpPatch("{projectId:guid}/claude-model")]
+    [ProducesResponseType(typeof(ProjectDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ProjectDto>> UpdateClaudeModel(
+        Guid projectId,
+        [FromBody] UpdateProjectClaudeModelRequest? request,
+        CancellationToken ct)
+    {
+        var userId = GetCurrentUserId();
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        if (request is null)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Invalid body",
+                Detail = "Request body required.",
+            });
+        }
+
+        var result = await Mediator.Send(
+            new UpdateProjectClaudeModelCommand(
+                ProjectId: projectId,
+                ModelId: request.ModelId),
+            ct);
+
+        if (!result.IsSuccess)
+        {
+            var error = result.Error ?? string.Empty;
+
+            if (error.StartsWith(UpdateProjectClaudeModelHandler.NotFoundPrefix, StringComparison.Ordinal))
+            {
+                Logger.LogInformation(
+                    "UpdateProjectClaudeModel: 404 for project {ProjectId} caller {UserId}: {Error}",
+                    projectId, userId, error);
+                return NotFound();
+            }
+
+            Logger.LogWarning(
+                "UpdateProjectClaudeModel failed for project {ProjectId}: {Error}",
+                projectId, error);
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Could not update claude model",
+                Detail = error,
+            });
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
     /// Soft-delete a project. The row stays in the database with
     /// <c>IsDeleted=true</c> + auto-stamped <c>DeletedAt</c> / <c>DeletedBy</c>
     /// and is hidden from every subsequent query by the global
@@ -631,10 +697,15 @@ public class ProjectsController : BaseApiController
             ? new OptionalSecret(IsSet: true, Value: request.CursorApiKey)
             : OptionalSecret.Unchanged();
 
+        var anthropic = request.SetAnthropicApiKey
+            ? new OptionalSecret(IsSet: true, Value: request.AnthropicApiKey)
+            : OptionalSecret.Unchanged();
+
         var result = await Mediator.Send(new UpdateProjectByokCommand(
             ProjectId: projectId,
             CallingUserId: userId,
-            CursorApiKey: cursor));
+            CursorApiKey: cursor,
+            AnthropicApiKey: anthropic));
 
         if (!result.IsSuccess)
         {
@@ -1309,7 +1380,9 @@ public record CopyBranchResponse(
 /// </summary>
 public record UpdateProjectByokRequest(
     bool SetCursorApiKey = false,
-    string? CursorApiKey = null);
+    string? CursorApiKey = null,
+    bool SetAnthropicApiKey = false,
+    string? AnthropicApiKey = null);
 
 /// <summary>
 /// Body shape for <c>PATCH /api/projects/{projectId}</c>. All fields are
@@ -1372,6 +1445,15 @@ public record UpdateRuntimeSpecRequest(
 /// <c>CursorModels</c> row (validated in the handler).
 /// </summary>
 public record UpdateProjectCursorModelRequest(Guid? ModelId);
+
+/// <summary>
+/// Body shape for <c>PATCH /api/projects/{projectId}/claude-model</c>. Mirrors
+/// <see cref="UpdateProjectCursorModelRequest"/>: single optional field —
+/// <c>null</c> clears the project's Claude default (daemon falls back to the
+/// <c>ClaudeModels</c> system default); a non-null id must reference an active
+/// <c>ClaudeModels</c> row (validated in the handler).
+/// </summary>
+public record UpdateProjectClaudeModelRequest(Guid? ModelId);
 
 /// <summary>
 /// Body shape for <c>POST /api/projects/{projectId}/branches/attach</c>. The

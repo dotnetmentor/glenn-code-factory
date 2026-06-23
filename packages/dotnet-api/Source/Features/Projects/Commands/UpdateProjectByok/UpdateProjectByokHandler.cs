@@ -17,17 +17,20 @@ public sealed class UpdateProjectByokHandler
     private readonly ApplicationDbContext _db;
     private readonly SecretEncryptionService _encryption;
     private readonly ICursorApiKeyResolver _cursorKeys;
+    private readonly IAnthropicApiKeyResolver _anthropicKeys;
     private readonly ILogger<UpdateProjectByokHandler> _logger;
 
     public UpdateProjectByokHandler(
         ApplicationDbContext db,
         SecretEncryptionService encryption,
         ICursorApiKeyResolver cursorKeys,
+        IAnthropicApiKeyResolver anthropicKeys,
         ILogger<UpdateProjectByokHandler> logger)
     {
         _db = db;
         _encryption = encryption;
         _cursorKeys = cursorKeys;
+        _anthropicKeys = anthropicKeys;
         _logger = logger;
     }
 
@@ -58,6 +61,8 @@ public sealed class UpdateProjectByokHandler
             return Result.Failure<UpdateProjectByokResponse>(ProjectOverrideDisabled);
         }
 
+        var anyChange = false;
+
         if (request.CursorApiKey.IsSet)
         {
             var cursorError = await ApplySecretAsync(
@@ -69,25 +74,50 @@ public sealed class UpdateProjectByokHandler
             {
                 return Result.Failure<UpdateProjectByokResponse>(cursorError);
             }
+            anyChange = true;
+        }
 
+        if (request.AnthropicApiKey.IsSet)
+        {
+            var anthropicError = await ApplySecretAsync(
+                request.AnthropicApiKey,
+                request.ProjectId,
+                value => project.EncryptedAnthropicApiKey = value,
+                cancellationToken);
+            if (anthropicError is not null)
+            {
+                return Result.Failure<UpdateProjectByokResponse>(anthropicError);
+            }
+            anyChange = true;
+        }
+
+        if (anyChange)
+        {
             await _db.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation(
-                "UpdateProjectByok: project {ProjectId} updated by {UserId}. cursorChanged={CursorChanged} (now hasCursor={HasCursor}).",
+                "UpdateProjectByok: project {ProjectId} updated by {UserId}. " +
+                "cursorChanged={CursorChanged} (now hasCursor={HasCursor}); " +
+                "anthropicChanged={AnthropicChanged} (now hasAnthropic={HasAnthropic}).",
                 request.ProjectId,
                 request.CallingUserId,
                 request.CursorApiKey.IsSet,
-                project.EncryptedCursorApiKey is not null);
+                project.EncryptedCursorApiKey is not null,
+                request.AnthropicApiKey.IsSet,
+                project.EncryptedAnthropicApiKey is not null);
         }
 
         var status = await _cursorKeys.GetStatusForProjectAsync(request.ProjectId, cancellationToken);
+        var anthropicStatus = await _anthropicKeys.GetStatusForProjectAsync(request.ProjectId, cancellationToken);
 
         return Result.Success(new UpdateProjectByokResponse(
             ProjectId: project.Id,
             HasCursorApiKey: status.HasProjectCursorApiKey,
             HasWorkspaceCursorApiKey: status.HasWorkspaceCursorApiKey,
             AllowProjectCursorApiKeyOverride: status.AllowProjectCursorApiKeyOverride,
-            HasEffectiveCursorApiKey: status.HasEffectiveCursorApiKey));
+            HasEffectiveCursorApiKey: status.HasEffectiveCursorApiKey,
+            HasAnthropicApiKey: anthropicStatus.HasProjectAnthropicApiKey,
+            HasEffectiveAnthropicApiKey: anthropicStatus.HasEffectiveAnthropicApiKey));
     }
 
     private async Task<string?> ApplySecretAsync(

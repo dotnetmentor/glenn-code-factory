@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Source.Features.Attachments.Models;
+using Source.Features.ClaudeModels.Models;
 using Source.Features.CursorModels.Models;
 using Source.Features.Cloudflare.Models;
 using Source.Features.Conversations.Models;
@@ -109,6 +110,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<DaemonVersion> DaemonVersions { get; set; } = null!;
     public DbSet<SubdomainAssignment> SubdomainAssignments { get; set; } = null!;
     public DbSet<CursorModel> CursorModels { get; set; } = null!;
+    public DbSet<ClaudeModel> ClaudeModels { get; set; } = null!;
     public DbSet<Attachment> Attachments { get; set; } = null!;
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -648,7 +650,18 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.HasIndex(e => e.ModelId)
                 .HasDatabaseName("IX_Projects_ModelId");
 
+            // Per-backend Claude default model FK — parallels ModelId (Cursor).
+            // SetNull so shrinking the ClaudeModels catalog never breaks a
+            // project that referenced a now-tombstoned model.
+            entity.HasOne(e => e.ClaudeModel)
+                .WithMany()
+                .HasForeignKey(e => e.ClaudeModelId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(e => e.ClaudeModelId)
+                .HasDatabaseName("IX_Projects_ClaudeModelId");
+
             entity.Property(e => e.EncryptedCursorApiKey).HasColumnType("text");
+            entity.Property(e => e.EncryptedAnthropicApiKey).HasColumnType("text");
 
             // Optional originating starter — historical FK to ProjectTemplate
             // (UI name "Starter"). SetNull so archiving / hard-deleting a
@@ -1298,6 +1311,14 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(e => e.IsAutoTitled).HasDefaultValue(true);
 
+            // Per-conversation agent backend discriminator. Default "cursor"
+            // keeps every pre-existing conversation (and the default path)
+            // unchanged. varchar(32) matches the old multi-backend schema.
+            entity.Property(e => e.AgentBackend)
+                .IsRequired()
+                .HasMaxLength(AgentBackends.MaxLength)
+                .HasDefaultValue(AgentBackends.Cursor);
+
             entity.Property(e => e.LastActivityAt).HasColumnType("timestamp with time zone");
             entity.Property(e => e.ArchivedAt).HasColumnType("timestamp with time zone");
             entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
@@ -1354,6 +1375,16 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.Property(e => e.CancelReason).HasMaxLength(256);
             entity.Property(e => e.AgentId).HasColumnType("text");
 
+            // Per-turn backend snapshot + Claude resume id / reasoning effort.
+            // Default "cursor" so historical and Cursor-backed rows are
+            // unchanged. ClaudeSessionId is the Claude analogue of AgentId.
+            entity.Property(e => e.AgentBackend)
+                .IsRequired()
+                .HasMaxLength(AgentBackends.MaxLength)
+                .HasDefaultValue(AgentBackends.Cursor);
+            entity.Property(e => e.ClaudeSessionId).HasColumnType("text");
+            entity.Property(e => e.ReasoningEffort).HasMaxLength(16);
+
             entity.Property(e => e.StartedAt).HasColumnType("timestamp with time zone");
             entity.Property(e => e.CompletedAt).HasColumnType("timestamp with time zone");
             entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
@@ -1377,6 +1408,15 @@ public class ApplicationDbContext : IdentityDbContext<User>
                 .OnDelete(DeleteBehavior.SetNull);
             entity.HasIndex(e => e.ModelId)
                 .HasDatabaseName("IX_AgentSessions_ModelId");
+
+            // Per-turn Claude model FK — parallels ModelId (Cursor). SetNull so
+            // the session audit trail outlives a tombstoned catalog row.
+            entity.HasOne(e => e.ClaudeModel)
+                .WithMany()
+                .HasForeignKey(e => e.ClaudeModelId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(e => e.ClaudeModelId)
+                .HasDatabaseName("IX_AgentSessions_ClaudeModelId");
 
             // Cost / usage metrics — denormalized onto the session at terminal
             // state from the SDK's `result` frame for cheap rollups up the
@@ -2564,6 +2604,118 @@ public class ApplicationDbContext : IdentityDbContext<User>
                     SortOrder = 27,
                     CreatedAt = cursorSeedTimestamp,
                     UpdatedAt = cursorSeedTimestamp,
+                    IsDeleted = false,
+                }
+            );
+        });
+
+        // -------- ClaudeModels --------
+        // Sibling catalogue to CursorModels, but for the Claude Agent SDK
+        // (@anthropic-ai/claude-agent-sdk) backend. Same ownership + soft-delete
+        // + deterministic-seed patterns; the catalog metadata is the Claude
+        // flavour (reasoning capability + default effort) instead of the Cursor
+        // SDK variant matrix. The IsSystemDefault filtered-unique index mirrors
+        // the old AgentModels.OnlyOneSystemDefault constraint.
+        builder.Entity<ClaudeModel>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Slug).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.IsSystemDefault).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.SupportsReasoning).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.DefaultEffort).HasMaxLength(16);
+            entity.Property(e => e.IsActive).IsRequired().HasDefaultValue(true);
+            entity.Property(e => e.SortOrder).IsRequired().HasDefaultValue(0);
+
+            entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.DeletedAt).HasColumnType("timestamp with time zone");
+
+            // Partial unique index — Slug is unique among non-tombstoned rows.
+            entity.HasIndex(e => e.Slug)
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false")
+                .HasDatabaseName("IX_ClaudeModels_Slug");
+
+            // Catalogue listing order — picker filters IsActive, sorts SortOrder.
+            entity.HasIndex(e => e.IsActive)
+                .HasDatabaseName("IX_ClaudeModels_IsActive");
+
+            // Exactly one non-tombstoned system default. Mirrors the old
+            // AgentModels.OnlyOneSystemDefault filtered-unique index.
+            entity.HasIndex(e => e.IsSystemDefault)
+                .IsUnique()
+                .HasFilter("\"IsSystemDefault\" = true AND \"IsDeleted\" = false")
+                .HasDatabaseName("IX_ClaudeModels_OnlyOneSystemDefault");
+
+            // Soft-delete query filter — admin paths use IgnoreQueryFilters().
+            entity.HasQueryFilter(e => !e.IsDeleted);
+
+            // Deterministic seed. Fixed Guids + fixed timestamps keep HasData
+            // re-runs (migration regenerations) stable. Authoritative slugs +
+            // reasoning metadata per the claude-agent-backend spec.
+            var claudeSeedTimestamp = new DateTime(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
+            entity.HasData(
+                new
+                {
+                    Id = new Guid("c1a0de00-0000-0000-0000-000000000001"),
+                    Slug = "claude-opus-4-8",
+                    DisplayName = "Claude Opus 4.8",
+                    Description = (string?)null,
+                    IsSystemDefault = true,
+                    SupportsReasoning = true,
+                    DefaultEffort = (string?)"high",
+                    IsActive = true,
+                    SortOrder = 0,
+                    CreatedAt = claudeSeedTimestamp,
+                    UpdatedAt = claudeSeedTimestamp,
+                    IsDeleted = false,
+                },
+                new
+                {
+                    Id = new Guid("c1a0de00-0000-0000-0000-000000000002"),
+                    Slug = "claude-sonnet-4-6",
+                    DisplayName = "Claude Sonnet 4.6",
+                    Description = (string?)null,
+                    IsSystemDefault = false,
+                    SupportsReasoning = true,
+                    DefaultEffort = (string?)"high",
+                    IsActive = true,
+                    SortOrder = 10,
+                    CreatedAt = claudeSeedTimestamp,
+                    UpdatedAt = claudeSeedTimestamp,
+                    IsDeleted = false,
+                },
+                new
+                {
+                    Id = new Guid("c1a0de00-0000-0000-0000-000000000003"),
+                    Slug = "claude-haiku-4-5",
+                    DisplayName = "Claude Haiku 4.5",
+                    Description = (string?)null,
+                    IsSystemDefault = false,
+                    SupportsReasoning = false,
+                    DefaultEffort = (string?)null,
+                    IsActive = true,
+                    SortOrder = 20,
+                    CreatedAt = claudeSeedTimestamp,
+                    UpdatedAt = claudeSeedTimestamp,
+                    IsDeleted = false,
+                },
+                new
+                {
+                    Id = new Guid("c1a0de00-0000-0000-0000-000000000004"),
+                    Slug = "claude-fable-5",
+                    DisplayName = "Claude Fable 5",
+                    Description = (string?)null,
+                    IsSystemDefault = false,
+                    SupportsReasoning = true,
+                    DefaultEffort = (string?)"high",
+                    IsActive = true,
+                    SortOrder = 30,
+                    CreatedAt = claudeSeedTimestamp,
+                    UpdatedAt = claudeSeedTimestamp,
                     IsDeleted = false,
                 }
             );

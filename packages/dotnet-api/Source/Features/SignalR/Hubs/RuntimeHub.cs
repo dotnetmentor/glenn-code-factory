@@ -469,7 +469,7 @@ public class RuntimeHub : Hub<IRuntimeClient>, IRuntimeHub
                 _logger.LogWarning(
                     "RuntimeHub.GetSecrets: runtime {RuntimeId} has no resolvable project — returning empty secrets envelope.",
                     runtimeId.Value);
-                return new AgentSecretsDto(CursorApiKey: null);
+                return new AgentSecretsDto(CursorApiKey: null, AnthropicApiKey: null);
             }
             projectId = resolved.Value;
         }
@@ -478,13 +478,18 @@ public class RuntimeHub : Hub<IRuntimeClient>, IRuntimeHub
             projectId,
             Context.ConnectionAborted);
 
+        var anthropicKey = await _agentSecrets.ResolveAnthropicApiKeyAsync(
+            projectId,
+            Context.ConnectionAborted);
+
         _logger.LogInformation(
-            "RuntimeHub.GetSecrets: project {ProjectId} runtime {RuntimeId} issued secrets (hasCursor={HasCursor}).",
+            "RuntimeHub.GetSecrets: project {ProjectId} runtime {RuntimeId} issued secrets (hasCursor={HasCursor}, hasAnthropic={HasAnthropic}).",
             projectId,
             runtimeId.Value,
-            cursorKey is not null);
+            cursorKey is not null,
+            anthropicKey is not null);
 
-        return new AgentSecretsDto(CursorApiKey: cursorKey);
+        return new AgentSecretsDto(CursorApiKey: cursorKey, AnthropicApiKey: anthropicKey);
     }
 
     /// <summary>

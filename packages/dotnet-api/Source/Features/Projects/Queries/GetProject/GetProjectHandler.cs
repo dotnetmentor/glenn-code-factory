@@ -43,6 +43,8 @@ public sealed class GetProjectHandler : IQueryHandler<GetProjectQuery, Result<Pr
                 p.RuntimeVolumeSizeGb,
                 p.ModelId,
                 ModelSlug = p.Model != null ? p.Model.Slug : null,
+                p.ClaudeModelId,
+                ClaudeModelSlug = p.ClaudeModel != null ? p.ClaudeModel.Slug : null,
             })
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -97,6 +99,8 @@ public sealed class GetProjectHandler : IQueryHandler<GetProjectQuery, Result<Pr
             RuntimeMemoryMb: project.RuntimeMemoryMb,
             RuntimeVolumeSizeGb: project.RuntimeVolumeSizeGb,
             ModelId: project.ModelId,
-            ModelSlug: project.ModelSlug));
+            ModelSlug: project.ModelSlug,
+            ClaudeModelId: project.ClaudeModelId,
+            ClaudeModelSlug: project.ClaudeModelSlug));
     }
 }

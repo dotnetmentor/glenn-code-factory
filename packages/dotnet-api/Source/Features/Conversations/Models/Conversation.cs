@@ -39,6 +39,17 @@ public class Conversation : Entity, IAuditable
     public Guid ProjectId { get; set; }
 
     /// <summary>
+    /// Coding-agent backend selected for this conversation: <c>"cursor"</c>
+    /// (default) or <c>"claude"</c>. Stored as <c>varchar(32)</c>. The thread is
+    /// the unit of backend selection per the multi-backend spec; each
+    /// <see cref="AgentSession"/> snapshots the backend that actually ran (so
+    /// historical turns stay attributable even if the conversation is later
+    /// flipped). Defaults to <c>"cursor"</c> so pre-existing conversations and
+    /// the default path are unchanged.
+    /// </summary>
+    public string AgentBackend { get; set; } = AgentBackends.Cursor;
+
+    /// <summary>
     /// Branch this conversation is scoped to. FK to <see cref="ProjectBranch"/> —
     /// promoted from a free-form string in the e2e-smoketest spec.
     /// </summary>

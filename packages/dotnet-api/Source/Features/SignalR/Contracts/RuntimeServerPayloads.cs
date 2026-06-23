@@ -356,7 +356,7 @@ public record ReportSessionCostPayload(
 /// actionable error rather than silently failing inside the SDK.</para>
 /// </summary>
 [TranspilationSource]
-public record AgentSecretsDto(string? CursorApiKey);
+public record AgentSecretsDto(string? CursorApiKey, string? AnthropicApiKey = null);
 
 /// <summary>
 /// Daemon-to-server runtime event push. Pushed by the daemon's
