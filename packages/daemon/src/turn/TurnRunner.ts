@@ -570,13 +570,14 @@ export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
 
   /**
    * Resolve the backend for a turn from the StartTurn payload, falling back to
-   * the daemon's configured default. Defensive cast — the .NET StartTurnPayload
-   * may not ship `backend` yet (Phase 3 adds it to the contract), so we read it
-   * tolerantly the same way `model` is read. An unrecognised value falls back
-   * to the default rather than throwing.
+   * the daemon's configured default. `backend` is now a first-class field on the
+   * generated `StartTurnPayload` (claude-agent-backend Phase 3) — the .NET
+   * dispatcher always stamps it ("cursor" by default). We still narrow against
+   * the known union so an unrecognised value (older/forward server) falls back
+   * to the configured default rather than throwing.
    */
   #resolveBackend(p: StartTurnPayload): 'cursor' | 'claude' {
-    const raw = (p as unknown as { backend?: unknown }).backend
+    const raw: string | undefined = p.backend
     if (raw === 'cursor' || raw === 'claude') return raw
     return this.#defaultBackend
   }
@@ -587,27 +588,27 @@ export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
     signal: AbortSignal,
     secrets: AgentSecretsDto,
   ): TurnOptions {
-    const maybeModel = (p as unknown as { model?: unknown }).model
-    const model = typeof maybeModel === 'string' ? maybeModel : undefined
+    const model = typeof p.model === 'string' ? p.model : undefined
     const mcpUrlsRaw = (p as unknown as { mcpUrls?: unknown }).mcpUrls
     const mcpUrls = Array.isArray(mcpUrlsRaw)
       ? mcpUrlsRaw.filter((u): u is string => typeof u === 'string')
       : []
 
-    // Defensive reads — same pattern as `model`. The .NET StartTurnPayload
-    // gains `backend` / `reasoningEffort` / `yolo` in a later phase; until
-    // then these are absent and the daemon falls back to its defaults.
+    // `backend` / `reasoningEffort` / `claudeResumeId` are first-class fields on
+    // the generated `StartTurnPayload` (claude-agent-backend Phase 3). We still
+    // narrow `reasoningEffort` against the SDK `EffortLevel` union so a stray
+    // value can't reach the SDK. `yolo` rides on the contract as a bool.
     const backend = this.#resolveBackend(p)
-    const maybeEffort = (p as unknown as { reasoningEffort?: unknown }).reasoningEffort
+    const rawEffort: string | undefined = p.reasoningEffort
     const reasoningEffort =
-      maybeEffort === 'low' ||
-      maybeEffort === 'medium' ||
-      maybeEffort === 'high' ||
-      maybeEffort === 'xhigh' ||
-      maybeEffort === 'max'
-        ? maybeEffort
+      rawEffort === 'low' ||
+      rawEffort === 'medium' ||
+      rawEffort === 'high' ||
+      rawEffort === 'xhigh' ||
+      rawEffort === 'max'
+        ? rawEffort
         : undefined
-    const yolo = (p as unknown as { yolo?: unknown }).yolo === true
+    const yolo = p.yolo === true
 
     const opts: TurnOptions = {
       prompt: p.prompt,
@@ -617,7 +618,13 @@ export class TurnRunner extends EventEmitter<TurnRunnerEvents> {
       backend,
     }
 
-    const resumeId = p.agentId
+    // Resume id is backend-specific. The Claude backend resumes off the SDK
+    // session id, which the .NET dispatcher ships in `claudeResumeId`; the
+    // Cursor backend resumes off the Cursor agent id in `agentId`. Prefer the
+    // backend-appropriate field, falling back to `agentId` so a Claude turn
+    // whose resume id only landed on the legacy slot still resumes.
+    const resumeId =
+      backend === 'claude' ? (p.claudeResumeId ?? p.agentId) : p.agentId
     if (resumeId !== null && resumeId !== undefined && resumeId !== '') {
       opts.resume = resumeId
     }

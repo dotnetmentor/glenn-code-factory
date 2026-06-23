@@ -33,6 +33,25 @@ namespace Source.Features.SignalR.Contracts;
 ///         normal permission-gating behaviour.</item>
 /// </list>
 ///
+/// <para><b>Multi-backend overrides (claude-agent-backend Phase 3).</b> The
+/// trailing three fields are additive, optional, and default to <c>null</c> so
+/// existing clients keep compiling and the Cursor path is byte-for-byte
+/// unchanged. When omitted the hub passes <c>null</c> through to
+/// <c>DispatchTurnArgs</c>, and the dispatcher's conversation/default
+/// resolution (Phase 2) decides the backend, model, and effort:
+/// <list type="bullet">
+///   <item><see cref="Backend"/> — per-turn backend override
+///         (<c>"cursor"</c> | <c>"claude"</c>). <c>null</c> means "inherit the
+///         conversation's <c>AgentBackend</c>" (which itself defaults to
+///         cursor).</item>
+///   <item><see cref="ReasoningEffort"/> — per-turn Claude SDK <c>effort</c>
+///         override (<c>"low"</c>…<c>"max"</c>). Ignored on the Cursor path.</item>
+///   <item><see cref="ClaudeModelId"/> — per-turn Claude model override, an id
+///         into the <c>ClaudeModels</c> catalog. <see cref="ModelId"/> remains
+///         the Cursor-model slot; the two never share a column so the audit row
+///         attributes the model to the right backend.</item>
+/// </list></para>
+///
 /// <para>Direction matters: this lives in <c>AgentServerPayloads</c> — sent
 /// FROM the React client TO the hub — alongside any future client-to-server
 /// invocations (cancel, replay request). Server-to-client payloads belong in
@@ -45,7 +64,10 @@ public record SubmitPromptPayload(
     Guid BranchId,
     string Text,
     Guid? ModelId = null,
-    bool Yolo = false);
+    bool Yolo = false,
+    string? Backend = null,
+    string? ReasoningEffort = null,
+    Guid? ClaudeModelId = null);
 
 /// <summary>
 /// Response returned synchronously to the calling client from

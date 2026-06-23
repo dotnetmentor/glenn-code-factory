@@ -238,6 +238,10 @@ function makeStartTurn(overrides: Partial<StartTurnPayload> = {}): StartTurnPayl
     prompt: 'hello',
     yolo: false,
     pullBeforeStart: false,
+    // `backend` is required on the generated StartTurnPayload (the .NET
+    // dispatcher always stamps it, defaulting to "cursor"). Default the fixture
+    // to the cursor path; Claude tests override via `overrides.backend`.
+    backend: 'cursor',
     ...overrides,
   }
 }

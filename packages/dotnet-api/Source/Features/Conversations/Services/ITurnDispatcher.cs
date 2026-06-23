@@ -293,6 +293,11 @@ public sealed class TurnDispatcher : ITurnDispatcher
             var promptForAgent = PromptPrefixBuilder.BuildPromptWithAttachments(
                 args.Prompt, attachments);
 
+            // Multi-backend (claude-agent-backend Phase 3). The daemon picks its
+            // agent factory off Backend; ReasoningEffort + ClaudeResumeId only
+            // apply to the Claude path. AgentId continues to carry the Cursor
+            // resume id, so the Cursor wire shape is byte-for-byte unchanged
+            // (Backend defaults to "cursor", the other two stay null).
             var startPayload = new StartTurnPayload(
                 SessionId: session.Id,
                 ConversationId: args.ConversationId,
@@ -300,7 +305,10 @@ public sealed class TurnDispatcher : ITurnDispatcher
                 Model: resolvedModelSlug,
                 AgentId: args.AgentId,
                 Yolo: args.Yolo,
-                PullBeforeStart: pullBeforeStart);
+                PullBeforeStart: pullBeforeStart,
+                Backend: backend,
+                ReasoningEffort: backend == AgentBackends.Claude ? args.ReasoningEffort : null,
+                ClaudeResumeId: backend == AgentBackends.Claude ? claudeSessionId : null);
 
             await _runtimeHub.Clients
                 .Group($"runtime-{runtime.Id}")

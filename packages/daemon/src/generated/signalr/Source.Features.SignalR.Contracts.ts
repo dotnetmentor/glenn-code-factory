@@ -215,6 +215,12 @@ export type SubmitPromptPayload = {
     modelId?: string;
     /** Transpiled from bool */
     yolo: boolean;
+    /** Transpiled from string? */
+    backend?: string;
+    /** Transpiled from string? */
+    reasoningEffort?: string;
+    /** Transpiled from System.Guid */
+    claudeModelId?: string;
 }
 
 /** Transpiled from Source.Features.SignalR.Contracts.SubmitPromptResponse */
@@ -312,6 +318,12 @@ export type StartTurnPayload = {
     yolo: boolean;
     /** Transpiled from bool */
     pullBeforeStart: boolean;
+    /** Transpiled from string */
+    backend: string;
+    /** Transpiled from string? */
+    reasoningEffort?: string;
+    /** Transpiled from string? */
+    claudeResumeId?: string;
 }
 
 /** Transpiled from Source.Features.SignalR.Contracts.StageAttachmentPayload */
@@ -514,6 +526,8 @@ export type ReportSessionCostPayload = {
 export type AgentSecretsDto = {
     /** Transpiled from string? */
     cursorApiKey?: string;
+    /** Transpiled from string? */
+    anthropicApiKey?: string;
 }
 
 /** Transpiled from Source.Features.SignalR.Contracts.RuntimeEventPayloadDto */

@@ -630,19 +630,18 @@ export class SignalRClient {
    */
   async getSecrets(): Promise<AgentSecretsDto> {
     const fromProxy = await this.#requireProxy().getSecrets()
-    // Generated DTO uses optional `?: string`; the daemon's shim uses
-    // `string | null` to match the JSON wire reality. Normalise to `null`
-    // here so callers can rely on the nullable check.
+    // Generated DTO uses optional `?: string` for both credentials; the
+    // daemon's shim uses `string | null` to match the JSON wire reality
+    // (the .NET `string?` serialises to `null` when unset). Normalise both to
+    // `null` here so callers can rely on a plain nullable check.
     //
-    // `anthropicApiKey` (claude-agent-backend spec) is read tolerantly: the
-    // generated proxy DTO doesn't carry the field until Phase 3 regenerates
-    // the SignalR contract + the .NET GetSecrets extension ships it, so we
-    // probe it via a defensive cast. Until then it's always `null` and the
+    // `anthropicApiKey` (claude-agent-backend spec) is now a first-class field
+    // on the generated `AgentSecretsDto` (Phase 3 contract + the .NET
+    // GetSecrets extension). When unconfigured it arrives `null`/absent and the
     // Claude backend's no-credentials gate refuses Claude turns cleanly.
-    const anthropicRaw = (fromProxy as { anthropicApiKey?: unknown }).anthropicApiKey
     return {
       cursorApiKey: fromProxy.cursorApiKey ?? null,
-      anthropicApiKey: typeof anthropicRaw === 'string' ? anthropicRaw : null,
+      anthropicApiKey: fromProxy.anthropicApiKey ?? null,
     }
   }
 

@@ -5,6 +5,30 @@ namespace Source.Features.SignalR.Contracts;
 
 /// <summary>
 /// Server-to-daemon command instructing the daemon to begin a new agent turn.
+///
+/// <para><b>Multi-backend fields (claude-agent-backend Phase 3).</b> The first
+/// seven fields are the original Cursor-only contract and are preserved
+/// byte-for-byte. The trailing three are additive and defaulted so the Cursor
+/// path is unaffected and older daemons that ignore them keep working:
+/// <list type="bullet">
+///   <item><see cref="Backend"/> — the per-turn backend discriminator
+///         (<c>"cursor"</c> | <c>"claude"</c>). The dispatcher resolves it from
+///         the turn → conversation → cursor chain, so it is always populated on
+///         the wire; the daemon's <c>TurnRunner</c> uses it to pick the agent
+///         factory, falling back to its configured default when absent. Default
+///         <c>"cursor"</c> keeps the wire shape stable for non-Claude callers.</item>
+///   <item><see cref="ReasoningEffort"/> — the Claude SDK <c>effort</c> level
+///         (<c>"low"</c> | <c>"medium"</c> | <c>"high"</c> | <c>"xhigh"</c> |
+///         <c>"max"</c>). Populated only on the Claude path; <c>null</c> for
+///         Cursor turns and when no effort override applies (the daemon /
+///         model default then wins).</item>
+///   <item><see cref="ClaudeResumeId"/> — the Claude Agent SDK <c>session_id</c>
+///         captured on a prior turn, used to resume the conversation. The
+///         Cursor resume id continues to ride on <see cref="AgentId"/>; this
+///         is the Claude-only parallel so the two backends never share a resume
+///         slot. <c>null</c> on the first Claude turn of a conversation and on
+///         every Cursor turn.</item>
+/// </list></para>
 /// </summary>
 [TranspilationSource]
 public record StartTurnPayload(
@@ -14,7 +38,10 @@ public record StartTurnPayload(
     string? Model = null,
     string? AgentId = null,
     bool Yolo = false,
-    bool PullBeforeStart = false);
+    bool PullBeforeStart = false,
+    string Backend = "cursor",
+    string? ReasoningEffort = null,
+    string? ClaudeResumeId = null);
 
 /// <summary>
 /// Server-to-daemon command instructing the daemon to abort the in-flight turn.

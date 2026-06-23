@@ -356,7 +356,14 @@ public class AgentHub : Hub<IAgentClient>, IAgentHub
             EventOriginUserId: userId,
             ForceQueue: forceQueueForNotOnline,
             ModelId: payload.ModelId,
-            Yolo: payload.Yolo));
+            Yolo: payload.Yolo,
+            // Multi-backend (claude-agent-backend Phase 3). All optional on the
+            // wire; omitted → null → the dispatcher's conversation/default
+            // resolution (Phase 2) picks backend/model/effort. The Cursor path
+            // is unchanged when these are null.
+            Backend: payload.Backend,
+            ClaudeModelId: payload.ClaudeModelId,
+            ReasoningEffort: payload.ReasoningEffort));
 
         // Suspended runtime → nudge the wake so the queued prompt gets
         // executed rather than stuck behind a sleeping machine. The wake
