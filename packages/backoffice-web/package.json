@@ -34,7 +34,7 @@
     "exceljs": "^4.4.0",
     "highlight.js": "^11.11.1",
     "react": "^19.2.6",
-    "react-diff-viewer-continued": "^4.2.2",
+    "react-diff-viewer-continued": "^4.4.0",
     "react-dom": "^19.2.6",
     "react-hook-form": "^7.76.0",
     "react-markdown": "^10.1.0",
