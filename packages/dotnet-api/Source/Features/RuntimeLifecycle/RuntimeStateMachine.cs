@@ -14,7 +14,7 @@ namespace Source.Features.RuntimeLifecycle;
 ///                    ▼ (provisioner)
 ///                 Booting ───────────────────────► Crashed ──► Failed
 ///                    │  ╲                             │           │
-///       (fly:started)│   ╲ (daemon:runtime_ready,     │           │ (operator: reset)
+///       (box:up)   │   ╲ (daemon:runtime_ready,     │           │ (operator: reset)
 ///                    ▼    ╲  reconciler still lagging)│           ▼
 ///              Bootstrapping ──────────────────────►  │       Pending
 ///                    │  ╲                             │
@@ -24,7 +24,7 @@ namespace Source.Features.RuntimeLifecycle;
 ///                  Online ◄─────────── Waking ◄──── Suspended
 ///                    │                    ▲           ▲
 ///         (idler)    │                    │           │
-///                    ▼                    │  (fly:    │ (fly:stopped)
+///                    ▼                    │  (box:    │ (box:archived)
 ///               Suspending ───────────────┘  started) │
 ///                    │                                │
 ///                    └────────────────────────────────┘
@@ -59,7 +59,7 @@ public static class RuntimeStateMachine
             [RuntimeState.Pending] = new()
             {
                 RuntimeState.Booting,
-                RuntimeState.Failed,   // provisioner couldn't even create Fly resources (e.g. Fly 422)
+                RuntimeState.Failed,   // provisioner couldn't even fork the box (e.g. Box 422)
                 RuntimeState.Deleting, // operator can delete a never-provisioned runtime
             },
 
@@ -111,7 +111,7 @@ public static class RuntimeStateMachine
             [RuntimeState.Suspending] = new()
             {
                 RuntimeState.Suspended,
-                RuntimeState.Crashed,    // suspend itself can fail / Fly reports crashed
+                RuntimeState.Crashed,    // suspend itself can fail / Box reports error
                 RuntimeState.Deleting,
             },
 
@@ -119,7 +119,7 @@ public static class RuntimeStateMachine
             {
                 RuntimeState.Waking,
                 RuntimeState.Deleting,
-                RuntimeState.Booting, // reconciler may force a fresh boot if Fly lost the machine
+                RuntimeState.Booting, // reconciler may force a fresh boot if Box lost the VM
             },
 
             [RuntimeState.Waking] = new()
@@ -148,7 +148,7 @@ public static class RuntimeStateMachine
                                          // failure budget and re-provision on the existing
                                          // volume. Lets a user manually nudge a runtime back
                                          // to a fresh boot when the automated respawn path
-                                         // can't recover (e.g. Fly token expired).
+                                         // can't recover (e.g. Box API key expired).
             },
 
             // Sticky failure: only operator action leaves Failed

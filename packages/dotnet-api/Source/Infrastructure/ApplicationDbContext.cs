@@ -9,7 +9,7 @@ using Source.Features.CursorModels.Models;
 using Source.Features.Cloudflare.Models;
 using Source.Features.Conversations.Models;
 using Source.Features.DaemonVersions.Models;
-using Source.Features.FlyManagement.Models;
+using Source.Features.BoxManagement.Models;
 using Source.Features.GitHub.Models;
 using Source.Features.GitOps.Models;
 using Source.Features.Hooks.Models;
@@ -22,7 +22,7 @@ using Source.Features.ProjectSecrets.Models;
 using Source.Features.RuntimeBootstrap.Models;
 using Source.Features.RuntimeCuration.Models;
 using Source.Features.RuntimeEvents.Models;
-using Source.Features.RuntimeImages.Models;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Features.RuntimePresets.Models;
 using Source.Features.RuntimeTokens.Models;
@@ -74,8 +74,8 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<GithubUserIdentity> GithubUserIdentities { get; set; }
     public DbSet<GithubWebhookDelivery> GithubWebhookDeliveries { get; set; }
     public DbSet<SystemSetting> SystemSettings { get; set; }
-    public DbSet<FlyOperation> FlyOperations { get; set; }
-    public DbSet<RuntimeImage> RuntimeImages { get; set; }
+    public DbSet<BoxOperation> BoxOperations { get; set; }
+    public DbSet<RuntimeTemplate> RuntimeTemplates { get; set; }
     public DbSet<BootstrapRun> BootstrapRuns { get; set; }
     public DbSet<ProjectRuntime> ProjectRuntimes { get; set; }
     public DbSet<RuntimeProposal> RuntimeProposals { get; set; }
@@ -437,11 +437,11 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.HasIndex(e => e.Category);
         });
 
-        // -------- FlyManagement --------
-        // Append-only audit log of every Fly machines API call. No soft delete, no FK to
+        // -------- BoxManagement --------
+        // Append-only audit log of every Box API call. No soft delete, no FK to
         // Runtime — RuntimeId is just a Guid we record, since runtimes can come and go
         // but the audit trail must outlive them.
-        builder.Entity<FlyOperation>(entity =>
+        builder.Entity<BoxOperation>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Operation).IsRequired().HasMaxLength(100);
@@ -457,25 +457,24 @@ public class ApplicationDbContext : IdentityDbContext<User>
             // CreatedAt is applied via raw SQL in the migration since EF Core 9
             // doesn't expose per-column sort order on relational indexes.
             entity.HasIndex(e => new { e.RuntimeId, e.CreatedAt })
-                .HasDatabaseName("IX_FlyOperations_RuntimeId_CreatedAt");
+                .HasDatabaseName("IX_BoxOperations_RuntimeId_CreatedAt");
 
             // Idempotency lookup. Non-unique on purpose: multiple attempts (Pending →
             // Failed → retry → Succeeded) legitimately share the same key, and the
             // caller picks the latest succeeded row.
             entity.HasIndex(e => e.RequestKey)
-                .HasDatabaseName("IX_FlyOperations_RequestKey");
+                .HasDatabaseName("IX_BoxOperations_RequestKey");
         });
 
-        // -------- RuntimeImages --------
-        // Catalog of every published runtime base image. No soft delete — yanked
-        // images stay in the table so the audit trail survives. Tag is the
-        // natural idempotency key for CI registration.
-        builder.Entity<RuntimeImage>(entity =>
+        // -------- RuntimeTemplates --------
+        // Catalog of every golden template box runtimes are forked from. No soft
+        // delete — yanked templates stay in the table so the audit trail survives.
+        // BoxId is the natural idempotency key for registration.
+        builder.Entity<RuntimeTemplate>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.Property(e => e.Tag).IsRequired().HasMaxLength(200);
-            entity.Property(e => e.Digest).IsRequired().HasMaxLength(200);
-            entity.Property(e => e.Registry).IsRequired().HasMaxLength(300);
+            entity.Property(e => e.BoxId).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Label).IsRequired().HasMaxLength(200);
             entity.Property(e => e.GitSha).IsRequired().HasMaxLength(64);
             entity.Property(e => e.Notes).HasMaxLength(2000);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
@@ -483,22 +482,20 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.Property(e => e.CreatedAt).HasColumnType("timestamp with time zone");
             entity.Property(e => e.UpdatedAt).HasColumnType("timestamp with time zone");
 
-            // CI must not publish the same tag twice — this is also the natural
+            // The same box must not be registered twice — this is also the natural
             // idempotency key the registration endpoint uses.
-            entity.HasIndex(e => e.Tag).IsUnique();
+            entity.HasIndex(e => e.BoxId).IsUnique();
 
-            // "Latest active images" — the dominant read pattern (default spawn
-            // selection). DESC on BuiltAt is applied via raw SQL in the migration
-            // since EF Core 9 doesn't expose per-column sort order on relational
-            // indexes.
+            // "Latest active templates" — the dominant read pattern (default fork
+            // source selection).
             entity.HasIndex(e => new { e.Status, e.BuiltAt })
-                .HasDatabaseName("IX_RuntimeImages_Status_BuiltAt");
+                .HasDatabaseName("IX_RuntimeTemplates_Status_BuiltAt");
         });
 
         // -------- RuntimeBootstrap --------
         // Append-only audit log of every bootstrap attempt. No soft delete, no FK
         // to Runtime — RuntimeId is just a Guid we record, since runtimes can be
-        // torn down but the audit trail must outlive them. Mirrors FlyOperation.
+        // torn down but the audit trail must outlive them. Mirrors BoxOperation.
         builder.Entity<BootstrapRun>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -560,7 +557,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
                 .IsRequired()
                 .HasDefaultValue(Project.DefaultPreviewPort);
 
-            // Per-project runtime spec — Fly machine sizing used when spawning
+            // Per-project runtime spec — requested hardware sizing used when spawning
             // any *new* ProjectRuntime under this project. HasDefaultValue makes
             // the EF migration backfill existing rows with the historical
             // performance-2x / 4 GiB tuple for projects that never set a spec,
@@ -855,7 +852,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
         });
 
         // -------- RuntimeLifecycle --------
-        // Central record per project tracking the Fly machine + volume and the
+        // Central record per project tracking the runtime box and the
         // current lifecycle state. Soft-deletable (Deleted state is a 30-day
         // window before janitor hard-delete). ProjectId is now a real FK to
         // Project (promoted in the e2e-smoketest spec from a plain Guid).
@@ -878,9 +875,8 @@ public class ApplicationDbContext : IdentityDbContext<User>
                 .HasMaxLength(16)
                 .IsRequired()
                 .HasDefaultValue(RuntimeSpecHealth.Unknown);
-            entity.Property(e => e.FlyMachineId).HasMaxLength(64);
-            entity.Property(e => e.FlyVolumeId).HasMaxLength(64);
-            entity.Property(e => e.ImageDigest).HasMaxLength(128);
+            entity.Property(e => e.BoxId).HasMaxLength(100);
+            entity.Property(e => e.TemplateBoxId).HasMaxLength(100);
 
             entity.Property(e => e.StateChangedAt).HasColumnType("timestamp with time zone");
             entity.Property(e => e.LastHeartbeatAt).HasColumnType("timestamp with time zone");
@@ -927,9 +923,10 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.Property(e => e.LastSysstatsSnapshot).HasColumnType("jsonb");
             entity.Property(e => e.LastSupervisordSnapshot).HasColumnType("jsonb");
 
-            // Per-runtime Fly machine spec — snapshotted from Project at row
-            // creation. HasDefaultValue backfills the conservative tuple on
-            // existing rows so nothing in production changes spec mid-life.
+            // Per-runtime requested hardware spec — snapshotted from Project at
+            // row creation; mapped to a Box size tier by BoxSizeMapper at
+            // provision time. HasDefaultValue backfills the conservative tuple
+            // on existing rows so nothing in production changes spec mid-life.
             entity.Property(e => e.CpuKind)
                 .IsRequired()
                 .HasMaxLength(16)
@@ -950,9 +947,9 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.HasIndex(e => e.State)
                 .HasDatabaseName("IX_ProjectRuntimes_State");
 
-            // Resolve "which runtime is this Fly webhook about?" by machine id.
-            entity.HasIndex(e => e.FlyMachineId)
-                .HasDatabaseName("IX_ProjectRuntimes_FlyMachineId");
+            // Resolve "which runtime owns this box?" by box id (reconciler).
+            entity.HasIndex(e => e.BoxId)
+                .HasDatabaseName("IX_ProjectRuntimes_BoxId");
 
             // FK to Project on ProjectId — Cascade mirrors the Workspace ↔
             // Project relationship: a project owns its runtimes, so a hard
@@ -1045,7 +1042,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
         // Append-only audit log of every lifecycle state transition. No soft
         // delete and no FK to ProjectRuntime — RuntimeId is just a Guid we
         // record, since runtimes can be hard-deleted but the audit trail
-        // must outlive them. Mirrors FlyOperation / BootstrapRun.
+        // must outlive them. Mirrors BoxOperation / BootstrapRun.
         builder.Entity<RuntimeStateEvent>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -1263,7 +1260,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
         // and NOT ISoftDelete — IssuedAt / RevokedAt are domain timestamps the
         // service sets explicitly. No FK to ProjectRuntime / Project / Tenant /
         // Branch: the audit trail must outlive any of those rows being hard-
-        // deleted, mirroring the FlyOperation / BootstrapRun / RuntimeStateEvent
+        // deleted, mirroring the BoxOperation / BootstrapRun / RuntimeStateEvent
         // convention. Id doubles as the JWT jti claim, so the validate path
         // does the revocation check by primary key (no secondary index needed).
         builder.Entity<RuntimeTokenIssue>(e =>
@@ -1516,7 +1513,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
         // RuntimeId with NoAction — runtimes are soft-deleted, so the hook
         // history must outlive the runtime row within the 30-day window.
         // ConversationId / TurnId are plain Guids (no FK) — same outlive-the
-        // -row reasoning as FlyOperation.RuntimeId / BootstrapRun.RuntimeId.
+        // -row reasoning as BoxOperation.RuntimeId / BootstrapRun.RuntimeId.
         // Soft-deletable so noisy entries can be hidden without losing the
         // underlying audit trail.
         builder.Entity<HookExecution>(e =>
@@ -1592,7 +1589,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
         // RuntimeId with NoAction — runtimes are soft-deleted, so the git
         // history must outlive the runtime row within the 30-day window.
         // ConversationId / TurnId are plain Guids (no FK) — same outlive-the
-        // -row reasoning as HookExecution / FlyOperation / BootstrapRun.
+        // -row reasoning as HookExecution / BoxOperation / BootstrapRun.
         // Soft-deletable so noisy entries can be hidden without losing the
         // underlying audit trail. Mirrors HookExecution stylistically — the
         // two tables have the same shape because they answer the same kind

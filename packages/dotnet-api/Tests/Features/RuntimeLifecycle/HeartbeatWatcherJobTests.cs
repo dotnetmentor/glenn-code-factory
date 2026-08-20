@@ -99,7 +99,7 @@ public class HeartbeatWatcherJobTests : IDisposable
             Region = "arn",
             VolumeSizeGb = 1,
             State = state,
-            FlyMachineId = "mach_" + Guid.NewGuid().ToString("N")[..8],
+            BoxId = "box_" + Guid.NewGuid().ToString("N")[..8],
             LastHeartbeatAt = lastHeartbeatAt,
             LastBootstrapActivityAt = lastBootstrapActivityAt,
         };

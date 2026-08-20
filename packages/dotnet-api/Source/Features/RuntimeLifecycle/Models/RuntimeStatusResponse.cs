@@ -5,7 +5,7 @@ namespace Source.Features.RuntimeLifecycle.Models;
 /// <c>GET /api/projects/{projectId}/branches/{branchId}/runtime/status</c>. The
 /// contract is deliberately narrow — only the fields the runtime drawer needs
 /// to render its header + Sysstats panel — so we don't leak operator-only
-/// details like Fly volume ids or per-tenant idle thresholds.
+/// details like Box operation payloads or per-tenant idle thresholds.
 ///
 /// <para><see cref="RecentTransitions"/> is the most-recent five lifecycle moves, newest
 /// first, so the UI can show a tiny "what just happened" timeline without a follow-up
@@ -45,8 +45,8 @@ public record RuntimeStatusResponse(
     RuntimeState State,
     DateTime StateChangedAt,
     DateTime? LastHeartbeatAt,
-    string? FlyMachineId,
-    string? ImageDigest,
+    string? BoxId,
+    string? TemplateBoxId,
     string Region,
     List<RuntimeTransitionDto> RecentTransitions,
     string? ErrorReason = null,

@@ -88,7 +88,7 @@ const STOPPABLE_STATES: ReadonlySet<RuntimeState> = new Set<RuntimeState>([
  * mid-boot states where regular Stop is unavailable because the runtime
  * never reached Online. Crashed / Suspended / Pending / Failed / terminal
  * states are excluded — they're either already stopped or have nothing for
- * Fly to park.
+ * Box to park.
  */
 const FORCE_STOPPABLE_STATES: ReadonlySet<RuntimeState> = new Set<RuntimeState>([
   RuntimeState.Online,
@@ -244,7 +244,7 @@ export function RuntimesTab({ projectId }: RuntimesTabProps) {
       { id: runtime.id },
       {
         onSuccess: () => {
-          // Controller transitions DB to Suspending + fires Fly.StopMachine
+          // Controller transitions DB to Suspending + fires Box stop
           // synchronously, so by the time we land here the user already saved
           // resources. The webhook handler (or RuntimeReconcilerJob's stuck-
           // Suspending retry) closes Suspending -> Suspended within seconds.
@@ -314,7 +314,7 @@ export function RuntimesTab({ projectId }: RuntimesTabProps) {
         </Typography>
         <Typography sx={bodySx}>
           Every container running for this project. Force Respawn destroys
-          and recreates the Fly machine — useful after publishing a new
+          and reboots the box — useful after publishing a new
           daemon bundle. Active sessions will be interrupted briefly.
         </Typography>
       </Box>
@@ -371,7 +371,7 @@ export function RuntimesTab({ projectId }: RuntimesTabProps) {
                 onCopyMachineId={(machineId) => {
                   void navigator.clipboard
                     .writeText(machineId)
-                    .then(() => showSuccess('Fly machine ID copied'))
+                    .then(() => showSuccess('Box ID copied'))
                     .catch(() => showError('Failed to copy machine ID'))
                 }}
               />
@@ -392,7 +392,7 @@ export function RuntimesTab({ projectId }: RuntimesTabProps) {
         <DialogTitle>Force respawn runtime?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            The Fly machine will be destroyed and recreated. Your active
+            The box will be rebooted. Your active
             session on branch{' '}
             <Box component="strong" sx={{ color: workspaceText.primary }}>
               {confirmRuntime
@@ -441,7 +441,7 @@ export function RuntimesTab({ projectId }: RuntimesTabProps) {
         <DialogTitle>Stop runtime?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            The Fly machine for branch{' '}
+            The box for branch{' '}
             <Box component="strong" sx={{ color: workspaceText.primary }}>
               {confirmSuspendRuntime
                 ? branchNameById[confirmSuspendRuntime.branchId] ??
@@ -490,7 +490,7 @@ export function RuntimesTab({ projectId }: RuntimesTabProps) {
         <DialogTitle>Force stop runtime?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Park the Fly machine for branch{' '}
+            Park the box for branch{' '}
             <Box component="strong" sx={{ color: workspaceText.primary }}>
               {confirmForceStopRuntime
                 ? branchNameById[confirmForceStopRuntime.branchId] ??
@@ -562,7 +562,7 @@ function RuntimeRow({
   const appearance = stateAppearance(runtime.state)
   const heartbeatLabel = formatHeartbeatAge(runtime.lastHeartbeatAt)
   const respawnable = RESPAWNABLE_STATES.has(runtime.state)
-  const machineId = runtime.flyMachineId ?? null
+  const machineId = runtime.boxId ?? null
   const machineIdShort = machineId
     ? machineId.slice(-6)
     : null
@@ -636,11 +636,11 @@ function RuntimeRow({
               >
                 …{machineIdShort}
               </Typography>
-              <Tooltip title="Copy full Fly machine ID">
+              <Tooltip title="Copy full box ID">
                 <IconButton
                   size="small"
                   onClick={() => onCopyMachineId(machineId)}
-                  aria-label="Copy Fly machine ID"
+                  aria-label="Copy box ID"
                   sx={{ p: 0.25, color: workspaceText.faint }}
                 >
                   <ContentCopyOutlinedIcon sx={{ fontSize: 14 }} />
@@ -720,7 +720,7 @@ function RuntimeRow({
             </Button>
           </Tooltip>
         ) : (
-          <Tooltip title="Force Stop only works for runtimes with a live Fly machine (Online, Booting, Bootstrapping, Waking).">
+          <Tooltip title="Force Stop only works for runtimes with a live box (Online, Booting, Bootstrapping, Waking).">
             <span>
               <Button
                 size="small"

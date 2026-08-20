@@ -16,7 +16,7 @@ namespace Source.Features.RuntimeLifecycle.Controllers;
 /// User-facing HTTP surface for restarting a project's runtime when it is
 /// stuck in <see cref="RuntimeState.Failed"/> or <see cref="RuntimeState.Crashed"/>.
 /// The endpoint walks the runtime to <c>Pending</c> and the existing
-/// <c>RuntimeProvisionerJob</c> (re)spawns a fresh Fly machine on the existing
+/// <c>RuntimeProvisionerJob</c> (re)spawns a fresh box on the existing
 /// volume on its next 60s tick. <see cref="RuntimeState.Suspended"/> runtimes
 /// are delegated to the wake path instead — the machine + volume are already
 /// intact and only the VM needs starting.
@@ -63,7 +63,7 @@ public class RuntimeRestartController : BaseApiController
     /// Restart the most-recent (non-deleted) runtime for the
     /// <c>(projectId, branchId)</c> pair. Suspended runtimes wake; Online,
     /// mid-boot, Failed, and Crashed runtimes hard-reboot on the existing
-    /// volume (Fly machine stopped first when attached). Returns the
+    /// volume (box stopped first when attached). Returns the
     /// <see cref="RuntimeStatusResponse"/> snapshot immediately.
     /// </summary>
     [HttpPost("restart")]
@@ -188,7 +188,7 @@ public class RuntimeRestartController : BaseApiController
     /// <summary>
     /// Force-stop the most-recent (non-deleted) runtime for the
     /// <c>(projectId, branchId)</c> pair. Accepts <see cref="RuntimeState.Online"/>
-    /// and mid-boot states — parks the Fly machine to <see cref="RuntimeState.Suspending"/>.
+    /// and mid-boot states — parks the box to <see cref="RuntimeState.Suspending"/>.
     /// </summary>
     [HttpPost("force-stop")]
     [ProducesResponseType(typeof(RuntimeStatusResponse), StatusCodes.Status200OK)]
@@ -243,7 +243,7 @@ public class RuntimeRestartController : BaseApiController
     }
 
     /// <summary>
-    /// Wipe Fly machine + volume references and reprovision from a clean disk.
+    /// Wipe box + volume references and reprovision from a clean disk.
     /// Use when restart keeps failing (e.g. volume not found, pending_destroy).
     /// </summary>
     [HttpPost("reset-from-scratch")]

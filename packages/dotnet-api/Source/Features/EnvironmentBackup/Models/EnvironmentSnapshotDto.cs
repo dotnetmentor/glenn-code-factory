@@ -12,7 +12,7 @@ namespace Source.Features.EnvironmentBackup.Models;
 /// import, every secret is re-encrypted under the <i>target</i> environment's keys. See
 /// the export query / import command handlers for the round-trip.</para>
 ///
-/// <para><b>What's NOT here.</b> Live runtime state (Fly machines / volumes /
+/// <para><b>What's NOT here.</b> Live runtime state (boxs / volumes /
 /// ProjectRuntime), Cloudflare tunnels / SubdomainAssignment, per-session runtime tokens,
 /// conversation / agent / event history, FlyOperation audit records, and logs are all
 /// re-provisioned automatically on boot and are deliberately excluded.</para>

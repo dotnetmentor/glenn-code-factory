@@ -14,7 +14,7 @@ namespace Source.Features.RuntimeBootstrap.Controllers;
 
 /// <summary>
 /// Operator-facing entry point for kicking a stuck or partially-bootstrapped
-/// runtime back through its bootstrap flow without a full Fly machine recreate.
+/// runtime back through its bootstrap flow without a full box recreate.
 /// Pushes <see cref="IRuntimeClient.ForceRebootstrap"/> to the
 /// <c>runtime-{RuntimeId}</c> SignalR group; the daemon wipes its local
 /// <c>bootstrap.json</c>, re-fetches a fresh bundle and re-runs bootstrap.

@@ -5,7 +5,7 @@ using Source.Shared.Results;
 namespace Source.Features.RuntimeLifecycle.Commands.ForceStopRuntime;
 
 /// <summary>
-/// User-triggered force-stop for a branch runtime — parks the Fly machine from
+/// User-triggered force-stop for a branch runtime — parks the box from
 /// <see cref="RuntimeState.Online"/> or any mid-boot state. Mirrors the operator
 /// <see cref="Controllers.RuntimeAdminController.ForceStop"/> edges but is
 /// addressed by <c>(ProjectId, BranchId)</c> and gated to project owners.

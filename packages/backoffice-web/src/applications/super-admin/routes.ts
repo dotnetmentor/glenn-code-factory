@@ -35,14 +35,14 @@ import {
   AiOnboarding,
 } from './features/project-onboarding'
 import { RuntimeWorkspacePage } from './features/project-runtime'
-import { RuntimeImagesPage } from './features/runtime-images/routes/RuntimeImagesPage'
+import { RuntimeTemplatesPage } from './features/runtime-templates/routes/RuntimeTemplatesPage'
 import { SpecListPage, SpecDetailPage } from './features/specifications'
 import { KanbanBoardPage } from './features/kanban'
 import { RuntimeMonitorPage } from './features/runtime-monitor'
 import { AgentModelsPage } from './features/agent-models/routes/AgentModelsPage'
 import { RuntimeWakeObservabilityPage } from './features/runtime-wake-observability'
 import { StartersPage } from './features/starters/routes/StartersPage'
-import { FlyCleanupPage } from './features/fly-cleanup'
+import { BoxCleanupPage } from './features/box-cleanup'
 import { RuntimePresetsListPage } from './features/runtime-presets/routes/RuntimePresetsListPage'
 import { RuntimePresetEditPage } from './features/runtime-presets/routes/RuntimePresetEditPage'
 
@@ -190,13 +190,13 @@ export const superAdminRoutes: RouteDefinition[] = [
     icon: ViewKanbanOutlinedIcon,
     component: KanbanBoardPage,
   },
-  // Runtime base images — operational surface for picking which Fly registry
-  // tag is active and used by the runtime provisioner.
+  // Runtime templates — operational surface for picking which golden box is
+  // active and forked by the runtime provisioner.
   {
-    path: '/super-admin/runtime-images',
-    label: 'Runtime Images',
+    path: '/super-admin/runtime-templates',
+    label: 'Runtime Templates',
     icon: LayersIcon,
-    component: RuntimeImagesPage,
+    component: RuntimeTemplatesPage,
   },
   // Agent model catalogue — the curated Anthropic model slugs that projects
   // (and per-session overrides) can pick from. Super-admin only.
@@ -247,7 +247,7 @@ export const superAdminRoutes: RouteDefinition[] = [
     component: SubdomainsPage,
   },
   // Runtime drift monitor — operator view that compares DB-tracked runtime
-  // state against Fly's actual machine state and flags drift severity.
+  // state against the actual box VM state and flags drift severity.
   {
     path: '/super-admin/runtimes/monitor',
     label: 'Runtime Monitor',
@@ -263,14 +263,14 @@ export const superAdminRoutes: RouteDefinition[] = [
     icon: SpeedIcon,
     component: RuntimeWakeObservabilityPage,
   },
-  // Fly cleanup — destructive operator tool for purging orphaned Fly.io
-  // machines and volumes after their owning runtimes are deleted. Two
-  // tabs (machines | volumes) with bulk-destroy gated by a typed-DELETE
+  // Box cleanup — destructive operator tool for purging orphaned boxes and
+  // snapshots after their owning runtimes are deleted. Two tabs
+  // (boxes | snapshots) with bulk-delete gated by a typed-DELETE
   // confirmation. Super-admin only.
   {
-    path: '/super-admin/fly-cleanup',
-    label: 'Fly Cleanup',
+    path: '/super-admin/box-cleanup',
+    label: 'Box Cleanup',
     icon: DeleteSweepIcon,
-    component: FlyCleanupPage,
+    component: BoxCleanupPage,
   },
 ];

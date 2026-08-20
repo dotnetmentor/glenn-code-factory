@@ -1,18 +1,18 @@
 using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Source.Features.BoxManagement;
+using Source.Features.BoxManagement.Configuration;
+using Source.Features.BoxManagement.Models;
 using Source.Features.Cloudflare.Models;
 using Source.Features.Cloudflare.Services;
 using Source.Features.DaemonVersions.Models;
 using Source.Features.DaemonVersions.Queries.ResolveDaemonVersion;
-using Source.Features.FlyManagement;
-using Source.Features.FlyManagement.Configuration;
-using Source.Features.FlyManagement.Models;
 using Source.Features.Projects.Models;
-using Source.Features.RuntimeImages.Models;
 using Source.Features.RuntimeLifecycle.Configuration;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Features.RuntimeLifecycle.Provisioning;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Features.RuntimeTokens.Services;
 using Source.Features.SystemSettings.Services;
 using Source.Infrastructure;
@@ -21,57 +21,53 @@ namespace Source.Features.RuntimeLifecycle.Jobs;
 
 /// <summary>
 /// Hangfire job that turns <see cref="RuntimeState.Pending"/>
-/// <see cref="ProjectRuntime"/> rows into provisioned Fly resources (volume + machine)
-/// and walks them into <see cref="RuntimeState.Booting"/>.
+/// <see cref="ProjectRuntime"/> rows into provisioned Box VMs and walks them into
+/// <see cref="RuntimeState.Booting"/>.
+///
+/// <para><b>Box-native provisioning model.</b> A fresh runtime is a FORK of the
+/// active golden template box (see the RuntimeTemplates feature): the fork inherits
+/// the template's entire prepared disk and receives its identity via per-fork env
+/// vars (<c>RUNTIME_ID</c>, <c>GLENN_RUNTIME_TOKEN</c>, <c>MAIN_API_URL</c>, ...),
+/// with <c>noEnv</c> isolation so it can never see the platform account's own
+/// secrets. There is no separate volume: the box's disk IS the persistence, so a
+/// runtime that already has a <see cref="ProjectRuntime.BoxId"/> is REBOOTED
+/// (resume + env refresh) rather than re-created, and a size change is a
+/// disk-preserving stop → fork-at-new-size → delete-old sequence.</para>
 ///
 /// <para><b>Two entry points</b>:
 /// <list type="bullet">
-///   <item><see cref="Run(IJobCancellationToken)"/> — recurring sweep every minute
-///         via <see cref="RuntimeProvisionerJobRegistration"/>. Acts as a safety
-///         net that catches Pending rows the ad-hoc enqueue missed (process killed
-///         between transaction commit and enqueue) or legacy rows that pre-date the
-///         fast-path.</item>
+///   <item><see cref="Run(IJobCancellationToken)"/> — recurring sweep every minute.
+///         Safety net for Pending rows the ad-hoc enqueue missed.</item>
 ///   <item><see cref="ProvisionOne(Guid, IJobCancellationToken)"/> — ad-hoc, fired
-///         by every insert site (controller create, project create, copy/attach/
-///         fork branch, user restart) so a fresh runtime starts booting in seconds
-///         rather than waiting up to a minute for the sweep.</item>
+///         by every insert site so a fresh runtime starts booting in seconds.</item>
 /// </list></para>
 ///
-/// <para>This is the first auto-driver of the runtime state graph: the only thing in
-/// the system that legally moves a Pending runtime into Booting. The next transition
-/// (Booting → Bootstrapping) is driven by the Fly machine-state webhook, which lives
-/// in a separate card.</para>
+/// <para>This is the only thing in the system that legally moves a Pending runtime
+/// into Booting. The next transition (Booting → Bootstrapping) is driven by the
+/// <see cref="RuntimeReconcilerJob"/> observing the box come up — Box has no
+/// webhooks, so the reconciler owns that edge.</para>
 ///
-/// <para><b>Concurrency.</b> Decorated with <see cref="DisableConcurrentExecutionAttribute"/>
-/// so two Hangfire workers can't both claim and provision the same Pending row. The
-/// 60-second timeout gives the Fly volume + machine round-trips comfortable headroom
-/// before a stuck worker is allowed to be stepped on by a fresh one.</para>
+/// <para><b>Concurrency / budget.</b> Same shape as before:
+/// <see cref="DisableConcurrentExecutionAttribute"/> with a runtime budget shorter
+/// than the lock TTL so a hung upstream can never wedge the schedule.</para>
 ///
-/// <para><b>Idempotency.</b> v1 is intentionally simple: if we crash between
-/// <c>CreateVolumeAsync</c> and <c>CreateMachineAsync</c>, the next tick will retry the
-/// volume create. Fly will respond with a 422 ("name exists"), which we surface as
-/// <see cref="FlyApiException"/> and handle by transitioning the runtime to
-/// <see cref="RuntimeState.Failed"/>. That's adequate for v1; a smarter
-/// idempotency-aware recovery layer can come later if the failure rate justifies it.
-/// TODO: revisit once we have production telemetry on volume-create-name-collision rates.</para>
-///
-/// <para><b>Failure isolation.</b> Each Pending runtime is processed in its own
-/// try/catch so a single bad row (or a single Fly failure) cannot poison the rest of
-/// the batch.</para>
+/// <para><b>Start-budget awareness.</b> Every fork and resume burns one machine
+/// start against Box's account-wide budget (600/hr, 1,500/day). Transient
+/// budget/rate errors therefore leave the row Pending for the next sweep instead
+/// of marking it Failed — see <see cref="BoxRuntimeProvisioning.IsTransient"/>.</para>
 /// </summary>
 public class RuntimeProvisionerJob
 {
     /// <summary>
     /// Maximum number of Pending runtimes processed per tick. Caps the blast radius
-    /// of a misbehaving batch and bounds wall-clock time per Hangfire run. The job
-    /// fires every minute, so 10/min × 60 min = 600/hr — comfortable headroom for
-    /// realistic provisioning load.
+    /// of a misbehaving batch and bounds wall-clock time per Hangfire run — and keeps
+    /// a worst-case tick (10 forks/min) far inside Box's 600 starts/hr account budget.
     /// </summary>
     public const int BatchSize = 10;
 
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
-    private readonly IFlyOptionsAccessor _flyOptions;
+    private readonly BoxClient _box;
+    private readonly IBoxOptionsAccessor _boxOptions;
     private readonly IRuntimeTokenService _runtimeTokenService;
     private readonly IRuntimeOptionsAccessor _runtimeOptions;
     private readonly IMediator _mediator;
@@ -81,8 +77,8 @@ public class RuntimeProvisionerJob
 
     public RuntimeProvisionerJob(
         ApplicationDbContext db,
-        FlyClient fly,
-        IFlyOptionsAccessor flyOptions,
+        BoxClient box,
+        IBoxOptionsAccessor boxOptions,
         IRuntimeTokenService runtimeTokenService,
         IRuntimeOptionsAccessor runtimeOptions,
         IMediator mediator,
@@ -91,8 +87,8 @@ public class RuntimeProvisionerJob
         ILogger<RuntimeProvisionerJob> logger)
     {
         _db = db;
-        _fly = fly;
-        _flyOptions = flyOptions;
+        _box = box;
+        _boxOptions = boxOptions;
         _runtimeTokenService = runtimeTokenService;
         _runtimeOptions = runtimeOptions;
         _mediator = mediator;
@@ -106,15 +102,7 @@ public class RuntimeProvisionerJob
     /// in a linked <see cref="CancellationTokenSource"/> with a hard 50-second
     /// budget so the job can never hold the
     /// <see cref="DisableConcurrentExecutionAttribute"/> lock past the 60-second
-    /// TTL — even if every external call (Fly HTTP, EF, SignalR) hangs forever.
-    /// The runtime budget is shorter than the lock TTL on purpose: when the CTS
-    /// trips, control returns, Hangfire releases the lock cleanly, and the next
-    /// tick acquires on schedule.
-    ///
-    /// <para><see cref="AutomaticRetry"/> with <c>Attempts = 0</c> stops Hangfire
-    /// from auto-requeuing a partially-cancelled run on top of the next scheduled
-    /// tick — otherwise a chronic upstream hang would pile cancelled retries
-    /// behind the scheduled minutely cron.</para>
+    /// TTL — even if every external call (Box HTTP, EF, SignalR) hangs forever.
     /// </summary>
     [DisableConcurrentExecution(timeoutInSeconds: 60)]
     [AutomaticRetry(Attempts = 0)]
@@ -128,32 +116,10 @@ public class RuntimeProvisionerJob
     /// <summary>
     /// Ad-hoc Hangfire entry point for provisioning a single runtime by id.
     /// Enqueued by every code path that inserts a fresh
-    /// <see cref="RuntimeState.Pending"/> row (controller create, project
-    /// create, copy/attach/fork branch, user restart) so the runtime starts
-    /// booting in seconds rather than waiting up to a minute for the recurring
-    /// <see cref="Run(IJobCancellationToken)"/> sweep to pick it up.
-    ///
-    /// <para>The recurring sweep is retained as a safety net for the rare race
-    /// where the row commits but the enqueue does not (process killed between
-    /// transaction commit and Hangfire enqueue), and for legacy rows that
-    /// existed before this fast-path landed. The per-row CAS at the head of
-    /// <see cref="ProvisionAsync"/> (Pending → Booting transition) makes both
-    /// paths safe to converge on the same row — whoever loses the race
-    /// observes <c>State != Pending</c> at the top of <see cref="ProvisionOneCore"/>
-    /// and no-ops.</para>
-    ///
-    /// <para><b>Budget.</b> Mirrors the batch path's 50-second budget under a
-    /// 60-second <see cref="DisableConcurrentExecutionAttribute"/> lock.
-    /// Hangfire's default resource name is per-method (not per-argument), so
-    /// this lock serialises all ad-hoc provisions across the cluster — same
-    /// backpressure semantics as the batch loop's sequential foreach.
-    /// Concurrent runs on the SAME row are caught by the Pending-state gate
-    /// at the top of <see cref="ProvisionOneCore"/> rather than by the lock.</para>
-    ///
-    /// <para><b>Retry.</b> <c>AutomaticRetry(Attempts = 0)</c> matches the
-    /// recurring path — we lean on the safety-net sweep rather than Hangfire's
-    /// implicit retry so a chronic failure shows up as Pending in the dashboard
-    /// instead of a retry pile.</para>
+    /// <see cref="RuntimeState.Pending"/> row so the runtime starts booting in
+    /// seconds rather than waiting for the recurring sweep. The per-row CAS at
+    /// the head of <see cref="ProvisionAsync"/> makes both paths safe to
+    /// converge on the same row.
     /// </summary>
     [DisableConcurrentExecution(timeoutInSeconds: 60)]
     [AutomaticRetry(Attempts = 0)]
@@ -167,18 +133,9 @@ public class RuntimeProvisionerJob
     /// <summary>
     /// Pure single-runtime provisioning path. Exposed (public) so unit tests can
     /// drive it directly without spinning up the Hangfire infrastructure.
-    /// Re-runs the same pre-flight gates the batch path uses, but scoped to a
-    /// single row: a misconfigured platform fails just THIS runtime rather than
-    /// the whole batch.
     /// </summary>
     public async Task ProvisionOneCore(Guid runtimeId, CancellationToken ct = default)
     {
-        // ---- Idempotency gate ----
-        // The ad-hoc enqueue races against the recurring sweep, and a single
-        // row may have multiple enqueues (controller create + downstream
-        // event-driven flow, etc.). The CAS in ProvisionAsync's transition
-        // is the real safety net, but bailing early on a non-Pending state
-        // keeps the dashboard quiet and saves a round-trip to the Fly preflight.
         var runtime = await _db.ProjectRuntimes
             .FirstOrDefaultAsync(r => r.Id == runtimeId, ct);
 
@@ -198,27 +155,22 @@ public class RuntimeProvisionerJob
             return;
         }
 
-        // ---- Pre-flight: Fly options ----
-        // Same surfaces as the batch path, but failure scoped to this row only.
-        var flyOptions = _flyOptions.Current;
-        if (string.IsNullOrWhiteSpace(flyOptions.ApiToken) ||
-            string.IsNullOrWhiteSpace(flyOptions.OrgSlug) ||
-            string.IsNullOrWhiteSpace(flyOptions.AppName))
+        // ---- Pre-flight: Box options ----
+        if (string.IsNullOrWhiteSpace(_boxOptions.Current.ApiKey))
         {
             await FailOneAsync(
                 runtime,
-                reason: "provisioner:incomplete_fly_config",
-                metadata: "Fly settings are incomplete. Configure them in Super Admin → System Settings.",
+                reason: "provisioner:incomplete_box_config",
+                metadata: "Box settings are incomplete. Configure Box:ApiKey in Super Admin → System Settings.",
                 ct: ct);
             _logger.LogWarning(
-                "RuntimeProvisionerJob.ProvisionOne: Fly settings incomplete — failed runtime {RuntimeId}",
+                "RuntimeProvisionerJob.ProvisionOne: Box settings incomplete — failed runtime {RuntimeId}",
                 runtimeId);
             return;
         }
 
         // ---- Pre-flight: Runtime.PublicApiUrl ----
-        var runtimeOptions = _runtimeOptions.Current;
-        if (string.IsNullOrWhiteSpace(runtimeOptions.PublicApiUrl))
+        if (string.IsNullOrWhiteSpace(_runtimeOptions.Current.PublicApiUrl))
         {
             await FailOneAsync(
                 runtime,
@@ -231,36 +183,25 @@ public class RuntimeProvisionerJob
             return;
         }
 
-        // ---- Pre-flight: Active RuntimeImage ----
-        var image = await _db.RuntimeImages
-            .Where(i => i.Status == RuntimeImageStatus.Active)
-            .OrderByDescending(i => i.BuiltAt)
-            .FirstOrDefaultAsync(ct);
-
-        if (image is null)
+        // ---- Pre-flight: Active RuntimeTemplate ----
+        var template = await GetActiveTemplateAsync(ct);
+        if (template is null)
         {
             await FailOneAsync(
                 runtime,
-                reason: "provisioner:no_active_image",
-                metadata: "No active runtime image is registered. Ask an admin to activate one in Super Admin → Runtime Images.",
+                reason: "provisioner:no_active_template",
+                metadata: "No active runtime template is registered. Build one with scripts/build-box-template.sh and activate it in Super Admin → Runtime Templates.",
                 ct: ct);
             _logger.LogWarning(
-                "RuntimeProvisionerJob.ProvisionOne: no Active RuntimeImage — failed runtime {RuntimeId}",
+                "RuntimeProvisionerJob.ProvisionOne: no Active RuntimeTemplate — failed runtime {RuntimeId}",
                 runtimeId);
             return;
         }
 
         // ---- Pre-flight: an active daemon version MUST exist ----
-        // We only check EXISTENCE here. The bootstrap script inside the Fly
-        // Machine resolves the URL + sha256 fresh at boot via the main API's
-        // resolve endpoints — that's what lets a new publish auto-rollout to
-        // every existing Machine on its next restart, with no provisioner
-        // re-stamp or Machine re-create needed.
-        //
-        // We still gate provisioning on existence because spinning a Machine
-        // that's guaranteed to crash-loop on bootstrap (no daemon to download)
-        // is pure waste. Leave the row Pending; the recurring sweep picks it
-        // up once a bundle lands.
+        // Existence only: the bootstrap script inside the box resolves URL + sha256
+        // fresh at boot from the main API, which is what lets a new publish
+        // auto-rollout to every existing box on its next daemon restart.
         var daemonResolveResult = await _mediator.Send(
             new ResolveDaemonVersionQuery("stable"), ct);
 
@@ -275,52 +216,30 @@ public class RuntimeProvisionerJob
         // ---- Provision ----
         try
         {
-            await ProvisionAsync(runtime, image, daemonResolveResult.Value, ct);
+            await ProvisionAsync(runtime, template, daemonResolveResult.Value, ct);
             _logger.LogInformation(
                 "RuntimeProvisionerJob.ProvisionOne: runtime {RuntimeId} provisioned (Pending → Booting)",
                 runtimeId);
         }
-        catch (FlyApiException flyEx)
+        catch (BoxApiException boxEx) when (BoxRuntimeProvisioning.IsTransient(boxEx))
         {
-            // Same Fly-error → Failed transition as the batch path.
+            // Start-budget exhaustion / rate limit / box still starting: leave the
+            // row Pending — the recurring sweep retries when the budget frees up.
+            _logger.LogWarning(
+                boxEx,
+                "RuntimeProvisionerJob.ProvisionOne: transient Box error for runtime {RuntimeId} (code={ErrorCode}) — leaving Pending for retry",
+                runtimeId, boxEx.ErrorCode);
+        }
+        catch (BoxApiException boxEx)
+        {
             _logger.LogError(
-                flyEx,
-                "RuntimeProvisionerJob.ProvisionOne: Fly API rejected provisioning for runtime {RuntimeId}: status={StatusCode} code={ErrorCode}",
-                runtimeId, flyEx.StatusCode, flyEx.ErrorCode);
-
-            var reasonCode = flyEx.ErrorCode ?? flyEx.StatusCode.ToString();
-            var userMessage = RuntimeFlyProvisioning.FormatUserMessage(flyEx);
-
-            var failResult = runtime.TransitionTo(
-                RuntimeState.Failed,
-                $"provisioner:fly_error:{reasonCode}",
-                "system:provisioner",
-                userMessage);
-
-            if (failResult.IsFailure)
-            {
-                _logger.LogError(
-                    "RuntimeProvisionerJob.ProvisionOne could not mark runtime {RuntimeId} Failed after Fly error: {Error}",
-                    runtimeId, failResult.Error);
-            }
-            else
-            {
-                try
-                {
-                    await _db.SaveChangesAsync(ct);
-                }
-                catch (Exception saveEx)
-                {
-                    _logger.LogError(
-                        saveEx,
-                        "RuntimeProvisionerJob.ProvisionOne failed to persist Failed transition for runtime {RuntimeId}",
-                        runtimeId);
-                }
-            }
+                boxEx,
+                "RuntimeProvisionerJob.ProvisionOne: Box API rejected provisioning for runtime {RuntimeId}: status={StatusCode} code={ErrorCode}",
+                runtimeId, boxEx.StatusCode, boxEx.ErrorCode);
+            await FailFromBoxErrorAsync(runtime, boxEx, ct);
         }
         catch (Exception ex)
         {
-            // Same "leave Pending so the sweep retries" semantics as the batch path.
             _logger.LogError(
                 ex,
                 "RuntimeProvisionerJob.ProvisionOne: unexpected error provisioning runtime {RuntimeId} — leaving Pending for safety-net sweep",
@@ -329,12 +248,465 @@ public class RuntimeProvisionerJob
     }
 
     /// <summary>
-    /// Single-row analogue of <see cref="FailBatchAsync"/>. Transitions a
-    /// runtime to <see cref="RuntimeState.Failed"/> with a structured reason
-    /// and metadata, then saves. Used by <see cref="ProvisionOneCore"/>'s
-    /// pre-flight gates so misconfiguration on the ad-hoc path produces the
-    /// same surface as the batch path (Failed row with reason in the audit
-    /// trail, never silently rotting in Pending).
+    /// Process one batch of Pending runtimes (recurring sweep).
+    /// </summary>
+    public async Task Run(CancellationToken ct = default)
+    {
+        var pending = await _db.ProjectRuntimes
+            .Where(r => r.State == RuntimeState.Pending)
+            .OrderBy(r => r.CreatedAt)
+            .Take(BatchSize)
+            .ToListAsync(ct);
+
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        // -------- Pre-flight: Box options must be present --------
+        if (string.IsNullOrWhiteSpace(_boxOptions.Current.ApiKey))
+        {
+            await FailBatchAsync(
+                pending,
+                reason: "provisioner:incomplete_box_config",
+                metadata: "Box settings are incomplete. Configure Box:ApiKey in Super Admin → System Settings.",
+                ct: ct);
+
+            _logger.LogWarning(
+                "RuntimeProvisionerJob: Box settings are incomplete — failed {Count} pending runtimes",
+                pending.Count);
+            return;
+        }
+
+        // -------- Pre-flight: Runtime.PublicApiUrl must be present --------
+        if (string.IsNullOrWhiteSpace(_runtimeOptions.Current.PublicApiUrl))
+        {
+            await FailBatchAsync(
+                pending,
+                reason: "provisioner:no_public_api_url",
+                metadata: "Runtime:PublicApiUrl is not configured. Set it in Super Admin → System Settings → Runtime. Daemons would otherwise have no MAIN_API_URL to dial back at.",
+                ct: ct);
+
+            _logger.LogError(
+                "RuntimeProvisionerJob: Runtime:PublicApiUrl is not configured — failed {Count} pending runtimes",
+                pending.Count);
+            return;
+        }
+
+        // Resolve the active template once per batch — every runtime in the batch
+        // forks the same template. If a new Active template lands mid-batch the
+        // next tick will pick it up.
+        var template = await GetActiveTemplateAsync(ct);
+        if (template is null)
+        {
+            await FailBatchAsync(
+                pending,
+                reason: "provisioner:no_active_template",
+                metadata: "No active runtime template is registered. Build one with scripts/build-box-template.sh and activate it in Super Admin → Runtime Templates.",
+                ct: ct);
+
+            _logger.LogWarning(
+                "RuntimeProvisionerJob: no Active RuntimeTemplate — failed {Count} pending runtimes",
+                pending.Count);
+            return;
+        }
+
+        // Existence check for the daemon bundle — see ProvisionOneCore.
+        var daemonResolveResult = await _mediator.Send(
+            new ResolveDaemonVersionQuery("stable"), ct);
+
+        if (daemonResolveResult.IsFailure)
+        {
+            _logger.LogWarning(
+                "RuntimeProvisionerJob: no active daemon version for channel 'stable' — leaving {Count} runtimes Pending until one is published ({Error})",
+                pending.Count, daemonResolveResult.Error);
+            return;
+        }
+
+        var succeeded = 0;
+        var failed = 0;
+
+        foreach (var runtime in pending)
+        {
+            try
+            {
+                await ProvisionAsync(runtime, template, daemonResolveResult.Value, ct);
+                succeeded++;
+            }
+            catch (BoxApiException boxEx) when (BoxRuntimeProvisioning.IsTransient(boxEx))
+            {
+                failed++;
+                _logger.LogWarning(
+                    boxEx,
+                    "RuntimeProvisionerJob: transient Box error for runtime {RuntimeId} (code={ErrorCode}) — leaving Pending for retry",
+                    runtime.Id, boxEx.ErrorCode);
+            }
+            catch (BoxApiException boxEx)
+            {
+                failed++;
+                _logger.LogError(
+                    boxEx,
+                    "RuntimeProvisionerJob: Box API rejected provisioning for runtime {RuntimeId}: status={StatusCode} code={ErrorCode}",
+                    runtime.Id, boxEx.StatusCode, boxEx.ErrorCode);
+                await FailFromBoxErrorAsync(runtime, boxEx, ct);
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                _logger.LogError(
+                    ex,
+                    "RuntimeProvisionerJob: unexpected error provisioning runtime {RuntimeId} — leaving Pending for retry",
+                    runtime.Id);
+                // Deliberately do NOT transition: the next tick will pick the row up again.
+            }
+        }
+
+        _logger.LogInformation(
+            "RuntimeProvisionerJob processed {Total} runtimes, {Succeeded} succeeded, {Failed} failed",
+            pending.Count, succeeded, failed);
+    }
+
+    /// <summary>
+    /// Provision a single Pending runtime. Three shapes, all ending in
+    /// <see cref="RuntimeState.Booting"/>:
+    ///
+    /// <list type="number">
+    ///   <item><b>Fresh fork</b> (no <see cref="ProjectRuntime.BoxId"/>): fork the
+    ///         active template with per-fork env + noEnv + TTL; stamp the new box id.</item>
+    ///   <item><b>Reboot</b> (BoxId set, size unchanged): resume the archived box (or
+    ///         use it in place if it's already up), then refresh the env file and
+    ///         bounce the daemon so it picks up the freshly-minted JWT.</item>
+    ///   <item><b>Disk-preserving resize</b> (BoxId set, size tier changed): stop the
+    ///         box to snapshot it, fork the SNAPSHOT at the new size with fresh env,
+    ///         delete the old box, stamp the new box id.</item>
+    /// </list>
+    /// </summary>
+    private async Task ProvisionAsync(
+        ProjectRuntime runtime,
+        RuntimeTemplate template,
+        DaemonVersionDto daemon,
+        CancellationToken ct)
+    {
+        // ---- 1. RuntimeToken ----
+        // Mint the JWT the daemon will use to authenticate back to us. "Audit before
+        // issuance": the mint MUST happen before any box call so we never have a VM
+        // running with an unrecorded token. A Box failure after this point just
+        // leaves an orphaned token that expires in 7 days.
+        var mintResult = await _runtimeTokenService.MintAsync(new MintTokenRequest(
+            RuntimeId: runtime.Id,
+            ProjectId: runtime.ProjectId,
+            BranchId: null,         // single branch per runtime today
+            TenantId: runtime.TenantId,
+            Scope: "runtime"
+        ), ct);
+
+        if (mintResult.IsFailure)
+        {
+            _logger.LogError(
+                "RuntimeProvisionerJob: refusing to provision runtime {RuntimeId} — token mint rejected: {Error}",
+                runtime.Id, mintResult.Error);
+
+            var failResult = runtime.TransitionTo(
+                RuntimeState.Failed,
+                "provisioner:mint_rejected",
+                "system:provisioner",
+                mintResult.Error);
+
+            if (failResult.IsSuccess)
+            {
+                await _db.SaveChangesAsync(ct);
+            }
+            return;
+        }
+
+        var env = await BuildRuntimeEnvAsync(runtime, daemon, mintResult.Value.Token, ct);
+        var desiredSize = BoxSizeMapper.FromSpec(runtime.Cpus, runtime.MemoryMb);
+
+        // ---- 2. Existing box? Reboot or resize in place ----
+        if (!string.IsNullOrWhiteSpace(runtime.BoxId))
+        {
+            BoxVm? existing = null;
+            try
+            {
+                existing = await _box.GetBoxAsync(runtime.BoxId, ct);
+            }
+            catch (BoxApiException ex) when (ex.StatusCode == 404)
+            {
+                _logger.LogWarning(
+                    "RuntimeProvisionerJob: runtime {RuntimeId} points at box {BoxId} which no longer exists — falling back to a fresh fork (previous disk state is lost).",
+                    runtime.Id, runtime.BoxId);
+                runtime.BoxId = null;
+            }
+
+            if (existing is not null)
+            {
+                var sizeChanged = !string.IsNullOrEmpty(existing.Size)
+                    && !string.Equals(existing.Size, desiredSize, StringComparison.OrdinalIgnoreCase);
+
+                if (sizeChanged)
+                {
+                    await ResizeViaForkAsync(runtime, existing, desiredSize, env, ct);
+                }
+                else
+                {
+                    await RebootExistingBoxAsync(runtime, existing, env, ct);
+                }
+                return;
+            }
+        }
+
+        // ---- 3. Fresh fork from the template ----
+        var forkReq = new ForkBoxRequest(
+            Name: BoxRuntimeProvisioning.BuildBoxName(runtime.Id),
+            Size: desiredSize,
+            Env: env,
+            NoEnv: true,
+            TtlSeconds: _boxOptions.Current.DefaultTtlSeconds);
+
+        var forked = await BoxRuntimeProvisioning.ForkOrAdoptAsync(
+            _box, _db, runtime, template.BoxId, forkReq, ct);
+
+        runtime.BoxId = forked.Id;
+        runtime.TemplateBoxId = template.BoxId;
+        if (!string.IsNullOrEmpty(forked.Region))
+        {
+            runtime.Region = forked.Region;
+        }
+
+        // ---- 4. Transition Pending → Booting ----
+        var transitionResult = runtime.TransitionTo(
+            RuntimeState.Booting,
+            "provisioner:forked_from_template",
+            "system:provisioner");
+
+        if (transitionResult.IsFailure)
+        {
+            // Persist the box id so the next tick can resume instead of
+            // re-forking a box with the same deterministic name.
+            await _db.SaveChangesAsync(ct);
+            _logger.LogError(
+                "RuntimeProvisionerJob: Pending -> Booting transition rejected for runtime {RuntimeId}: {Error}",
+                runtime.Id, transitionResult.Error);
+            return;
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Reboot path: the runtime's box still exists and its size matches. Resume it
+    /// if archived, walk to Booting, then refresh the env file (fresh JWT!) and
+    /// bounce the daemon. The env refresh is best-effort within the job budget —
+    /// if it can't land, the daemon comes up with its old env; an expired token
+    /// then shows up as a failed SignalR connect, the HeartbeatWatcher crashes the
+    /// runtime, and the next respawn retries the whole sequence.
+    /// </summary>
+    private async Task RebootExistingBoxAsync(
+        ProjectRuntime runtime,
+        BoxVm existing,
+        Dictionary<string, string> env,
+        CancellationToken ct)
+    {
+        if (BoxStatus.IsArchived(existing.Status) || BoxStatus.IsError(existing.Status))
+        {
+            await _box.ResumeBoxAsync(
+                existing.Id,
+                runtimeId: runtime.Id,
+                idempotencyKey: $"resume-box:{runtime.Id:D}",
+                ct: ct);
+        }
+
+        var transition = runtime.TransitionTo(
+            RuntimeState.Booting,
+            "provisioner:rebooted_existing_box",
+            "system:provisioner");
+
+        if (transition.IsFailure)
+        {
+            _logger.LogError(
+                "RuntimeProvisionerJob: Pending -> Booting reboot transition rejected for runtime {RuntimeId}: {Error}",
+                runtime.Id, transition.Error);
+            return;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        // Re-arm the TTL guardrail — an archived box's TTL may have lapsed.
+        try
+        {
+            await _box.SetTtlAsync(existing.Id, _boxOptions.Current.DefaultTtlSeconds, runtime.Id, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "RuntimeProvisionerJob: TTL re-arm failed for box {BoxId} (runtime {RuntimeId}); BoxTtlExtenderJob will catch up.",
+                existing.Id, runtime.Id);
+        }
+
+        try
+        {
+            var up = await BoxRuntimeProvisioning.WaitForBoxUpAsync(
+                _box, existing.Id, BoxRuntimeProvisioning.DefaultUpTimeout, ct);
+
+            if (up is not null && BoxStatus.IsUp(up.Status))
+            {
+                await BoxRuntimeProvisioning.RefreshEnvAndRestartDaemonAsync(
+                    _box, existing.Id, env, runtime.Id, ct);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "RuntimeProvisionerJob: box {BoxId} (runtime {RuntimeId}) did not come up within the env-refresh window (last status: {Status}); daemon will boot with its previous env.",
+                    existing.Id, runtime.Id, up?.Status ?? "unknown");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "RuntimeProvisionerJob: env refresh failed for box {BoxId} (runtime {RuntimeId}); daemon will boot with its previous env.",
+                existing.Id, runtime.Id);
+        }
+    }
+
+    /// <summary>
+    /// Disk-preserving resize: stop the current box (Box snapshots the disk on
+    /// stop), fork the snapshot at the new size tier with fresh env, delete the
+    /// old box, stamp the new id. The user's working data rides the snapshot into
+    /// the new box.
+    /// </summary>
+    private async Task ResizeViaForkAsync(
+        ProjectRuntime runtime,
+        BoxVm existing,
+        string desiredSize,
+        Dictionary<string, string> env,
+        CancellationToken ct)
+    {
+        if (!BoxStatus.IsArchived(existing.Status))
+        {
+            try
+            {
+                await _box.StopBoxAsync(
+                    existing.Id,
+                    runtimeId: runtime.Id,
+                    idempotencyKey: $"resize-stop:{runtime.Id:D}",
+                    ct: ct);
+            }
+            catch (BoxApiException ex) when (ex.IsRetriableStartup)
+            {
+                // Box mid-transition — let the next tick retry the whole resize.
+                throw;
+            }
+        }
+
+        var oldBoxId = existing.Id;
+        var forkReq = new ForkBoxRequest(
+            Name: BoxRuntimeProvisioning.BuildBoxName(runtime.Id),
+            Size: desiredSize,
+            Env: env,
+            NoEnv: true,
+            TtlSeconds: _boxOptions.Current.DefaultTtlSeconds);
+
+        var replacement = await _box.ForkBoxAsync(
+            oldBoxId,
+            forkReq,
+            idempotencyKey: $"resize-fork:{runtime.Id:D}:{desiredSize}",
+            runtimeId: runtime.Id,
+            ct: ct);
+
+        runtime.BoxId = replacement.Id;
+
+        var transition = runtime.TransitionTo(
+            RuntimeState.Booting,
+            "provisioner:resized_via_fork",
+            "system:provisioner",
+            $"{{\"oldBoxId\":\"{oldBoxId}\",\"newBoxId\":\"{replacement.Id}\",\"size\":\"{desiredSize}\"}}");
+
+        if (transition.IsFailure)
+        {
+            await _db.SaveChangesAsync(ct);
+            _logger.LogError(
+                "RuntimeProvisionerJob: resize transition rejected for runtime {RuntimeId}: {Error}",
+                runtime.Id, transition.Error);
+            return;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        // Old box is now redundant — its disk lives on in the fork. Best-effort
+        // delete; an orphan is caught by the TTL guardrail + admin cleanup anyway.
+        try
+        {
+            await _box.DeleteBoxAsync(oldBoxId, runtimeId: runtime.Id, ct: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "RuntimeProvisionerJob: could not delete old box {BoxId} after resize of runtime {RuntimeId}; it will archive itself at TTL and can be removed in Box Cleanup.",
+                oldBoxId, runtime.Id);
+        }
+    }
+
+    /// <summary>
+    /// Delegates to <see cref="BoxRuntimeProvisioning.BuildRuntimeEnvAsync"/> — the
+    /// env contract is shared with <see cref="RespawnRuntimeJob"/> so the two can
+    /// never diverge.
+    /// </summary>
+    private Task<Dictionary<string, string>> BuildRuntimeEnvAsync(
+        ProjectRuntime runtime,
+        DaemonVersionDto daemon,
+        string runtimeToken,
+        CancellationToken ct) =>
+        BoxRuntimeProvisioning.BuildRuntimeEnvAsync(
+            _db, _cipher, _cloudflare, _runtimeOptions.Current.PublicApiUrl,
+            runtime, daemon, runtimeToken, _logger, ct);
+
+    /// <summary>Newest Active template — the default fork source.</summary>
+    private Task<RuntimeTemplate?> GetActiveTemplateAsync(CancellationToken ct) =>
+        _db.RuntimeTemplates
+            .Where(t => t.Status == RuntimeTemplateStatus.Active)
+            .OrderByDescending(t => t.BuiltAt)
+            .FirstOrDefaultAsync(ct);
+
+    /// <summary>Mark one runtime Failed after a non-transient Box error, mirroring the old Fly-error path.</summary>
+    private async Task FailFromBoxErrorAsync(
+        ProjectRuntime runtime,
+        BoxApiException boxEx,
+        CancellationToken ct)
+    {
+        var reasonCode = boxEx.ErrorCode ?? boxEx.StatusCode.ToString();
+        var userMessage = BoxRuntimeProvisioning.FormatUserMessage(boxEx);
+
+        var failResult = runtime.TransitionTo(
+            RuntimeState.Failed,
+            $"provisioner:box_error:{reasonCode}",
+            "system:provisioner",
+            userMessage);
+
+        if (failResult.IsFailure)
+        {
+            _logger.LogError(
+                "RuntimeProvisionerJob could not mark runtime {RuntimeId} Failed after Box error: {Error}",
+                runtime.Id, failResult.Error);
+            return;
+        }
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (Exception saveEx)
+        {
+            _logger.LogError(
+                saveEx,
+                "RuntimeProvisionerJob failed to persist Failed transition for runtime {RuntimeId}",
+                runtime.Id);
+        }
+    }
+
+    /// <summary>
+    /// Single-row analogue of <see cref="FailBatchAsync"/> for the pre-flight gates
+    /// so misconfiguration on the ad-hoc path produces the same surface as the batch
+    /// path (Failed row with reason in the audit trail, never rotting in Pending).
     /// </summary>
     private async Task FailOneAsync(
         ProjectRuntime runtime,
@@ -370,195 +742,9 @@ public class RuntimeProvisionerJob
     }
 
     /// <summary>
-    /// Process one batch of Pending runtimes. Hangfire calls this on the recurring
-    /// schedule via the <see cref="Run(IJobCancellationToken)"/> overload, which
-    /// applies the cancellation budget. The <see cref="DisableConcurrentExecutionAttribute"/>
-    /// on the entry point guards against two workers running this method at the
-    /// same time across the cluster.
-    /// </summary>
-    public async Task Run(CancellationToken ct = default)
-    {
-        var pending = await _db.ProjectRuntimes
-            .Where(r => r.State == RuntimeState.Pending)
-            .OrderBy(r => r.CreatedAt)
-            .Take(BatchSize)
-            .ToListAsync(ct);
-
-        if (pending.Count == 0)
-        {
-            return;
-        }
-
-        // -------- Pre-flight: Fly options must be present --------
-        // The CreateProject handler also gates on this, but a row may have been
-        // created before settings were cleared, or settings could be partially
-        // wiped after the fact. Don't silently early-return when there's
-        // work-but-no-config — mark the runtimes Failed with a structured reason
-        // so the UI can surface the misconfiguration immediately.
-        var flyOptions = _flyOptions.Current;
-        if (string.IsNullOrWhiteSpace(flyOptions.ApiToken) ||
-            string.IsNullOrWhiteSpace(flyOptions.OrgSlug) ||
-            string.IsNullOrWhiteSpace(flyOptions.AppName))
-        {
-            await FailBatchAsync(
-                pending,
-                reason: "provisioner:incomplete_fly_config",
-                metadata: "Fly settings are incomplete. Configure them in Super Admin → System Settings.",
-                ct: ct);
-
-            _logger.LogWarning(
-                "RuntimeProvisionerJob: Fly settings are incomplete — failed {Count} pending runtimes",
-                pending.Count);
-            return;
-        }
-
-        // -------- Pre-flight: Runtime.PublicApiUrl must be present --------
-        // Without it the daemon has no MAIN_API_URL to dial back at, so the
-        // machine would spin forever without ever talking to us. Fail fast
-        // with a structured reason rather than producing zombie runtimes.
-        var runtimeOptions = _runtimeOptions.Current;
-        if (string.IsNullOrWhiteSpace(runtimeOptions.PublicApiUrl))
-        {
-            await FailBatchAsync(
-                pending,
-                reason: "provisioner:no_public_api_url",
-                metadata: "Runtime:PublicApiUrl is not configured. Set it in Super Admin → System Settings → Runtime. Daemons would otherwise have no MAIN_API_URL to dial back at.",
-                ct: ct);
-
-            _logger.LogError(
-                "RuntimeProvisionerJob: Runtime:PublicApiUrl is not configured — failed {Count} pending runtimes",
-                pending.Count);
-            return;
-        }
-
-        // Resolve the latest Active image once per batch — every runtime in the batch
-        // gets the same image. If a new Active image lands mid-batch the next tick
-        // will pick it up.
-        var image = await _db.RuntimeImages
-            .Where(i => i.Status == RuntimeImageStatus.Active)
-            .OrderByDescending(i => i.BuiltAt)
-            .FirstOrDefaultAsync(ct);
-
-        if (image is null)
-        {
-            // Fail-fast: a Pending runtime with no Active image will never make
-            // progress. Mark them all Failed with a structured reason rather
-            // than letting them rot in Pending forever.
-            await FailBatchAsync(
-                pending,
-                reason: "provisioner:no_active_image",
-                metadata: "No active runtime image is registered. Ask an admin to activate one in Super Admin → Runtime Images.",
-                ct: ct);
-
-            _logger.LogWarning(
-                "RuntimeProvisionerJob: no Active RuntimeImage — failed {Count} pending runtimes",
-                pending.Count);
-            return;
-        }
-
-        // Existence check (NOT URL stamping): verify a daemon bundle exists.
-        // bundle has been published. The bootstrap script inside the Machine
-        // resolves URL + sha256 fresh at boot from the main API's resolve
-        // endpoints, which is what lets a new publish auto-rollout to every
-        // existing Machine on its next restart — no provisioner re-stamp or
-        // Machine re-create needed.
-        //
-        // We still gate the batch on existence because spinning Machines that
-        // are guaranteed to crash-loop on bootstrap (nothing to download) is
-        // pure waste. Leave the rows Pending; the next tick picks them up once
-        // a bundle lands. (Contrast with no-active-image, which is a clear
-        // misconfiguration we surface immediately by marking the rows Failed.)
-        var daemonResolveResult = await _mediator.Send(
-            new ResolveDaemonVersionQuery("stable"), ct);
-
-        if (daemonResolveResult.IsFailure)
-        {
-            _logger.LogWarning(
-                "RuntimeProvisionerJob: no active daemon version for channel 'stable' — leaving {Count} runtimes Pending until one is published ({Error})",
-                pending.Count, daemonResolveResult.Error);
-            return;
-        }
-
-        var succeeded = 0;
-        var failed = 0;
-
-        foreach (var runtime in pending)
-        {
-            try
-            {
-                await ProvisionAsync(runtime, image, daemonResolveResult.Value, ct);
-                succeeded++;
-            }
-            catch (FlyApiException flyEx)
-            {
-                failed++;
-                _logger.LogError(
-                    flyEx,
-                    "RuntimeProvisionerJob: Fly API rejected provisioning for runtime {RuntimeId}: status={StatusCode} code={ErrorCode}",
-                    runtime.Id, flyEx.StatusCode, flyEx.ErrorCode);
-
-                // Transition to Failed with a structured reason and a (bounded) snippet
-                // of the Fly response body for forensic context. The transition itself
-                // is on a fresh save outside the failed Fly call, so the audit row
-                // lands cleanly.
-                var reasonCode = flyEx.ErrorCode ?? flyEx.StatusCode.ToString();
-                var userMessage = RuntimeFlyProvisioning.FormatUserMessage(flyEx);
-
-                var failResult = runtime.TransitionTo(
-                    RuntimeState.Failed,
-                    $"provisioner:fly_error:{reasonCode}",
-                    "system:provisioner",
-                    userMessage);
-
-                if (failResult.IsFailure)
-                {
-                    // Defensive: Pending → Failed is a legal edge in the state graph
-                    // (added specifically for this provisioner-error path). If the
-                    // transition is rejected here it usually means the runtime moved
-                    // out of Pending in parallel with our run — log and continue.
-                    _logger.LogError(
-                        "RuntimeProvisionerJob could not mark runtime {RuntimeId} Failed after Fly error: {Error}",
-                        runtime.Id, failResult.Error);
-                }
-                else
-                {
-                    try
-                    {
-                        await _db.SaveChangesAsync(ct);
-                    }
-                    catch (Exception saveEx)
-                    {
-                        _logger.LogError(
-                            saveEx,
-                            "RuntimeProvisionerJob failed to persist Failed transition for runtime {RuntimeId}",
-                            runtime.Id);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                _logger.LogError(
-                    ex,
-                    "RuntimeProvisionerJob: unexpected error provisioning runtime {RuntimeId} — leaving Pending for retry",
-                    runtime.Id);
-                // Deliberately do NOT transition: the next tick will pick the row up again.
-            }
-        }
-
-        _logger.LogInformation(
-            "RuntimeProvisionerJob processed {Total} runtimes, {Succeeded} succeeded, {Failed} failed",
-            pending.Count, succeeded, failed);
-    }
-
-    /// <summary>
     /// Mark every runtime in <paramref name="batch"/> Failed with the same structured
     /// reason and metadata, then persist in a single SaveChanges. Used by the pre-flight
-    /// gates (no Active image, incomplete Fly config) so a misconfigured platform never
-    /// leaves a runtime stuck in Pending.
-    ///
-    /// <para>Skips rows where the Pending → Failed transition is illegal (someone moved
-    /// them in parallel) — those are logged but not fatal to the batch.</para>
+    /// gates so a misconfigured platform never leaves a runtime stuck in Pending.
     /// </summary>
     private async Task FailBatchAsync(
         List<ProjectRuntime> batch,
@@ -593,309 +779,5 @@ public class RuntimeProvisionerJob
                 "RuntimeProvisionerJob: failed to persist batch Failed transitions ({Reason})",
                 reason);
         }
-    }
-
-    /// <summary>
-    /// Provision a single Pending runtime: create its Fly volume, create its Fly machine,
-    /// stamp the resulting ids + image digest on the runtime, and transition it to
-    /// <see cref="RuntimeState.Booting"/>. Any exception bubbles to the caller, which
-    /// owns batch-level error handling.
-    ///
-    private async Task ProvisionAsync(
-        ProjectRuntime runtime,
-        RuntimeImage image,
-        DaemonVersionDto daemon,
-        CancellationToken ct)
-    {
-        // ---- 1. Volume ----
-        // Skip the volume create when one is already stamped on the runtime
-        // row. Two flows land here:
-        //   * Copy Branch (CopyBranchHandler) forks the source volume up
-        //     front and writes the resulting FlyVolumeId to the row before
-        //     the runtime enters this job's queue.
-        //   * User-triggered restart from Failed (ProjectRuntime.Restart)
-        //     walks Failed → Pending with FlyVolumeId still attached so the
-        //     user's working data survives the restart.
-        // Calling CreateVolume again would either duplicate (and bill twice)
-        // or 422 on name collision — both wrong. The "FlyVolumeId is null →
-        // fresh create" path is the legacy onboarding path; the "FlyVolumeId
-        // already set → reuse" path is Copy Branch / Restart and any future
-        // fork-style flow.
-        string volumeId;
-        if (string.IsNullOrWhiteSpace(runtime.FlyVolumeId))
-        {
-            var volumeReq = new CreateVolumeRequest(
-                Name: RuntimeFlyProvisioning.BuildVolumeName(runtime.Id),
-                Region: runtime.Region,
-                SizeGb: runtime.VolumeSizeGb,
-                Encrypted: true);
-
-            var volume = await _fly.CreateVolumeAsync(volumeReq, runtimeId: runtime.Id, ct: ct);
-            runtime.FlyVolumeId = volume.Id;
-            volumeId = volume.Id;
-        }
-        else
-        {
-            // Pre-existing volume (Copy Branch fork OR user restart from
-            // Failed). Use it as-is — Fly already has it provisioned in the
-            // same region the runtime row's `Region` column points at.
-            volumeId = runtime.FlyVolumeId;
-            _logger.LogInformation(
-                "RuntimeProvisionerJob: runtime {RuntimeId} already has FlyVolumeId {VolumeId} — skipping volume create.",
-                runtime.Id, volumeId);
-
-            // ---- 1.5. Best-effort destroy of any stale machine ----
-            //
-            // A restart from Failed (ProjectRuntime.Restart) intentionally
-            // keeps FlyMachineId pointing at the dead Fly machine so we can
-            // tear it down here before booting a replacement on the same
-            // volume. Without this the orphaned machine lingers on Fly's
-            // side and Fly will refuse to attach the volume to two machines.
-            //
-            // Mirrors RespawnRuntimeJob.Run's destroy-then-create pattern —
-            // force: true because the dead machine may still register as
-            // "started" with Fly (412 Precondition Failed without force),
-            // and 404 = "already gone" is a non-error continuation. Other
-            // Fly errors propagate to the outer batch-level catch which
-            // marks the runtime Failed.
-            if (!string.IsNullOrEmpty(runtime.FlyMachineId))
-            {
-                var staleMachineId = runtime.FlyMachineId;
-                try
-                {
-                    await _fly.DestroyMachineAsync(staleMachineId, force: true, runtimeId: runtime.Id, ct: ct);
-                    _logger.LogInformation(
-                        "RuntimeProvisionerJob: force-destroyed stale machine {MachineId} for runtime {RuntimeId} before reuse-volume boot.",
-                        staleMachineId, runtime.Id);
-                }
-                catch (FlyApiException ex) when (ex.StatusCode == 404)
-                {
-                    _logger.LogInformation(
-                        "RuntimeProvisionerJob: stale machine {MachineId} already gone (404) for runtime {RuntimeId}, continuing with new boot.",
-                        staleMachineId, runtime.Id);
-                }
-                // Clear the stale id so the create-machine block below assigns
-                // the fresh one cleanly (and so a partial failure between here
-                // and machine-create doesn't leave us re-destroying on retry).
-                runtime.FlyMachineId = null;
-            }
-        }
-
-        // ---- 1.5. RuntimeToken ----
-        // Mint the JWT the daemon will use to authenticate back to us. The
-        // RuntimeTokenIssue audit row is written in the same DbContext as the
-        // rest of the provisioner's state, so a Fly-create failure leaves
-        // *both* the runtime row's intermediate state and the issuance row
-        // intact — both are caught by the next tick (which re-mints) and the
-        // orphaned token simply expires in 7 days. This is "audit before
-        // issuance" per the spec: we never want a Machine running with an
-        // unrecorded token, so the mint MUST happen before the Fly machine
-        // create call.
-        var mintResult = await _runtimeTokenService.MintAsync(new MintTokenRequest(
-            RuntimeId: runtime.Id,
-            ProjectId: runtime.ProjectId,
-            BranchId: null,         // single branch per runtime today
-            TenantId: runtime.TenantId,
-            Scope: "runtime"
-        ), ct);
-
-        if (mintResult.IsFailure)
-        {
-            // Tenant-less runtime row, or some other refusal from the token
-            // service. We can't safely proceed: a Machine running with no
-            // (or worse, an undertyped) JWT defeats tenancy isolation. Mark
-            // the runtime Failed with a structured reason so the operator
-            // can see why and the next provisioner tick won't retry it.
-            _logger.LogError(
-                "RuntimeProvisionerJob: refusing to provision runtime {RuntimeId} — token mint rejected: {Error}",
-                runtime.Id, mintResult.Error);
-
-            var failResult = runtime.TransitionTo(
-                RuntimeState.Failed,
-                "provisioner:mint_rejected",
-                "system:provisioner",
-                mintResult.Error);
-
-            if (failResult.IsSuccess)
-            {
-                await _db.SaveChangesAsync(ct);
-            }
-            return;
-        }
-
-        var minted = mintResult.Value;
-
-        // ---- 1.6. Cloudflare preview-tunnel env (Phase 4) ----
-        // If the branch has an Assigned subdomain in the pool, we stamp the
-        // three env vars the daemon needs to start `cloudflared` and route
-        // traffic to the user's dev server:
-        //   * TUNNEL_TOKEN — decrypted from the pool row's encrypted token
-        //   * PREVIEW_PORT — the project's per-project preview port (default 5173)
-        //   * PREVIEW_HOSTNAME — full FQDN, useful for logs / debug
-        //
-        // Legacy branches created before Phase 3 don't have a SubdomainAssignment
-        // bound to them. That's fine — we skip all three env vars and the daemon
-        // simply never starts cloudflared. No tunnel, no preview, but the
-        // runtime still boots cleanly. (Logged at info so an operator can spot
-        // the legacy population.)
-        var subdomain = await _db.SubdomainAssignments
-            .Where(s => s.AssignedBranchId == runtime.BranchId
-                        && s.Status == SubdomainStatus.Assigned)
-            .FirstOrDefaultAsync(ct);
-
-        var previewPort = await _db.Projects
-            .Where(p => p.Id == runtime.ProjectId)
-            .Select(p => (int?)p.PreviewPort)
-            .FirstOrDefaultAsync(ct) ?? Project.DefaultPreviewPort;
-
-        // ---- 2. Machine ----
-        if (!string.IsNullOrWhiteSpace(runtime.FlyMachineId))
-        {
-            _logger.LogInformation(
-                "RuntimeProvisionerJob: runtime {RuntimeId} already has FlyMachineId {MachineId} — resuming Pending → Booting.",
-                runtime.Id, runtime.FlyMachineId);
-
-            var resumeTransition = runtime.TransitionTo(
-                RuntimeState.Booting,
-                "provisioner:resumed_existing_machine",
-                "system:provisioner");
-
-            if (resumeTransition.IsFailure)
-            {
-                _logger.LogError(
-                    "RuntimeProvisionerJob: Pending -> Booting resume rejected for runtime {RuntimeId}: {Error}",
-                    runtime.Id, resumeTransition.Error);
-                return;
-            }
-
-            await _db.SaveChangesAsync(ct);
-            return;
-        }
-
-        var env = new Dictionary<string, string>
-        {
-            ["RUNTIME_ID"] = runtime.Id.ToString(),
-            ["GLENN_RUNTIME_TOKEN"] = minted.Token,
-            // MAIN_API_URL is BOTH the daemon's callback URL AND the URL the
-            // (new) bootstrap script uses to RESOLVE the daemon + agent-natives
-            // bundles at boot.
-            ["MAIN_API_URL"] = _runtimeOptions.Current.PublicApiUrl,
-            // DEFENSIVE STAMP — backwards-compat with already-deployed runtime
-            // images that pre-date commit fc8e81d. The NEW bootstrap-daemon.sh
-            // (post-fc8e81d) ignores these env vars and re-resolves the bundles
-            // from the main API at boot for hot-reload semantics. But OLDER
-            // images still on Fly were built from the OLD bootstrap-daemon.sh
-            // which hard-requires these six env vars and crash-loops without
-            // them. Stamping them costs nothing on new images and unblocks any
-            // old image still in production. Remove this once every runtime
-            // image in production has been rebuilt past fc8e81d.
-            ["DAEMON_VERSION"] = daemon.Version,
-            ["DAEMON_BUNDLE_URL"] = daemon.DownloadUrl,
-            ["DAEMON_BUNDLE_SHA256"] = daemon.Sha256,
-        };
-
-        if (subdomain is not null)
-        {
-            env["TUNNEL_TOKEN"] = _cipher.Decrypt(subdomain.TunnelToken);
-            env["PREVIEW_PORT"] = previewPort.ToString();
-            env["PREVIEW_HOSTNAME"] = subdomain.Hostname;
-
-            // Defensive Cloudflare ingress reconciliation.
-            //
-            // Belt-and-braces for the port-mismatch class of bug:
-            //   - AssignSubdomainToBranch already pushes the PUT at claim time
-            //     for the happy path, but rows assigned before that fix shipped
-            //     are still pointing at pool placeholder 5173.
-            //   - A network blip during the claim-time PUT also leaves a row
-            //     drifted (we deliberately don't fail the claim on Cloudflare
-            //     errors — see ReconcileCloudflareIngressAsync).
-            //
-            // Doing it here in the provisioner is the safety net: every machine
-            // boot pays one extra Cloudflare PUT (idempotent — Cloudflare's
-            // configurations endpoint is PUT-replace, no diff needed) and we
-            // guarantee the tunnel routes to the right port by the time the
-            // machine accepts traffic. Skipped for the default port, same
-            // reasoning as the claim-time path: pool placeholder already
-            // matches, no API round-trip needed.
-            if (previewPort != Project.DefaultPreviewPort)
-            {
-                try
-                {
-                    await _cloudflare.AddPublicHostnameAsync(
-                        subdomain.TunnelId,
-                        subdomain.Hostname,
-                        previewPort,
-                        ct);
-                    _logger.LogInformation(
-                        "RuntimeProvisionerJob: reconciled tunnel {TunnelId} ingress to localhost:{PreviewPort} for runtime {RuntimeId}",
-                        subdomain.TunnelId, previewPort, runtime.Id);
-                }
-                catch (Exception ex)
-                {
-                    // Best-effort. If Cloudflare is down right now we still want
-                    // the machine to boot — the daemon will heartbeat and serve
-                    // its app on the right port, even if the tunnel briefly
-                    // routes wrong. UpdateProjectPreviewPort's fan-out (or the
-                    // next provisioner tick on a different runtime) will catch
-                    // up. Don't fail the boot for a stale tunnel config.
-                    _logger.LogWarning(
-                        ex,
-                        "RuntimeProvisionerJob: Cloudflare ingress PUT failed for tunnel {TunnelId} (runtime {RuntimeId}, port {PreviewPort}). Proceeding with boot; tunnel may briefly route to placeholder port.",
-                        subdomain.TunnelId, runtime.Id, previewPort);
-                }
-            }
-        }
-        else
-        {
-            _logger.LogInformation(
-                "RuntimeProvisionerJob: runtime {RuntimeId} (branch {BranchId}) has no assigned subdomain — skipping preview-tunnel env vars (legacy or pre-Phase-3 branch).",
-                runtime.Id, runtime.BranchId);
-        }
-
-        var machineReq = new CreateMachineRequest(
-            Name: RuntimeFlyProvisioning.BuildMachineName(runtime.Id),
-            Region: runtime.Region,
-            Config: new MachineConfig(
-                Image: $"{image.Registry}:{image.Tag}",
-                Env: env,
-                // Snapshotted spec on the runtime row drives Fly machine sizing.
-                // Defaults (shared/1/2048) match the historical MachineGuest()
-                // tuple so legacy runtimes boot exactly as before; per-project
-                // override flows in via ProjectRuntime.CpuKind/Cpus/MemoryMb,
-                // populated at row creation from Project.RuntimeCpu*. The
-                // PersistRootfs="always" invariant stays — see CreateMachineRequest.cs.
-                Guest: new MachineGuest(
-                    CpuKind: runtime.CpuKind,
-                    Cpus: runtime.Cpus,
-                    MemoryMb: runtime.MemoryMb,
-                    PersistRootfs: "always"),
-                Mounts: new List<MachineMount>
-                {
-                    new(Volume: volumeId, Path: "/data"),
-                }));
-
-        var machine = await RuntimeFlyProvisioning.CreateOrAdoptMachineAsync(
-            _fly, _db, runtime, machineReq, ct);
-        runtime.FlyMachineId = machine.Id;
-        runtime.ImageDigest = image.Digest;
-
-        // ---- 3. Transition Pending → Booting ----
-        var transitionResult = runtime.TransitionTo(
-            RuntimeState.Booting,
-            "provisioner:created",
-            "system:provisioner");
-
-        if (transitionResult.IsFailure)
-        {
-            // Persist the Fly ids so the next tick can resume instead of
-            // re-creating a machine with the same deterministic name.
-            await _db.SaveChangesAsync(ct);
-            _logger.LogError(
-                "RuntimeProvisionerJob: Pending -> Booting transition rejected for runtime {RuntimeId}: {Error}",
-                runtime.Id, transitionResult.Error);
-            return;
-        }
-
-        await _db.SaveChangesAsync(ct);
     }
 }

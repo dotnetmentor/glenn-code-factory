@@ -19,14 +19,14 @@ namespace Source.Features.Hooks.Controllers;
 /// <see cref="IRuntimeClient.UpdateConfig"/>.
 ///
 /// <para><b>Why no MediatR.</b> Same pragmatic reasoning as
-/// <see cref="Source.Features.FlyManagement.Controllers.FlyAdminController"/> and
+/// <see cref="Source.Features.BoxManagement.Controllers.BoxAdminController"/> and
 /// <see cref="Source.Features.RuntimeBootstrap.Controllers.BootstrapRunsController"/>:
 /// a thin upsert over a single jsonb column with a SignalR push at the end is
 /// not a business feature with cross-slice events. Wrapping it in a command
 /// would add four files without changing behaviour.</para>
 ///
 /// <para><b>Authorisation.</b> <see cref="RoleConstants.SuperAdmin"/>, matching
-/// every other admin surface (FlyAdmin, RuntimeImages, BootstrapRuns,
+/// every other admin surface (BoxAdmin, RuntimeTemplates, BootstrapRuns,
 /// SystemSettings). TenantAdmin would be too broad — hooks can run arbitrary
 /// shell commands inside the runtime VM.</para>
 ///

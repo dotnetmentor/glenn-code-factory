@@ -10,9 +10,9 @@ export function PostImportCaveats() {
     <Alert severity="info" sx={{ '& .MuiAlert-message': { width: '100%' } }}>
       <AlertTitle>Two small manual steps remain</AlertTitle>
       <Typography variant="body2" sx={{ mb: 1.5 }}>
-        Everything else — users, workspaces, projects, secrets, GitHub/Fly/runtime
+        Everything else — users, workspaces, projects, secrets, GitHub/Box/runtime
         credentials — is restored from the blob with no re-authorization. Runtimes
-        re-clone code from GitHub and re-provision Fly infrastructure on their own.
+        re-clone code from GitHub and re-provision Box infrastructure on their own.
         Only these two housekeeping items need a human:
       </Typography>
       <Stack component="ol" spacing={1.5} sx={{ pl: 2.5, m: 0 }}>

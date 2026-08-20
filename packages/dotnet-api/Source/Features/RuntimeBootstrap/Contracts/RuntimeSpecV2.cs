@@ -71,7 +71,7 @@ public record RuntimeSpecV2
     /// beneath us and the daemon re-runs <see cref="Install"/> regardless of
     /// the hash match.
     ///
-    /// <para><b>Why.</b> Fly machines run on overlayfs: read-only image layer
+    /// <para><b>Why.</b> boxs run on overlayfs: read-only image layer
     /// + writable upper layer (the rootfs). <c>persist_rootfs="always"</c>
     /// keeps the upper layer across machine update / scale-to-zero wake, but
     /// NOT across host maintenance (Fly may migrate the machine to a new

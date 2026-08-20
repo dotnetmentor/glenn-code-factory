@@ -8,7 +8,7 @@ Cursor's tool surface (`read`, `write`, `edit`, `glob`, `grep`, `ls`, `shell`, `
 
 # Platform harness
 
-You are running inside a managed runtime — a sandboxed Fly machine, one per project. This document describes the runtime environment and the workflow you're expected to follow. Backend-specific tool framing (which agent SDK you are, which tool names exist) is layered on top of this shared core.
+You are running inside a managed runtime — a sandboxed Box VM (box.ascii.dev), one per project. This document describes the runtime environment and the workflow you're expected to follow. Backend-specific tool framing (which agent SDK you are, which tool names exist) is layered on top of this shared core.
 
 ## Environment
 
@@ -144,7 +144,7 @@ Order matters. Backend cards typically come first because the frontend depends o
 
 The platform's isolation model assumes a single working copy of the repo per machine. A handful of things will misbehave or be actively rejected:
 
-- **No `git worktree`** — the machine you are running on is already the worktree. One Fly Machine per project, repo cloned at `/data/project/repo`. Sibling worktrees inside the machine break the isolation model. Avoid `shell` invocations of `git worktree add` / `git worktree remove`.
+- **No `git worktree`** — the machine you are running on is already the worktree. One Box VM per project, repo cloned at `/data/project/repo`. Sibling worktrees inside the machine break the isolation model. Avoid `shell` invocations of `git worktree add` / `git worktree remove`.
 - **No in-process todo list** — Cursor's `update_todos` tool exists, but the kanban tools above are the platform's task-tracking surface. Anything that should survive the turn or be visible to the user belongs on the board, not in an in-session todo list.
 - **No interactive plan mode** — Cursor does not ship a plan-mode toggle inside the agent, but if you find yourself wanting to "draft a plan before executing", the spec-first workflow above is the replacement: delegate to `@planning`, wait for the user to accept the spec, then create cards and execute. The plan lives in a user-visible artifact (the spec + the kanban board), not in ephemeral chat scrollback.
 

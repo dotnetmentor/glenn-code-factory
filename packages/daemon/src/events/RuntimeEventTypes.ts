@@ -123,8 +123,8 @@ export const RuntimeEventTypes = {
   ServiceFailedToStart: 'ServiceFailedToStart',
   /** Daemon's RuntimeSpecDeltaApplied ack rejected by SignalR (payload-too-large, transport blow-up). */
   SpecApplyAckFailed: 'SpecApplyAckFailed',
-  /** Backend-emitted: our runtime view disagrees with Fly's live machine view. */
-  RuntimeFlyDriftDetected: 'RuntimeFlyDriftDetected',
+  /** Backend-emitted: our runtime view disagrees with Box's live status. */
+  RuntimeBoxDriftDetected: 'RuntimeBoxDriftDetected',
   /** Cloudflared tunnel hostname health check transitioned Up → Down. */
   CloudflaredTunnelDown: 'CloudflaredTunnelDown',
   /** Cloudflared tunnel hostname health check transitioned Down → Up after a prior Down. */

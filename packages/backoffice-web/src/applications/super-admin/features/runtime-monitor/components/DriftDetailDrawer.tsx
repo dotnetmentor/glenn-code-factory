@@ -36,11 +36,11 @@ import { HeartbeatAge } from './HeartbeatAge'
 const DASH = '\u2014'
 
 const DRIFT_REASON_LABELS: Record<string, string> = {
-  MachineVanished: 'Fly machine has been deleted but DB still tracks it',
-  OrphanFlyMachine: 'Fly machine exists with no matching DB row',
-  StateMismatch_OnlineButStopped: 'DB thinks online but Fly says stopped',
-  StateMismatch_SuspendedButStarted: 'DB thinks suspended but Fly is running',
-  StateMismatch_OnlineButNotStarted: 'DB thinks online but Fly is not started',
+  BoxVanished: 'Box has been deleted but DB still tracks it',
+  OrphanBox: 'Box exists with no matching DB row',
+  StateMismatch_OnlineButArchived: 'DB thinks online but the box is archived',
+  StateMismatch_SuspendedButRunning: 'DB thinks suspended but the box is running',
+  StateMismatch_OnlineButNotUp: 'DB thinks online but the box is not up',
   StuckInTransition: 'Stuck in a transitional state for over 5 minutes',
   StaleHeartbeat: 'Daemon heartbeat is stale (>60s)',
 }
@@ -127,7 +127,7 @@ export function DriftDetailDrawer({ open, row, onClose, onNotify }: DriftDetailD
                   Runtime detail
                 </Typography>
                 <Typography variant="h5" sx={{ mb: 0.5 }}>
-                  {row.projectName ?? (isOrphan ? 'Orphan Fly machine' : 'Unknown project')}
+                  {row.projectName ?? (isOrphan ? 'Orphan box' : 'Unknown project')}
                 </Typography>
                 {row.branchName && (
                   <Typography variant="body2" color="text.secondary">
@@ -186,11 +186,11 @@ export function DriftDetailDrawer({ open, row, onClose, onNotify }: DriftDetailD
                     : DASH
                 }
               />
-              <FieldRow label="Fly state" value={row.flyState ?? DASH} />
+              <FieldRow label="Box status" value={row.boxStatus ?? DASH} />
               <FieldRow label="Region" value={row.region ?? DASH} />
               <FieldRow
-                label="Fly machine id"
-                value={row.flyMachineId ?? DASH}
+                label="Box id"
+                value={row.boxId ?? DASH}
                 mono
               />
               <Stack direction="row" spacing={2}>
@@ -267,8 +267,8 @@ export function DriftDetailDrawer({ open, row, onClose, onNotify }: DriftDetailD
               <>
                 <Divider sx={{ my: 3 }} />
                 <Alert severity="info" variant="outlined">
-                  No DB row backs this Fly machine, so no recovery action is available from this
-                  view. Investigate the machine directly on Fly.
+                  No DB row backs this box, so no recovery action is available from this
+                  view. Investigate the box directly in the Box console.
                 </Alert>
               </>
             )}
@@ -280,7 +280,7 @@ export function DriftDetailDrawer({ open, row, onClose, onNotify }: DriftDetailD
         <DialogTitle>Force delete this runtime?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            This will mark the runtime row as Deleted and tear down the Fly machine if one exists.
+            This will mark the runtime row as Deleted and tear down the box if one exists.
             This action cannot be undone.
           </DialogContentText>
         </DialogContent>

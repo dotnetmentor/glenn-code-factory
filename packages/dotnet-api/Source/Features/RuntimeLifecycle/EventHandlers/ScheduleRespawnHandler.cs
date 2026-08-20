@@ -26,7 +26,7 @@ namespace Source.Features.RuntimeLifecycle.EventHandlers;
 /// MediatR registers handlers in arbitrary (reflection) order, so we cannot
 /// assume <see cref="PersistRuntimeStateEventHandler"/> ran first. However that
 /// handler — and every other in-tree path that produces a <c>Crashed</c>
-/// transition (the heartbeat watcher, the Fly webhook handler, the
+/// transition (the heartbeat watcher, the reconciler observation handler, the
 /// <c>force-respawn</c> admin command in a follow-up card) — calls
 /// <c>SaveChangesAsync</c> on its own DbContext. By the time the
 /// <see cref="DomainEventInterceptor"/> reaches its <c>SavedChangesAsync</c>

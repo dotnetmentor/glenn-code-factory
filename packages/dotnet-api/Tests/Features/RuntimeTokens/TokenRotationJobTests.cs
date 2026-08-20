@@ -142,7 +142,7 @@ public class TokenRotationJobTests : IDisposable
             Region = "arn",
             VolumeSizeGb = 1,
             State = state,
-            FlyMachineId = "mach_" + Guid.NewGuid().ToString("N")[..8],
+            BoxId = "box_" + Guid.NewGuid().ToString("N")[..8],
             // Card 4 of e2e-smoketest: every runtime mints with a non-null
             // TenantId. Stamp one here so the rotation path's MintAsync passes
             // the new tenancy-chain guard. Live runtimes inherit this from

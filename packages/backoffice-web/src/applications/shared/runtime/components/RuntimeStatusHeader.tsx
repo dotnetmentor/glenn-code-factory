@@ -55,7 +55,7 @@ export interface RuntimeStatusHeaderProps {
     | null
   /**
    * Reverse-chrono runtime event feed from {@code useRuntimeEventStream}. When
-   * provided, the header inspects this list for {@code RuntimeFlyDriftDetected}
+   * provided, the header inspects this list for {@code RuntimeBoxDriftDetected}
    * events occurring inside the last 5 minutes and renders an amber drift
    * banner above the status row. Pass {@code undefined} on surfaces that
    * don't have a live event stream wired in — the banner simply stays hidden.
@@ -105,7 +105,7 @@ const IN_FLIGHT_STATES: ReadonlySet<RuntimeState> = new Set([
 ])
 
 /**
- * Drift-banner freshness window. Any {@code RuntimeFlyDriftDetected} event
+ * Drift-banner freshness window. Any {@code RuntimeBoxDriftDetected} event
  * with an {@code occurredAt}/{@code timestamp} newer than this is treated as
  * "current drift" and surfaces the amber banner. 5 minutes is short enough to
  * stay correlated with the active failure mode and long enough to span the
@@ -115,14 +115,14 @@ const DRIFT_BANNER_WINDOW_MS = 5 * 60 * 1000
 
 /**
  * Drawer / panel header: state chip, phase + time-in-state, respawn pill,
- * last heartbeat caption, optional close button. When recent Fly drift
+ * last heartbeat caption, optional close button. When recent box drift
  * events are present in {@code events}, an amber banner with a payload
  * popover renders above the status row.
  *
  * <p>Header lines:
  * <ul>
  *   <li><b>Drift banner</b> (when applicable) — single-line amber strip
- *       "Fly state drift detected · {relative}" with a {@code WarningAmberIcon}.
+ *       "Box state drift detected · {relative}" with a {@code WarningAmberIcon}.
  *       Clickable; opens a popover with the latest drift event's payload
  *       pretty-printed. Hides itself when no drift events have arrived in
  *       the last 5 minutes.</li>
@@ -267,7 +267,7 @@ export function RuntimeStatusHeader({
     if (!events || events.length === 0) return null
     const cutoff = now.getTime() - DRIFT_BANNER_WINDOW_MS
     for (const ev of events) {
-      if (ev.type !== 'RuntimeFlyDriftDetected') continue
+      if (ev.type !== 'RuntimeBoxDriftDetected') continue
       const ts = typeof ev.timestamp === 'string' ? new Date(ev.timestamp) : ev.timestamp
       if (!(ts instanceof Date) || Number.isNaN(ts.getTime())) continue
       if (ts.getTime() < cutoff) {
@@ -315,7 +315,7 @@ export function RuntimeStatusHeader({
           type="button"
           ref={driftAnchorRef}
           onClick={() => setDriftPopoverOpen((v) => !v)}
-          aria-label="Show Fly state drift details"
+          aria-label="Show box state drift details"
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -355,7 +355,7 @@ export function RuntimeStatusHeader({
               whiteSpace: 'nowrap',
             }}
           >
-            Fly state drift detected
+            Box state drift detected
             <Box component="span" sx={{ mx: 0.5, color: 'rgba(122, 85, 39, 0.6)' }}>
               ·
             </Box>
@@ -388,7 +388,7 @@ export function RuntimeStatusHeader({
             fontFamily: 'inherit',
           }}
         >
-          RuntimeFlyDriftDetected ·{' '}
+          RuntimeBoxDriftDetected ·{' '}
           {recentDrift ? new Date(recentDrift.event.timestamp).toLocaleString() : ''}
         </Typography>
         <Box

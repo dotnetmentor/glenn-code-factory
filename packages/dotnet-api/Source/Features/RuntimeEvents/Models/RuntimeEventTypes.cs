@@ -180,12 +180,12 @@ public static class RuntimeEventTypes
 
     /// <summary>
     /// Our DB's view of a runtime's state disagrees with what Fly's machines
-    /// API returns. Emitted by the backend's <c>FlyDriftPollerJob</c> on each
+    /// API returns. Emitted by the backend's <c>BoxDriftPollerJob</c> on each
     /// 60-second tick where the live machine state doesn't match our stored
     /// runtime state. Payload: <c>{ flyState, ourState, machineId, region }</c>.
     /// Severity: <see cref="RuntimeEventSeverity.Warning"/>.
     /// </summary>
-    public const string RuntimeFlyDriftDetected = "RuntimeFlyDriftDetected";
+    public const string RuntimeBoxDriftDetected = "RuntimeBoxDriftDetected";
 
     /// <summary>
     /// Cloudflared tunnel for this runtime stopped responding (health check
@@ -207,7 +207,7 @@ public static class RuntimeEventTypes
 
     /// <summary>
     /// Backend's <c>RespawnRuntimeJob</c> decided to respawn a crashed runtime
-    /// (destroy old Fly machine + create replacement). Emitted before the new
+    /// (destroy old box + create replacement). Emitted before the new
     /// boot is triggered. Payload: <c>{ attemptNumber, lastFailureReason,
     /// lastFailureMessage, secondsSinceLastHeartbeat }</c>. Severity:
     /// <see cref="RuntimeEventSeverity.Warning"/>.

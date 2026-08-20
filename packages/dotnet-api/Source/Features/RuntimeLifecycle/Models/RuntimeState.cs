@@ -5,7 +5,7 @@ namespace Source.Features.RuntimeLifecycle.Models;
 /// <summary>
 /// Lifecycle states a <see cref="ProjectRuntime"/> walks through during its
 /// lifetime. The state graph is the single source of truth for what the
-/// runtime is doing — every Fly machine action, bootstrap attempt, idle
+/// runtime is doing — every box action, bootstrap attempt, idle
 /// suspension and tenant deletion is reflected here.
 ///
 /// <para>States are deliberately strings on the database (see
@@ -24,7 +24,7 @@ public enum RuntimeState
     /// <summary>Row has been created but no Fly resources exist yet. Default starting state.</summary>
     Pending,
 
-    /// <summary>Fly machine + volume are being created and the machine is starting up.</summary>
+    /// <summary>box + volume are being created and the machine is starting up.</summary>
     Booting,
 
     /// <summary>Machine is up; the bootstrap daemon is preparing the workspace (clone, install, etc.).</summary>
@@ -33,10 +33,10 @@ public enum RuntimeState
     /// <summary>Bootstrap completed; runtime is serving traffic.</summary>
     Online,
 
-    /// <summary>Idle threshold tripped; we've issued a suspend to Fly but it hasn't acked yet.</summary>
+    /// <summary>Idle threshold tripped; we've issued a suspend to Box but it hasn't acked yet.</summary>
     Suspending,
 
-    /// <summary>Machine is suspended on Fly. Volume is retained so we can wake it cheaply later.</summary>
+    /// <summary>Machine is suspended on Box. Volume is retained so we can wake it cheaply later.</summary>
     Suspended,
 
     /// <summary>User triggered a wake; the machine is being resumed by Fly.</summary>
@@ -48,7 +48,7 @@ public enum RuntimeState
     /// <summary>Permanent failure — we've given up retrying and require operator attention.</summary>
     Failed,
 
-    /// <summary>User-initiated tear-down in progress (machine + volume being destroyed on Fly).</summary>
+    /// <summary>User-initiated tear-down in progress (machine + volume being destroyed on Box).</summary>
     Deleting,
 
     /// <summary>Logically deleted. Soft-delete window before janitor hard-deletes after 30 days.</summary>

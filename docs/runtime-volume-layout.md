@@ -1,6 +1,6 @@
 # Runtime Volume Layout — `/data` Contract (v1)
 
-> Backs the `runtime-volume-cache` spec. Every Glenn Machine has a single Fly
+> Backs the `runtime-volume-cache` spec. Every Glenn runtime box has a single persistent
 > persistent volume mounted at `/data`. **The directory tree below is a contract.**
 > Any breaking change requires bumping `LAYOUT_VERSION` in `docker/entrypoint.sh`
 > and shipping a migrator under `/opt/agent/migrators/` (deferred to the
@@ -125,17 +125,17 @@ A warm boot is "wake-to-ready in ~2 s" by hitting all of these.
 
 ## 6. Secure deletion
 
-- Volumes are encrypted at rest by Fly default (`Encrypted = true` on every
+- Disks are encrypted at rest by the provider (box.ascii.dev) default (on every
   `CreateVolumeRequest`).
 - When a project is destroyed, main API calls
-  `DELETE /api/admin/fly/volumes/{id}` (FlyAdminController) → Fly performs
+  `DELETE /api/admin/box/boxes/{id}` (BoxAdminController) → Box performs
   cryptographic erasure of the encryption key.
 - Best-effort scrub before destroy: the daemon overwrites `/data/.glenn/env`
   with zeros so any post-mortem disk-recovery sees an empty file. Volume
   encryption is the real guarantee — this is belt-and-braces.
-- The `FlyOperation` audit row records the destroy with operator = "system",
+- The `BoxOperation` audit row records the delete with operator = "system",
   volume id, and timestamp. That row is **append-only** (no soft-delete on
-  `FlyOperation`), so the trail survives even if the project's other tables
+  `BoxOperation`), so the trail survives even if the project's other tables
   are purged.
 
 ---
@@ -155,7 +155,7 @@ The monitor uses hysteresis: each threshold fires at most once per crossing
 upward. Crossing back below resets the latch.
 
 When the user accepts an upgrade the UI POSTs to
-`/api/admin/fly/volumes/{id}/extend` — see `FlyAdminController.ExtendVolume`.
+Not applicable on Box — every box ships >50 GB of disk; there is no per-runtime volume sizing.
 On success the daemon detects the new size via `df` and emits
 `disk_capacity_changed` so the UI can dismiss its banner without a refresh.
 
@@ -165,17 +165,17 @@ On success the daemon detects the new size via `df` and emits
 
 - **Default new volume: 5 GB** — bumped from 1 GB after we observed `npm install`
   failing with `ENOSPC: no space left on device` on monorepo projects despite
-  bytes still being free. Cause: Fly auto-formats volumes as ext4 with the default
+  bytes still being free. Historical cause on small volumes: ext4 with the default
   bytes-per-inode of 16 KiB, so a 1 GB volume gets only ~64k inodes — exhausted
   by a single `@mui/icons-material` (~8.6k tiny `.d.ts` files) plus the rest of a
   React monorepo. 5 GB ≈ ~320k inodes, comfortably covers a typical install.
-  Provisioning happens via `FlyClient.CreateVolumeAsync` with the project's region;
+  Provisioning happens implicitly: the box fork inherits the template's disk;
   the default itself lives on `ProjectRuntime.VolumeSizeGb`.
-- **Online extension** — `FlyClient.ExtendVolumeAsync` (= PUT
+- **Online extension** — not applicable; a size-tier change is a disk-preserving fork (= 
   `/v1/apps/{app}/volumes/{id}/extend`). No reboot required; the kernel sees
   the new size on the next `df`. Inodes scale with the new size since ext4
   resize re-tunes the inode table.
-- **Shrinking is unsupported** — Fly rejects 422 on shrink attempts; the
+- **Shrinking is unsupported** — not applicable on Box; the
   controller does not re-validate.
 
 ---

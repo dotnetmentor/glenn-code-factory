@@ -99,7 +99,7 @@ public class OrphanSessionJanitorJobTests : IDisposable
             Region = "arn",
             VolumeSizeGb = 1,
             State = state,
-            FlyMachineId = "mach_" + Guid.NewGuid().ToString("N")[..8],
+            BoxId = "box_" + Guid.NewGuid().ToString("N")[..8],
         };
         _db.ProjectRuntimes.Add(runtime);
         await _db.SaveChangesAsync();

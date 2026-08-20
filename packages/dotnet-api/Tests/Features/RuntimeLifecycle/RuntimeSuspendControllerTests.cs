@@ -135,7 +135,7 @@ public class RuntimeSuspendControllerTests : IntegrationTestBase
         {
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var row = await db.ProjectRuntimes.SingleAsync(r => r.Id == runtime.Id);
-            row.FlyVolumeId = "vol_stale_test";
+            row.TemplateBoxId = "box_template_stale_test";
             await db.SaveChangesAsync();
         }
 
@@ -146,13 +146,13 @@ public class RuntimeSuspendControllerTests : IntegrationTestBase
 
         var body = await response.Content.ReadFromJsonAsync<RuntimeStatusResponse>(JsonOptions);
         body!.State.Should().Be(RuntimeState.Pending);
-        body.FlyMachineId.Should().BeNull();
+        body.BoxId.Should().BeNull();
 
         using var verifyScope = CreateScope();
         var verifyDb = verifyScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var refreshed = await verifyDb.ProjectRuntimes.SingleAsync(r => r.Id == runtime.Id);
-        refreshed.FlyVolumeId.Should().BeNull();
-        refreshed.FlyMachineId.Should().BeNull();
+        refreshed.TemplateBoxId.Should().BeNull();
+        refreshed.BoxId.Should().BeNull();
     }
 
     private async Task<ProjectRuntime> SeedRuntimeAsync(
@@ -169,7 +169,7 @@ public class RuntimeSuspendControllerTests : IntegrationTestBase
             BranchId = branchId,
             Region = "arn",
             State = state,
-            FlyMachineId = "machine-test",
+            BoxId = "box-test",
         };
         db.ProjectRuntimes.Add(runtime);
         await db.SaveChangesAsync();

@@ -4,7 +4,7 @@ namespace Source.Features.RuntimeLifecycle.Configuration;
 
 /// <summary>
 /// Indirect-read façade for <see cref="RuntimeOptions"/>. Mirrors
-/// <see cref="Source.Features.FlyManagement.Configuration.IFlyOptionsAccessor"/> so every
+/// <see cref="Source.Features.BoxManagement.Configuration.IBoxOptionsAccessor"/> so every
 /// runtime-feature service has the same construction shape, and so the <c>PublicApiUrl</c>
 /// can be live-edited from Super Admin → System Settings without a process restart.
 ///
@@ -14,7 +14,7 @@ namespace Source.Features.RuntimeLifecycle.Configuration;
 ///
 /// <para><c>Runtime:PublicApiUrl</c> from configuration (e.g. <c>Runtime__PublicApiUrl</c>
 /// in <c>.env</c>) overrides the SystemSettings value when non-empty. Local dev uses this
-/// with an ephemeral Cloudflare quick tunnel so Fly runtimes can dial back without a
+/// with an ephemeral Cloudflare quick tunnel so box runtimes can dial back without a
 /// named tunnel hostname.</para>
 /// </summary>
 public interface IRuntimeOptionsAccessor

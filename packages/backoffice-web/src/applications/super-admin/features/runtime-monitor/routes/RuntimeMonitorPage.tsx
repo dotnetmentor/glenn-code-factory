@@ -57,7 +57,7 @@ export function RuntimeMonitorPage() {
     const stillExists = items.find(
       (it) =>
         (it.runtimeId && it.runtimeId === selected.runtimeId) ||
-        (!it.runtimeId && it.flyMachineId === selected.flyMachineId),
+        (!it.runtimeId && it.boxId === selected.boxId),
     )
     if (!stillExists) {
       setSelected(null)
@@ -88,7 +88,7 @@ export function RuntimeMonitorPage() {
                   Runtime Monitor
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  DB vs Fly reality &mdash; operator drift view.
+                  DB vs Box reality &mdash; operator drift view.
                 </Typography>
               </Box>
               <Stack alignItems="flex-end" spacing={1}>
@@ -137,7 +137,7 @@ export function RuntimeMonitorPage() {
                     <TableCell>Project</TableCell>
                     <TableCell>Branch</TableCell>
                     <TableCell>DB state</TableCell>
-                    <TableCell>Fly state</TableCell>
+                    <TableCell>Box status</TableCell>
                     <TableCell>Heartbeat age</TableCell>
                     <TableCell>Region</TableCell>
                     <TableCell>Drift reasons</TableCell>
@@ -187,7 +187,7 @@ export function RuntimeMonitorPage() {
                       <DriftRow
                         key={
                           row.runtimeId ??
-                          row.flyMachineId ??
+                          row.boxId ??
                           `${row.projectId ?? 'unk'}-${row.branchId ?? 'unk'}`
                         }
                         row={row}

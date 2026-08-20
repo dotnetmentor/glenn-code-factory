@@ -15,7 +15,7 @@ databases:
     databaseName: app
     plan: basic-256mb           # entry paid tier (256 MB RAM, 1 GB storage); ~$6–7/mo
     postgresMajorVersion: "16"
-    # EU — low latency to Fly runtimes in arn (Stockholm). Cannot change region on an
+    # EU — low latency to Box runtimes (DE/FI/FR). Cannot change region on an
     # existing DB; migrate data if you previously deployed in oregon.
     region: frankfurt
     # Empty allow-list = reachable only from your Render services on the private network,
@@ -34,7 +34,7 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     # Keep the DB and web service in the same region (internal DATABASE_URL, low RTT).
-    # frankfurt is the closest Render region to Fly arn (Stockholm). Region is fixed
+    # frankfurt keeps daemon ↔ API hops inside the EU next to Box runtimes. Region is fixed
     # at create time — existing oregon services need a new deploy + DB migration.
     region: frankfurt
     envVars:

@@ -16,7 +16,7 @@ namespace Source.Features.Cloudflare.Services;
 /// <c>{ result, success, errors, messages }</c> envelope which
 /// <see cref="UnwrapResultAsync"/> peels off.</para>
 ///
-/// <para><b>Mirrors the FlyClient pattern.</b> Concrete class (no
+/// <para><b>Mirrors the BoxClient pattern.</b> Concrete class (no
 /// <c>ICloudflareApiClient</c> abstraction), typed HttpClient bound to
 /// <c>https://api.cloudflare.com/client/v4/</c>, Bearer auth stamped per-request
 /// from <see cref="ICloudflareOptionsAccessor"/> so token rotation in

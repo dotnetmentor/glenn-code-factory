@@ -8,7 +8,7 @@ import {
   type SystemSettingDto,
 } from '../../../../../api/queries-commands'
 import { useNotification } from '../../../../shared/contexts/NotificationContext'
-import { FlyTestPanel } from './FlyTestPanel'
+import { BoxTestPanel } from './BoxTestPanel'
 import { GitHubHelpPanel } from './GitHubHelpPanel'
 import { GithubTestPanel } from './GithubTestPanel'
 import { SettingField } from './SettingField'
@@ -50,13 +50,13 @@ export function CategoryPanel({ category, settings }: CategoryPanelProps) {
   }
 
   const isGitHub = category.key === 'GitHub'
-  const isFly = category.key === 'Fly'
+  const isBox = category.key === 'Box'
 
   return (
     <Stack spacing={3}>
       {isGitHub && <GitHubHelpPanel />}
       {isGitHub && <GithubTestPanel />}
-      {isFly && <FlyTestPanel />}
+      {isBox && <BoxTestPanel />}
       {category.settings.map((definition) => (
         <SettingField
           key={definition.key}

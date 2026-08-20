@@ -2,8 +2,9 @@ using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Source.Features.Cloudflare.Commands;
-using Source.Features.FlyManagement;
-using Source.Features.FlyManagement.Models;
+using Source.Features.BoxManagement;
+using Source.Features.BoxManagement.Models;
+using Source.Features.RuntimeLifecycle.Provisioning;
 using Source.Features.GitHub.Services;
 using Source.Features.Projects.Events;
 using Source.Features.Projects.Models;
@@ -18,20 +19,27 @@ namespace Source.Features.Projects.Commands.CopyBranch;
 /// <summary>
 /// Orchestrates <see cref="CopyBranchCommand"/> end-to-end: validate, reserve a
 /// name, pre-flight the source branch on GitHub, create the new ref, fork the
-/// Fly volume, then commit a new <see cref="ProjectBranch"/> +
+/// source runtime's BOX (disk-level clone), then commit a new <see cref="ProjectBranch"/> +
 /// <see cref="ProjectRuntime"/> in a single <c>SaveChangesAsync</c>. The
 /// recurring <c>RuntimeProvisionerJob</c> picks the fresh Pending runtime up
 /// and walks it to Online — same hand-off shape as <c>CreateProjectHandler</c>.
 ///
-/// <para><b>Compensation.</b> Each side-effecting step (GitHub ref, Fly volume,
+/// <para><b>Compensation.</b> Each side-effecting step (GitHub ref, box fork,
 /// DB write) registers a rollback action when it succeeds. If a later step
 /// throws, accumulated rollbacks run in reverse order: delete the forked
-/// volume, then delete the orphan GitHub ref, so the user sees "nothing was
+/// box, then delete the orphan GitHub ref, so the user sees "nothing was
 /// changed" with no leftovers. Compensation failures are logged at error level
 /// — we do NOT swallow them silently. Ops needs the trail to clean up the rare
-/// case where compensation itself fails (e.g. Fly transient 5xx during
-/// rollback); leaving a synthetic Failed FlyOperation row in the audit table
+/// case where compensation itself fails (e.g. a Box transient 5xx during
+/// rollback); leaving a synthetic Failed BoxOperation row in the audit table
 /// is the right escape hatch for that.</para>
+
+/// <para><b>Fork freshness.</b> Box forks always take the source's LATEST
+/// SNAPSHOT, and snapshots are taken on stop — so a running source box is
+/// briefly stopped to snapshot its current disk, forked, then resumed. The
+/// source branch sees a few seconds of pause; in exchange the copy carries
+/// the source's disk exactly as it is now, not as it was at the last idle
+/// suspend. (Two machine starts against the account budget: fork + resume.)</para>
 ///
 /// <para><b>Error shape.</b> Privilege / existence failures use the
 /// <see cref="NotFoundPrefix"/> and <see cref="ForbiddenPrefix"/> sentinels so
@@ -80,7 +88,7 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
     private const int MaxAutoSuffixAttempts = 100;
 
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly IGithubApiClient _github;
     private readonly IMediator _mediator;
     private readonly IBackgroundJobClient _backgroundJobs;
@@ -88,14 +96,14 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
 
     public CopyBranchHandler(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
         IGithubApiClient github,
         IMediator mediator,
         IBackgroundJobClient backgroundJobs,
         ILogger<CopyBranchHandler> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
         _github = github;
         _mediator = mediator;
         _backgroundJobs = backgroundJobs;
@@ -114,7 +122,7 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
         // runtime in one go. We need:
         //   - the project for tenancy + repo coordinates,
         //   - the installation for the long-form GitHub installation id,
-        //   - the runtime for the source volume / region / size to fork.
+        //   - the runtime for the source box / region / size to fork.
         var source = await _db.ProjectBranches
             .Include(b => b.Project)
                 .ThenInclude(p => p.GithubInstallation)
@@ -134,7 +142,7 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
             .OrderByDescending(r => r.CreatedAt)
             .FirstOrDefault();
 
-        if (sourceRuntime is null || string.IsNullOrWhiteSpace(sourceRuntime.FlyVolumeId))
+        if (sourceRuntime is null || string.IsNullOrWhiteSpace(sourceRuntime.BoxId))
         {
             return Result.Failure<CopyBranchResult>($"{NotFoundPrefix} Source branch has no provisioned runtime to fork");
         }
@@ -188,12 +196,12 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
         }
 
         // -------- 4. Pre-flight: source branch must exist on GitHub --------
-        // We do this BEFORE forking the Fly volume so a "didn't push yet" user
+        // We do this BEFORE forking the box so a "didn't push yet" user
         // sees an instant, actionable error with zero billing impact. The
         // returned SHA is what we'll point the new GitHub ref at in step 5.
         // A detached project (installation disconnected from the workspace,
         // FK SET NULL) has no installation to mint tokens against — bail with
-        // a friendly reconnect hint before we spend any time / Fly cycles.
+        // a friendly reconnect hint before we spend any time / Box starts.
         var installation = source.Project.GithubInstallation;
         if (installation is null)
         {
@@ -245,32 +253,67 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
                 owner, repo, newBranchName, installation.InstallationId, CancellationToken.None);
         }));
 
-        // -------- 6. Fork the Fly volume --------
-        // Generate the new runtime id up-front so we can name the forked
-        // volume using the same `vol_{RuntimeId:N}` convention the provisioner
-        // job uses for fresh volumes. Keeping the naming consistent means a
-        // human staring at Fly's web console sees one rule, not two.
+        // -------- 6. Fork the source box --------
+        // Generate the new runtime id up-front so the forked box carries the
+        // same `rt-{RuntimeId:N}` naming convention the provisioner uses for
+        // fresh forks. One rule, not two, for anyone staring at the Box console.
         var newRuntimeId = Guid.NewGuid();
         var newBranchId = Guid.NewGuid();
 
-        // Fly volume names: alphanumeric + underscores, max 30 chars.
-        // Same truncation as RuntimeProvisionerJob.ProvisionAsync.
-        var volumeName = $"vol_{newRuntimeId:N}";
-        if (volumeName.Length > 30)
-        {
-            volumeName = volumeName.Substring(0, 30);
-        }
-
-        FlyVolume forkedVolume;
+        // Snapshot-freshness dance: forks take the LATEST snapshot, and
+        // snapshots happen on stop. If the source box is up we stop it first
+        // (fresh snapshot of the user's current disk), fork, then resume it.
+        // An archived source already has a current snapshot — fork directly.
+        var sourceWasUp = false;
         try
         {
-            forkedVolume = await _fly.ForkVolumeAsync(
-                sourceVolumeId: sourceRuntime.FlyVolumeId!,
-                name: volumeName,
-                region: sourceRuntime.Region,
-                // No sizeGb argument: Fly rejects size_gb on volume forks; the new
-                // volume inherits the source's size automatically.
-                requireUniqueZone: true,
+            var sourceBox = await _box.GetBoxAsync(sourceRuntime.BoxId!, cancellationToken);
+            sourceWasUp = BoxStatus.IsUp(sourceBox.Status);
+        }
+        catch (BoxApiException ex) when (ex.StatusCode == 404)
+        {
+            await CompensateAsync(compensations, cancellationToken);
+            return Result.Failure<CopyBranchResult>(
+                $"{NotFoundPrefix} Source branch's box no longer exists on Box.");
+        }
+
+        if (sourceWasUp)
+        {
+            try
+            {
+                await _box.StopBoxAsync(
+                    sourceRuntime.BoxId!,
+                    runtimeId: sourceRuntime.Id,
+                    idempotencyKey: $"copy-snapshot:{newRuntimeId:N}",
+                    ct: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "CopyBranch: pre-fork stop of source box {BoxId} failed for branch {SourceBranchId}; running compensations.",
+                    sourceRuntime.BoxId, source.Id);
+                await CompensateAsync(compensations, cancellationToken);
+                return Result.Failure<CopyBranchResult>(
+                    "Couldn't snapshot the source runtime for copying. Nothing was changed.");
+            }
+        }
+
+        BoxVm forkedBox;
+        try
+        {
+            // Partial env on purpose: the runtime JWT doesn't exist yet (the
+            // provisioner mints it), so the fork gets identity-only env and
+            // noEnv isolation. The provisioner's existing-box path then
+            // refreshes the full env (JWT, tunnel trio) and bounces the daemon
+            // on its first tick — enqueued right below.
+            forkedBox = await _box.ForkBoxAsync(
+                sourceRuntime.BoxId!,
+                new ForkBoxRequest(
+                    Name: BoxRuntimeProvisioning.BuildBoxName(newRuntimeId),
+                    Size: BoxSizeMapper.FromSpec(sourceRuntime.Cpus, sourceRuntime.MemoryMb),
+                    Env: new Dictionary<string, string> { ["RUNTIME_ID"] = newRuntimeId.ToString() },
+                    NoEnv: true),
                 idempotencyKey: $"copyBranch:{newRuntimeId:N}",
                 ct: cancellationToken);
         }
@@ -278,16 +321,21 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
         {
             _logger.LogError(
                 ex,
-                "CopyBranch: Fly volume fork failed for source branch {SourceBranchId}; running compensations.",
+                "CopyBranch: box fork failed for source branch {SourceBranchId}; running compensations.",
                 source.Id);
+            await ResumeSourceBestEffortAsync(sourceRuntime, sourceWasUp);
             await CompensateAsync(compensations, cancellationToken);
             return Result.Failure<CopyBranchResult>(
-                "Couldn't fork the runtime volume on Fly. Nothing was changed.");
+                "Couldn't fork the runtime box. Nothing was changed.");
         }
 
-        compensations.Add(("DestroyForkedVolume", async () =>
+        // Give the user their source branch back — both the success path (here)
+        // and the fork-failure path above resume it.
+        await ResumeSourceBestEffortAsync(sourceRuntime, sourceWasUp);
+
+        compensations.Add(("DeleteForkedBox", async () =>
         {
-            await _fly.DestroyVolumeAsync(forkedVolume.Id, runtimeId: newRuntimeId, ct: CancellationToken.None);
+            await _box.DeleteBoxAsync(forkedBox.Id, runtimeId: newRuntimeId, ct: CancellationToken.None);
         }));
 
         // -------- 7. Spec inheritance is now via the project --------
@@ -339,18 +387,18 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
             CpuKind = sourceRuntime.CpuKind,
             Cpus = sourceRuntime.Cpus,
             MemoryMb = sourceRuntime.MemoryMb,
-            // The forked volume is already provisioned on Fly — stamp it now
-            // so the provisioner job's volume-create path is skipped on first
-            // tick. The provisioner detects an existing FlyVolumeId and only
-            // creates the missing Fly machine on top of it.
-            FlyVolumeId = forkedVolume.Id,
+            // The forked box already exists — stamp it now so the provisioner's
+            // first tick takes the existing-box path: it mints the runtime JWT,
+            // refreshes the env file inside the box, and bounces the daemon.
+            BoxId = forkedBox.Id,
+            TemplateBoxId = sourceRuntime.TemplateBoxId,
         };
 
         _db.ProjectBranches.Add(newBranch);
         _db.ProjectRuntimes.Add(newRuntime);
 
         // -------- 9. Raise BranchCopied — observed after SaveChanges commits --------
-        newBranch.RaiseBranchCopied(source.Id, newRuntimeId, forkedVolume.Id);
+        newBranch.RaiseBranchCopied(source.Id, newRuntimeId, forkedBox.Id);
 
         // -------- 10. Claim a preview subdomain + commit, all in one transaction --------
         // cloudflare-tunnel-preview Phase 3: copying a branch creates a new
@@ -365,13 +413,13 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
         // user-initiated transactions outside its ExecuteAsync wrapper. We
         // route the whole tx body through CreateExecutionStrategy() /
         // ExecuteAsync so the strategy controls the retry boundary. We keep
-        // compensations (Fly volume destroy + GitHub ref delete) OUTSIDE the
+        // compensations (forked-box delete + GitHub ref delete) OUTSIDE the
         // strategy so they run exactly once, never replayed on transient
         // retries — provider rollbacks shouldn't be re-issued.
         //
         // pool_empty here is recoverable from the user's POV ("admin batch-
         // creates more, retry copy") so we run compensations to give back the
-        // Fly volume + GitHub ref that we already provisioned upstream, then
+        // forked box + GitHub ref that we already provisioned upstream, then
         // surface pool_empty verbatim. Controller maps to 409.
         const string outcomePoolEmpty = "pool_empty";
         const string outcomeWriteFailed = "write_failed";
@@ -403,7 +451,7 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
                 await tx.RollbackAsync(cancellationToken);
                 _logger.LogError(
                     ex,
-                    "CopyBranch: DB write failed after Fly fork + GitHub ref creation for source {SourceBranchId}.",
+                    "CopyBranch: DB write failed after box fork + GitHub ref creation for source {SourceBranchId}.",
                     source.Id);
                 return (outcomeWriteFailed, null);
             }
@@ -428,8 +476,8 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
         }
 
         _logger.LogInformation(
-            "CopyBranch: source {SourceBranchId} -> new {NewBranchId} (runtime {NewRuntimeId}, volume {VolumeId}) by {UserId}.",
-            source.Id, newBranch.Id, newRuntime.Id, forkedVolume.Id, request.CallerUserId);
+            "CopyBranch: source {SourceBranchId} -> new {NewBranchId} (runtime {NewRuntimeId}, box {BoxId}) by {UserId}.",
+            source.Id, newBranch.Id, newRuntime.Id, forkedBox.Id, request.CallerUserId);
 
         // Kick the provisioner immediately for the newly-Pending runtime — the
         // recurring sweep stays in place as a safety net for the rare race
@@ -472,12 +520,40 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
     }
 
     /// <summary>
+    /// Resume the source box after the pre-fork snapshot stop, when it was up
+    /// to begin with. Best-effort — the user can always reconnect (wake-on-
+    /// connect) if this races or fails; we never fail the copy over it.
+    /// </summary>
+    private async Task ResumeSourceBestEffortAsync(ProjectRuntime sourceRuntime, bool sourceWasUp)
+    {
+        if (!sourceWasUp || string.IsNullOrEmpty(sourceRuntime.BoxId))
+        {
+            return;
+        }
+
+        try
+        {
+            await _box.ResumeBoxAsync(
+                sourceRuntime.BoxId,
+                runtimeId: sourceRuntime.Id,
+                ct: CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "CopyBranch: could not resume source box {BoxId} after snapshot stop; wake-on-connect will recover it.",
+                sourceRuntime.BoxId);
+        }
+    }
+
+    /// <summary>
     /// Run accumulated rollback actions in reverse order. We deliberately do
     /// NOT swallow exceptions silently — each compensation failure is logged
     /// at error level with enough context for ops to find and tear down the
     /// orphan by hand. The compensation loop itself does not throw: one
-    /// failing rollback should not stop the rest from running (e.g. a Fly
-    /// volume rollback failing should not prevent the GitHub ref rollback).
+    /// failing rollback should not stop the rest from running (e.g. a box
+    /// rollback failing should not prevent the GitHub ref rollback).
     /// </summary>
     private async Task CompensateAsync(
         List<(string Name, Func<Task> Action)> compensations,

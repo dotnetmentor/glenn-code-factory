@@ -6,7 +6,7 @@ namespace Source.Features.Projects.Commands.CopyBranch;
 /// <summary>
 /// Fork an existing <see cref="Models.ProjectBranch"/> into a brand-new branch
 /// that is bit-identical to the source at the moment of copy. The orchestrator
-/// chains a GitHub ref creation, a Fly volume fork and the DB row inserts; if
+/// chains a GitHub ref creation, a box disk fork and the DB row inserts; if
 /// any step fails the previously-completed steps are torn down in reverse so
 /// the user never sees a half-cloned ghost branch.
 ///

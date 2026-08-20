@@ -9,13 +9,12 @@
 #            scripts/generate-signalr.sh, scripts/publish-daemon.sh,
 #            scripts/lib/ci-publish-auth.sh, scripts/ci/**,
 #            .github/workflows/publish-daemon.yml
-#   Runtime: Dockerfile.runtime-base, docker/**,
+#   Runtime template (Box): docker/**, scripts/build-box-template.sh,
 #            packages/dotnet-api/Source/Features/CiPublish/**,
-#            packages/dotnet-api/Source/Features/RuntimeImages/**,
-#            scripts/publish-runtime-image.sh, scripts/publish-runtime-image-remote.sh,
-#            scripts/ci/**, scripts/lib/runtime-image-size-budget.sh,
-#            scripts/lib/runtime-image-trivy.sh,
-#            .image-size.last, .github/workflows/runtime-base-image.yml
+#            packages/dotnet-api/Source/Features/RuntimeTemplates/**, scripts/ci/**
+#   NOTE: template builds need a live Box account, so there is no CI workflow for
+#   them today — an operator runs scripts/build-box-template.sh. The matcher stays
+#   so a future workflow (or a CI notice job) can reuse it.
 
 matches_daemon_publish_path() {
   local path="$1"
@@ -33,16 +32,10 @@ matches_daemon_publish_path() {
 
 matches_runtime_publish_path() {
   local path="$1"
-  [[ "$path" == Dockerfile.runtime-base ]] && return 0
   [[ "$path" == docker/* ]] && return 0
   [[ "$path" == packages/dotnet-api/Source/Features/CiPublish/* ]] && return 0
-  [[ "$path" == packages/dotnet-api/Source/Features/RuntimeImages/* ]] && return 0
-  [[ "$path" == scripts/publish-runtime-image.sh ]] && return 0
-  [[ "$path" == scripts/publish-runtime-image-remote.sh ]] && return 0
+  [[ "$path" == packages/dotnet-api/Source/Features/RuntimeTemplates/* ]] && return 0
+  [[ "$path" == scripts/build-box-template.sh ]] && return 0
   [[ "$path" == scripts/ci/* ]] && return 0
-  [[ "$path" == scripts/lib/runtime-image-size-budget.sh ]] && return 0
-  [[ "$path" == scripts/lib/runtime-image-trivy.sh ]] && return 0
-  [[ "$path" == .image-size.last ]] && return 0
-  [[ "$path" == .github/workflows/runtime-base-image.yml ]] && return 0
   return 1
 }

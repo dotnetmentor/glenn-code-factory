@@ -209,7 +209,7 @@ export function ChatChrome({
   // Restart" banner strips have been removed entirely. The pill becomes
   // interactive whenever the runtime is in a state the user can recover
   // from with one click: {@link RuntimeState.Suspended} (cold machine,
-  // backend dispatches a Fly StartMachine wake), {@link RuntimeState.Failed}
+  // backend dispatches a box resume wake), {@link RuntimeState.Failed}
   // and {@link RuntimeState.Crashed} (full restart). The endpoint is the
   // same for all three — the backend dispatches internally based on the
   // current state.
@@ -543,7 +543,7 @@ export function ChatChrome({
         <RuntimePill
           state={runtimeState}
           // The pill is the SINGLE restart/wake entry-point. Suspended →
-          // wake (Fly StartMachine), Failed / Crashed → full restart. The
+          // wake (box resume), Failed / Crashed → full restart. The
           // backend dispatches internally — same endpoint, same hook. Every
           // other state keeps the pill inert (default cursor, no hover) so
           // the affordance is unambiguous when it IS available.

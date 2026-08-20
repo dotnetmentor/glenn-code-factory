@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Source.Features.Conversations.Models;
-using Source.Features.FlyManagement;
+using Source.Features.BoxManagement;
 using Source.Features.Projects.Models;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
@@ -35,16 +35,16 @@ public sealed class ArchiveBranchHandler : ICommandHandler<ArchiveBranchCommand,
     public const string HasRunningSessionError = "has_running_session";
 
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly ILogger<ArchiveBranchHandler> _logger;
 
     public ArchiveBranchHandler(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
         ILogger<ArchiveBranchHandler> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
         _logger = logger;
     }
 
@@ -140,34 +140,33 @@ public sealed class ArchiveBranchHandler : ICommandHandler<ArchiveBranchCommand,
             }
             else
             {
-                // Best-effort Fly StopMachine call. Without this, the DB flips to
-                // Suspending but the Fly machine keeps running indefinitely —
+                // Best-effort Box StopBox call. Without this, the DB flips to
+                // Suspending but the box keeps running indefinitely —
                 // exactly the drift scenario the audit found (7 runtimes stuck
                 // Suspending, oldest 19h old, all from archived branches).
                 // Mirrors IdlerJob.SuspendOne: log + swallow transport errors so
                 // the archive still commits; the RuntimeReconcilerJob retries the
                 // StopMachine call for any (started, Suspending) drift it sees.
-                if (!string.IsNullOrEmpty(activeRuntime.FlyMachineId))
+                if (!string.IsNullOrEmpty(activeRuntime.BoxId))
                 {
                     try
                     {
-                        await _fly.StopMachineAsync(
-                            machineId: activeRuntime.FlyMachineId,
-                            options: null,
-                            runtimeId: activeRuntime.Id,
-                            ct: cancellationToken);
+                        await _box.StopBoxAsync(
+                    boxId: activeRuntime.BoxId,
+                    runtimeId: activeRuntime.Id,
+                    ct: cancellationToken);
                     }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex,
-                            "ArchiveBranch: Fly StopMachine call failed for machine {MachineId} (runtime {RuntimeId}); reconciler will retry.",
-                            activeRuntime.FlyMachineId, activeRuntime.Id);
+                            "ArchiveBranch: Box StopBox call failed for box {BoxId} (runtime {RuntimeId}); reconciler will retry.",
+                            activeRuntime.BoxId, activeRuntime.Id);
                     }
                 }
                 else
                 {
                     _logger.LogWarning(
-                        "ArchiveBranch: runtime {RuntimeId} has no FlyMachineId; transitioned to Suspending but no Fly call issued.",
+                        "ArchiveBranch: runtime {RuntimeId} has no BoxId; transitioned to Suspending but no Fly call issued.",
                         activeRuntime.Id);
                 }
             }
@@ -183,7 +182,7 @@ public sealed class ArchiveBranchHandler : ICommandHandler<ArchiveBranchCommand,
     }
 
     /// <summary>
-    /// True for runtime states whose Fly machine is live or starting up — the
+    /// True for runtime states whose box is live or starting up — the
     /// set we want to push toward Suspending on archive. Other states (Pending,
     /// Suspending, Suspended, Crashed, Failed, Deleting, Deleted) already
     /// encode "not running" or "operator must intervene"; leave them alone.

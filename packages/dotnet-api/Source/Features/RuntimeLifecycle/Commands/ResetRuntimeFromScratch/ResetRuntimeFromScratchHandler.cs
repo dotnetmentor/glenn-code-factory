@@ -1,7 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Source.Features.FlyManagement;
+using Source.Features.BoxManagement;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
@@ -17,18 +17,18 @@ public sealed class ResetRuntimeFromScratchHandler
     public const string ConflictPrefix = "conflict:";
 
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly IBackgroundJobClient _backgroundJobs;
     private readonly ILogger<ResetRuntimeFromScratchHandler> _logger;
 
     public ResetRuntimeFromScratchHandler(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
         IBackgroundJobClient backgroundJobs,
         ILogger<ResetRuntimeFromScratchHandler> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
         _backgroundJobs = backgroundJobs;
         _logger = logger;
     }
@@ -48,11 +48,9 @@ public sealed class ResetRuntimeFromScratchHandler
                 $"{NotFoundPrefix} No runtime exists for this branch.");
         }
 
-        var machineId = runtime.FlyMachineId;
-        var volumeId = runtime.FlyVolumeId;
+        var boxId = runtime.BoxId;
 
-        await DestroyMachineBestEffortAsync(runtime, machineId, cancellationToken);
-        await DestroyVolumeBestEffortAsync(runtime, volumeId, cancellationToken);
+        await DeleteBoxBestEffortAsync(runtime, boxId, cancellationToken);
 
         var resetResult = runtime.ResetFromScratch(request.UserId);
         if (resetResult.IsFailure)
@@ -101,69 +99,43 @@ public sealed class ResetRuntimeFromScratchHandler
             runtime.State,
             runtime.StateChangedAt,
             runtime.LastHeartbeatAt,
-            runtime.FlyMachineId,
-            runtime.ImageDigest,
+            runtime.BoxId,
+            runtime.TemplateBoxId,
             runtime.Region,
             recent));
     }
 
-    private async Task DestroyMachineBestEffortAsync(
+    /// <summary>
+    /// Permanently delete the abandoned box (and its snapshots) so a reset never
+    /// leaves billable state behind. Best-effort: 404 means "already gone", any
+    /// other failure is logged and the DB refs are cleared anyway — the TTL
+    /// guardrail archives an orphaned box and Box Cleanup can remove it later.
+    /// </summary>
+    private async Task DeleteBoxBestEffortAsync(
         ProjectRuntime runtime,
-        string? machineId,
+        string? boxId,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(machineId))
+        if (string.IsNullOrEmpty(boxId))
         {
             return;
         }
 
         try
         {
-            await _fly.DestroyMachineAsync(
-                machineId,
-                force: true,
-                runtimeId: runtime.Id,
-                ct: cancellationToken);
+            await _box.DeleteBoxAsync(boxId, runtimeId: runtime.Id, ct: cancellationToken);
         }
-        catch (FlyApiException ex) when (ex.StatusCode == 404)
+        catch (BoxApiException ex) when (ex.StatusCode == 404)
         {
             _logger.LogInformation(
-                "ResetRuntimeFromScratch: machine {MachineId} already gone (404) for runtime {RuntimeId}.",
-                machineId, runtime.Id);
+                "ResetRuntimeFromScratch: box {BoxId} already gone (404) for runtime {RuntimeId}.",
+                boxId, runtime.Id);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "ResetRuntimeFromScratch: Fly DestroyMachine failed for {MachineId} (runtime {RuntimeId}); continuing with volume wipe.",
-                machineId, runtime.Id);
-        }
-    }
-
-    private async Task DestroyVolumeBestEffortAsync(
-        ProjectRuntime runtime,
-        string? volumeId,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrEmpty(volumeId))
-        {
-            return;
-        }
-
-        try
-        {
-            await _fly.DestroyVolumeAsync(volumeId, runtimeId: runtime.Id, ct: cancellationToken);
-        }
-        catch (FlyApiException ex) when (ex.StatusCode == 404)
-        {
-            _logger.LogInformation(
-                "ResetRuntimeFromScratch: volume {VolumeId} already gone (404) for runtime {RuntimeId}.",
-                volumeId, runtime.Id);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "ResetRuntimeFromScratch: Fly DestroyVolume failed for {VolumeId} (runtime {RuntimeId}); clearing DB refs anyway.",
-                volumeId, runtime.Id);
+                "ResetRuntimeFromScratch: Box delete failed for {BoxId} (runtime {RuntimeId}); clearing DB refs anyway.",
+                boxId, runtime.Id);
         }
     }
 }

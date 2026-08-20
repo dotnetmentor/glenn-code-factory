@@ -22,7 +22,7 @@ namespace Source.Features.RuntimeWakeObservability.Controllers;
 /// <para><b>Authorization.</b> <see cref="RoleConstants.SuperAdmin"/>, matching
 /// every other <c>/api/admin/...</c> controller
 /// (<see cref="Source.Features.RuntimeLifecycle.Controllers.RuntimeAdminController"/>,
-/// <see cref="Source.Features.FlyManagement.Controllers.FlyAdminController"/>,
+/// <see cref="Source.Features.BoxManagement.Controllers.BoxAdminController"/>,
 /// <see cref="Source.Features.RuntimeBootstrap.Controllers.ForceRebootstrapAdminController"/>,
 /// …). Non-admins are rejected at the middleware layer with 403 before any
 /// handler runs.</para>

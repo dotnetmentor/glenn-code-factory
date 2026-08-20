@@ -256,16 +256,16 @@ public class ProjectRuntimeTransitionTests : HandlerTestBase
     public void ResetFromScratch_clears_fly_refs_and_walks_to_Pending()
     {
         var runtime = SeedRuntime(RuntimeState.Failed);
-        runtime.FlyMachineId = "machine-old";
-        runtime.FlyVolumeId = "vol-old";
+        runtime.BoxId = "box-old";
+        runtime.TemplateBoxId = "box-template-old";
         runtime.RespawnRetries = 2;
 
         var result = runtime.ResetFromScratch(Guid.NewGuid());
 
         result.IsSuccess.Should().BeTrue();
         runtime.State.Should().Be(RuntimeState.Pending);
-        runtime.FlyMachineId.Should().BeNull();
-        runtime.FlyVolumeId.Should().BeNull();
+        runtime.BoxId.Should().BeNull();
+        runtime.TemplateBoxId.Should().BeNull();
         runtime.RespawnRetries.Should().Be(0);
         runtime.LastHeartbeatAt.Should().BeNull();
         runtime.LastBootstrapActivityAt.Should().BeNull();

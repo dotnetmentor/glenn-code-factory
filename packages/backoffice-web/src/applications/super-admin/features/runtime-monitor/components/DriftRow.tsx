@@ -43,7 +43,7 @@ export function DriftRow({ row, onClick }: DriftRowProps) {
           </RouterLink>
         ) : (
           <Typography variant="body2" color="text.secondary">
-            {isOrphan ? 'Orphan Fly machine' : DASH}
+            {isOrphan ? 'Orphan box' : DASH}
           </Typography>
         )}
       </TableCell>
@@ -61,9 +61,9 @@ export function DriftRow({ row, onClick }: DriftRowProps) {
         <Typography
           variant="body2"
           sx={{ fontFamily: 'monospace' }}
-          color={row.flyState ? 'text.primary' : 'text.secondary'}
+          color={row.boxStatus ? 'text.primary' : 'text.secondary'}
         >
-          {row.flyState ?? DASH}
+          {row.boxStatus ?? DASH}
         </Typography>
       </TableCell>
       <TableCell>

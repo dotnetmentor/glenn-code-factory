@@ -14,13 +14,13 @@ namespace Source.Features.RuntimeBootstrap.Controllers;
 /// lands) and operators read those rows here.
 ///
 /// <para><b>Why no MediatR.</b> Same pragmatic reasoning as
-/// <see cref="Source.Features.FlyManagement.Controllers.FlyAdminController"/>: a thin
+/// <see cref="Source.Features.BoxManagement.Controllers.BoxAdminController"/>: a thin
 /// passthrough over an audit table is not a business feature. Wrapping the two
 /// queries in commands/handlers would add four files without changing the behaviour.
 /// The slice stays thin and the controller talks straight to the DbContext.</para>
 ///
 /// <para>Authorisation: <see cref="RoleConstants.SuperAdmin"/>, matching every other
-/// admin surface (FlyAdmin, RuntimeImages, SystemSettings). TenantAdmin would be too
+/// admin surface (BoxAdmin, RuntimeTemplates, SystemSettings). TenantAdmin would be too
 /// broad — these rows can leak per-runtime details across tenants.</para>
 /// </summary>
 [ApiController]

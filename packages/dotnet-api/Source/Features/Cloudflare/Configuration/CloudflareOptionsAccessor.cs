@@ -4,7 +4,7 @@ namespace Source.Features.Cloudflare.Configuration;
 
 /// <summary>
 /// Indirect-read façade for <see cref="CloudflareOptions"/>. Mirrors
-/// <see cref="Source.Features.FlyManagement.Configuration.IFlyOptionsAccessor"/>
+/// <see cref="Source.Features.BoxManagement.Configuration.IBoxOptionsAccessor"/>
 /// exactly so every cloud-credential consumer has the same constructor shape.
 /// </summary>
 public interface ICloudflareOptionsAccessor

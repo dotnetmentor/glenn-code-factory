@@ -391,7 +391,7 @@ public class RuntimeHub : Hub<IRuntimeClient>, IRuntimeHub
         // MCP URL composition now lives in the handler and reads
         // Runtime:PublicApiUrl from SystemSettings — see the xmldoc above for
         // why the inbound Host header is unusable (Cloudflare forwards it as
-        // localhost:5338, which the Fly daemon can't reach).
+        // localhost:5338, which the Box daemon can't reach).
         var result = await _mediator.Send(new GetBootstrapQuery(runtimeId.Value));
         if (!result.IsSuccess)
         {

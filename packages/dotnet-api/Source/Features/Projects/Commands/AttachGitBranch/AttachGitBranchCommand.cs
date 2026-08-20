@@ -7,7 +7,7 @@ namespace Source.Features.Projects.Commands.AttachGitBranch;
 /// <summary>
 /// "Continue working on this git branch" — links an existing git branch on the project's
 /// GitHub repo as a brand-new <see cref="Models.ProjectBranch"/> + <see cref="ProjectRuntime"/>.
-/// No new git ref is pushed; the runtime boots from a fresh Fly volume which the daemon
+/// No new git ref is pushed; the runtime boots from a fresh box disk which the daemon
 /// clones from the existing git branch on first start.
 ///
 /// <para>Powers <c>POST /api/projects/{projectId}/branches/attach</c> — the slow path

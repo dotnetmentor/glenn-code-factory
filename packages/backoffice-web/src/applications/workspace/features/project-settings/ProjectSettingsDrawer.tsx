@@ -79,7 +79,7 @@ const TAB_DESCRIPTORS: readonly TabDescriptor[] = [
   // Agent and Services because it's a per-project content management knob,
   // not a live service rotation.
   { value: 'branches', label: 'Branches' },
-  // Runtimes — list of running Fly machines for this project. Lives next to
+  // Runtimes — list of running boxes for this project. Lives next to
   // Branches (each runtime is bound to a branch) and before Services because
   // a runtime is the thing the services run inside.
   { value: 'runtimes', label: 'Runtimes' },

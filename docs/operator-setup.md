@@ -1,13 +1,13 @@
 # Operator setup guide (self-hosted / production)
 
-**Canonical end-to-end setup for this repo.** The [README](../README.md) summarizes paths and local dev; follow this document for Fly, GitHub, Cloudflare, Render, publish, and smoke-test steps.
+**Canonical end-to-end setup for this repo.** The [README](../README.md) summarizes paths and local dev; follow this document for Box, GitHub, Cloudflare, Render, publish, and smoke-test steps.
 
-Step-by-step checklist for running GlennCode Factory: control plane, GitHub App, Fly.io runtimes, Cloudflare preview tunnels, and publish pipelines.
+Step-by-step checklist for running GlennCode Factory: control plane, GitHub App, Box runtimes, Cloudflare preview tunnels, and publish pipelines.
 
 **Audience:** Humans deploying a new environment (local or production).  
 **Style:** Prefer CLI where it exists; call out UI-only steps honestly.
 
-**Forks:** Default Fly app names in this doc are `glenn-runtimes` (machines) and `glenn-runtime-base` (image registry). If you rename them, use the **same** names in System Settings → Fly → App Name and in `APP` / `REGISTRY` when publishing.
+**Forks:** Runtimes share one Box account; the golden template box is created by `scripts/build-box-template.sh` and registered in Super Admin → Runtime Templates.
 
 **Related docs:**
 
@@ -16,7 +16,7 @@ Step-by-step checklist for running GlennCode Factory: control plane, GitHub App,
 | [README — How to set up end-to-end](../README.md#how-to-set-up-end-to-end) | Short overview + dev tunnel behavior |
 | [`.env.example`](../.env.example) | Every `Section__Key` env var |
 | [`render.yaml`](../render.yaml) | Render blueprint |
-| [runtime-volume-layout.md](./runtime-volume-layout.md) | Fly machine disk layout |
+| [runtime-volume-layout.md](./runtime-volume-layout.md) | Runtime box disk layout |
 
 ---
 
@@ -26,20 +26,18 @@ Step-by-step checklist for running GlennCode Factory: control plane, GitHub App,
 Browser ──► Orchestrator API (Render or local) ──► PostgreSQL
                 │  SignalR / REST
                 ▼
-         Fly Machine (app: glenn-runtimes)  ──► GitHub (clone/push)
+         Box VM (forked from golden template) ──► GitHub (clone/push)
                 │  cloudflared preview
                 ▼
          Cloudflare (*.your-base-domain)
 
-Separate Fly app: glenn-runtime-base  →  registry.fly.io/glenn-runtime-base:TAG
+Golden template box (stopped/snapshotted) → forked per runtime
                                          (base image build only)
 ```
 
 | Name | What it is | Where configured |
 |------|------------|------------------|
 | **Control plane** | .NET API + React UI | Render / `npm run dev` |
-| **`glenn-runtimes`** | Fly **Machines** app (one machine per project) | System Settings → **Fly → App Name** |
-| **`glenn-runtime-base`** | Fly app for **base image** build + registry | Publish scripts / CI (`APP` env) |
 | **Daemon bundle** | `daemon.js` tarball in R2/local storage | `./scripts/publish-daemon.sh` |
 | **Runtime image row** | Active row in Runtime Images catalog | `./scripts/publish-runtime-image-remote.sh` or CI |
 
@@ -50,11 +48,9 @@ Separate Fly app: glenn-runtime-base  →  registry.fly.io/glenn-runtime-base:TA
 ## 0. Install CLI tools
 
 ```bash
-# Fly.io (fly + flyctl symlink)
-curl -fsSL https://fly.io/install.sh | sh
+# Box CLI (optional — the platform talks to the HTTP API directly)
+# see https://docs.ascii.dev/ for install instructions
 # Add to ~/.zshrc:
-export FLYCTL_INSTALL="$HOME/.fly"
-export PATH="$FLYCTL_INSTALL/bin:$PATH"
 
 # GitHub CLI (optional but useful)
 brew install gh          # macOS; Linux: https://github.com/cli/cli#installation
@@ -70,10 +66,7 @@ openssl version
 Verify:
 
 ```bash
-fly version
-fly auth login
-fly orgs list
-fly apps list
+box --version   # if you installed the CLI
 ```
 
 ---
@@ -99,7 +92,7 @@ Edit `.env`: set `SystemSettings__EncryptionKey`, `Jwt__Key`, `Bootstrap__SuperA
 
 ```bash
 npm run setup    # Docker Postgres + migrations
-npm run dev      # API :5338, UI :5173, Cloudflare quick tunnel for Fly callback
+npm run dev      # API :5338, UI :5173, Cloudflare quick tunnel for runtime callback
 ```
 
 Login: OTP prints in the **API terminal** when `Email__Provider=Console`.
@@ -113,7 +106,7 @@ export API=http://localhost:5338
 ### 1b. Production (Render)
 
 1. Render Dashboard → **New → Blueprint** → point at this repo ([`render.yaml`](../render.yaml)).
-   - Blueprint deploys **Postgres + API in `frankfurt`** (closest Render region to Fly **`arn` / Stockholm**). Keep Fly **Default Region** at `arn` so daemon ↔ API hops stay in EU.
+   - Blueprint deploys **Postgres + API in `frankfurt`** — Box runtimes live in EU regions (DE/FI/FR), so daemon ↔ API hops stay in EU.
    - **Already on `oregon`?** Render cannot change region in place — create a new `frankfurt` database + web service (or new Blueprint), dump/restore Postgres, update DNS/`factory.glenncode.ai`, then retire the old stack.
 2. After deploy, set secrets on **`orchestrator-api`** (not the database):
 
@@ -181,76 +174,68 @@ psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM \"Projects\";"
 psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM \"DaemonVersions\";"
 ```
 
-5. Deploy **Frankfurt** `orchestrator-api`, copy secrets from Oregon, set `Runtime__PublicApiUrl` / R2 / Fly settings, smoke-test.
+5. Deploy **Frankfurt** `orchestrator-api`, copy secrets from Oregon, set `Runtime__PublicApiUrl` / R2 / Box settings, smoke-test.
 6. Point **Cloudflare** / DNS at the new service URL, then decommission Oregon.
 
 `pg_restore` sometimes exits non-zero with benign warnings (extensions, missing roles). Read the log; if tables are populated, proceed.
 
 ---
 
-## 2. Fly.io
+## 2. Box (box.ascii.dev)
 
-### 2a. Create apps (CLI)
+Runtimes are Box VMs forked from a golden template box. One Box account hosts
+everything; no app namespaces or registries.
 
-```bash
-export FLY_ORG=personal          # from: fly orgs list
-export FLY_REGION=arn            # or iad, ams, … — pick one and stay consistent
-
-# Machines for project runtimes (REQUIRED — must match System Settings App Name)
-fly apps create glenn-runtimes --org "$FLY_ORG"
-
-# Base image build + registry (REQUIRED for publish / CI)
-fly apps create glenn-runtime-base --org "$FLY_ORG"
-```
-
-Confirm:
+### 2a. Account + API key (CLI)
 
 ```bash
-fly apps list
-# Expect: glenn-runtimes, glenn-runtime-base
+# Install the box CLI (see https://docs.ascii.dev/), sign up ($20/month account
+# minimum — this pre-buys ~555 hours of default-size compute), then:
+box api-key create
 ```
 
-### 2b. API token
+### 2b. Pin the wire assumptions (first run on any account)
 
-Create a **Personal Access Token** in the dashboard (recommended for production and CI):  
-[fly.io/user/personal_access_tokens](https://fly.io/user/personal_access_tokens)
+```bash
+BOX_API_KEY='...' ./scripts/box-smoke-test.sh
+```
 
-After `fly auth login`, `fly auth token` prints a session token that also works for local testing, but prefer a dedicated PAT with minimal scope for anything shared or long-lived.
+This exercises every Box API verb the platform's `BoxClient` uses (fork, per-fork
+env delivery, stop/resume, TTL patch, delete-confirmation header, ...) against a
+disposable box and flags any drift between assumptions and the live API. Fix
+flagged items in `BoxClient.cs` / `build-box-template.sh` before continuing.
 
-Paste into **Super Admin → System Settings → Fly → API Token** (`Fly:ApiToken`).
-
-### 2c. System Settings → Fly
+### 2c. System Settings → Box
 
 | Key | Example | Notes |
 |-----|---------|--------|
-| **Org Slug** | `personal` | `fly orgs list` |
-| **App Name** | `glenn-runtimes` | Machines app — **not** `glenn-runtime-base` |
-| **Default Region** | `arn` | Stockholm; use `iad` for US East |
-| **API Token** | `FlyV1 …` | From §2b |
+| **API Key** | `box_...` | From §2a |
+| **API Base URL** | `https://api.ascii.dev/v1` | Only change if Box moves hosts |
+| **Default TTL (Seconds)** | `21600` | The orphan-cost guardrail — a box whose TTL lapses archives itself and billing stops. Never 0 in production. |
+| **Default Size** | `small` | 2 vCPU / 4 GB; per-project cpu/mem specs round up to a tier |
 
-Test in UI: **System Settings → Fly → Test connection** (or fix config until valid).
+Test in UI: **System Settings → Box → Test connection** (or fix config until valid).
 
-### 2d. Publish runtime base image (CLI)
-
-From repo root, API running locally (or set `API` / use production with credentials):
+### 2d. Build + register the golden template box (CLI)
 
 ```bash
-# Uses Fly:ApiToken from System Settings + .env encryption key
-./scripts/publish-runtime-image-remote.sh
-# Registers + activates RuntimeImages via SuperAdmin JWT (local)
+export BOX_API_KEY='...'
+# optional: auto-register with the platform
+export REGISTER_URL='https://your-api.example' CI_PUBLISH_KEY='...'
+./scripts/build-box-template.sh
 ```
 
-Production CI does the same via GitHub Actions (§8) with `--no-activate` + register API.
+Provisions a fresh box with the full runtime stack (Node 20, postgres,
+supervisord under a systemd unit, mise, Playwright, cloudflared, the daemon
+bootstrap), stops it — the stop snapshot IS the template — and registers it as
+the Active `RuntimeTemplate`. Without auto-registration, register the printed
+box id in **Super Admin → Runtime Templates**.
 
-Confirm **Super Admin → Runtime Images** shows one **Active** row after publish.
+Confirm **Super Admin → Runtime Templates** shows one **Active** row.
 
-Override names if you did not use defaults:
-
-```bash
-APP=my-runtime-base IMAGE_NAME=my-runtime-base \
-  REGISTRY=registry.fly.io/my-runtime-base \
-  ./scripts/publish-runtime-image-remote.sh
-```
+**Start budget note:** Box caps machine starts account-wide (~600/hr, 1,500/day);
+create/fork/resume each count as one. The platform is designed around this
+(wake per session, provisioner batching), but keep it in mind for bulk operations.
 
 ---
 
@@ -380,10 +365,10 @@ curl -fsS "$API/api/cloudflare/subdomains" \
 
 | Environment | `Runtime:PublicApiUrl` |
 |-------------|-------------------------|
-| **Local + Fly runtimes** | Set automatically by `npm run dev` (Cloudflare quick tunnel). Respawn runtimes when URL changes. |
+| **Local + Box runtimes** | Set automatically by `npm run dev` (Cloudflare quick tunnel). Respawn runtimes when URL changes. |
 | **Production** | `https://<orchestrator-api-host>` — stable hostname, **not** a quick tunnel |
 
-Fly machines dial this URL for HTTP + SignalR (`/hubs/runtime`). If unreachable, runtimes stay stuck or chat fails.
+Runtime boxes dial this URL for HTTP + SignalR (`/hubs/runtime`). If unreachable, runtimes stay stuck or chat fails.
 
 ```bash
 # Render: set once you know the service URL
@@ -460,7 +445,7 @@ Manual republish:
 # GitHub → Actions → workflow → Run workflow → check "force"
 ```
 
-CI uses **Fly remote build** (`publish-runtime-image-remote.sh`), not local Docker.
+Template builds are an operator action (`scripts/build-box-template.sh` against a live Box account) — no CI workflow.
 
 ---
 
@@ -468,8 +453,8 @@ CI uses **Fly remote build** (`publish-runtime-image-remote.sh`), not local Dock
 
 Checklist (in order):
 
-- [ ] System Settings: GitHub, Fly, Cloudflare, Runtime URL filled
-- [ ] `fly apps list` shows **glenn-runtimes** (and **glenn-runtime-base** for publishes)
+- [ ] System Settings: GitHub, Box, Cloudflare, Runtime URL filled
+- [ ] `./scripts/box-smoke-test.sh` passes; Super Admin → Runtime Templates shows one Active row
 - [ ] `./scripts/publish-daemon.sh` succeeded
 - [ ] `./scripts/publish-runtime-image-remote.sh` (or CI) — Active **Runtime Image** in Super Admin
 - [ ] `curl -fsS "$API/api/daemon-versions/resolve?channel=stable" | jq .` returns a bundle (`API` from §1a locally)
@@ -485,12 +470,12 @@ Checklist (in order):
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `Fly rejected … (app not found)` | **App Name** wrong or app missing | `fly apps create glenn-runtimes`; set **App Name** to match |
+| `Box rejected the runtime request (...)` | Bad API key or wire drift | System Settings → Box → Test connection; re-run `box-smoke-test.sh` |
 | `provisioner:no_active_image` | No Active runtime image | Run `publish-runtime-image-remote.sh` or CI |
-| `provisioner:incomplete_fly_config` | Missing Fly settings | Fill Fly token, org, app name, region |
+| `provisioner:incomplete_box_config` | Missing Box settings | Fill Box:ApiKey |
+| `provisioner:no_active_template` | No template registered | §2d |
 | `pool_empty` on project create | No Cloudflare pool rows | §4c batch create |
 | Daemon never connects | Bad `Runtime:PublicApiUrl` | Stable URL; respawn runtime |
-| `fly: command not found` | CLI not on PATH | §0 |
 | CI image build fails Trivy | OS CVEs in base image | Rebuild after Dockerfile security updates |
 
 Stuck runtimes: [runtime-debug skill](../.claude/skills/runtime-debug/SKILL.md).
@@ -501,4 +486,4 @@ Stuck runtimes: [runtime-debug skill](../.claude/skills/runtime-debug/SKILL.md).
 
 Export/import via **Super Admin → Environment Backup** — restores System Settings, workspaces, projects, etc.
 
-**Still required on target:** publish daemon + runtime image, subdomain pool, new Fly machines on respawn. See [README Path B](../README.md#path-b--environment-backup).
+**Still required on target:** publish daemon + golden template, subdomain pool, fresh box forks on respawn. See [README Path B](../README.md#path-b--environment-backup).

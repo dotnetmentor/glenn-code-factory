@@ -1,11 +1,14 @@
 ---
 name: runtime-environment
-description: Architecture and operating manual for project runtimes — Fly machines, daemon bootstrap, RuntimeSpec, SignalR hub contract, supervisord layout, and persistence rules. Use when (1) anything touches packages/daemon or RuntimeLifecycle/FlyManagement/RuntimeBootstrap/RuntimeTokens/DaemonVersions, (2) adding or debugging a runtime service in the spec, (3) a runtime is stuck and you need the system map, (4) adding a SignalR hub method or runtime event, (5) modifying the runtime base image or daemon bundle pipeline, (6) tempted to apt-install inside a runtime without understanding persist_rootfs.
+description: Architecture and operating manual for project runtimes — Box VMs (box.ascii.dev), daemon bootstrap, RuntimeSpec, SignalR hub contract, supervisord layout, TTL guardrail, and persistence rules. Use when (1) anything touches packages/daemon or RuntimeLifecycle/BoxManagement/RuntimeBootstrap/RuntimeTokens/RuntimeTemplates, (2) adding or debugging a runtime service in the spec, (3) a runtime is stuck and you need the system map, (4) adding a SignalR hub method or runtime event, (5) modifying the golden template or daemon bundle pipeline, (6) reasoning about box fork/stop/resume, TTL, or the machine-start budget.
 ---
 
 # Runtime Environment — Architecture & Operating Manual
 
-Every project gets a **Runtime** — a Fly.io machine with a persistent `/data` volume, running a Node **daemon** that brings up services from a JSON spec. The daemon talks home to the main .NET API via SignalR.
+Every project branch gets a **Runtime** — a Box VM (box.ascii.dev) forked from a
+**golden template box**, running a Node **daemon** that brings up services from a
+JSON spec. The daemon talks home to the main .NET API via SignalR. The box's disk
+IS the persistence: it survives stop/resume/fork, so there is no separate volume.
 
 > **Paths:** On a managed platform the repo may live at `/data/project/repo`. Locally, substitute your clone root.
 
@@ -13,26 +16,42 @@ Every project gets a **Runtime** — a Fly.io machine with a persistent `/data` 
 
 ```
 Main API (.NET)
-  RuntimeProvisioner (Hangfire) → Fly Machines API
-  SignalR /hubs/runtime ◄──────── daemon (JWT rt_runtime claim)
+  RuntimeProvisionerJob (Hangfire) → Box API (fork template → runtime box)
+  SignalR /hubs/runtime ◄──────────── daemon (JWT rt_runtime claim)
 
-Fly Machine
-  Image: runtime-base (read-only)
-  Volume: /data (persistent)
-  Env: GLENN_RUNTIME_TOKEN, MAIN_API_URL, DAEMON_BUNDLE_*
-  supervisord → bootstrap-daemon.sh → node daemon.js
-              → user services (postgres, redis, …)
+Box VM (full Ubuntu, systemd)
+  Forked from: golden template box (RuntimeTemplates, newest Active)
+  Identity: per-fork env + /etc/glenn/runtime.env (refresh channel)
+  systemd: glenn-daemon.service → entrypoint.sh → supervisord
+             supervisord → bootstrap-daemon.sh → node daemon.js
+                         → user services (postgres, redis, …)
+  TTL: finite, re-armed every 30 min by BoxTtlExtenderJob (orphan guardrail)
 ```
 
-**Three persistence layers** (most important concept):
+**Persistence (one layer, unlike the Fly era's three):** the box disk holds
+everything — apt installs, `/data` (repo, service data, mise, install hashes),
+`/opt/agent`. Stop archives the box with a snapshot (billing pauses); resume and
+fork restore/inherit the whole disk. The old `persist_rootfs` / `installVerify`
+split-brain class of bug cannot exist here.
 
-| Layer | What | Survives |
-|-------|------|----------|
-| OCI image | Node, supervisord, postgres, mise, Playwright | Read-only at runtime; rebuilt rarely |
-| `/data` volume | repo, env files, install hashes, mise toolchains, service data | Forever (Fly volume) |
-| Rootfs overlay | apt-installed packages from spec install scripts | **Only if** `persist_rootfs = "always"` on the machine |
+## The TTL guardrail (why runtimes can never bill unattended)
 
-Without `persist_rootfs="always"`, install-hash on `/data` says "installed" but binaries on ephemeral rootfs are gone → `ENOENT` → FATAL loop.
+Every box is created with a finite `ttlSeconds` (`Box:DefaultTtlSeconds`, default
+6 h). If the control plane loses track of a box — crash, deleted row, platform
+outage — the box **archives itself** when the TTL lapses and billing stops.
+`BoxTtlExtenderJob` (every 30 min) re-arms the TTL for every runtime in a live
+state, so healthy boxes never hit the deadline. Wake paths re-arm explicitly.
+Never "fix" a TTL by setting it to null — that reopens the orphan-cost hole this
+exists to close.
+
+## The machine-start budget
+
+Box caps account-wide machine starts (~600/hr, ~1,500/day); **create, fork, and
+resume each count as one**. Design consequences already encoded:
+- wake happens per session (wake-on-connect), never per message;
+- the provisioner batch is 10/min; transient budget errors leave rows Pending
+  (`BoxRuntimeProvisioning.IsTransient`) instead of Failed;
+- CopyBranch costs 2 starts (fork + source resume).
 
 ## Lifecycle state machine
 
@@ -41,181 +60,186 @@ Without `persist_rootfs="always"`, install-hash on `/data` says "installed" but 
 ```
 Pending → Booting → Bootstrapping → Online → Suspending → Suspended
                          ↑              │                      ↓ Waking → Online
-                         └── race-closer (Booting→Online)     │
-Crashed ← any non-terminal              Failed ← admin reset  │
+                         └── race-closer (Booting→Online)      │
+Crashed ← any non-terminal              Failed ← admin reset   │
 Deleting → Deleted (terminal)
 ```
 
 **Rules:**
 - All transitions via `ProjectRuntime.TransitionTo()` — never assign `runtime.State` directly.
-- `Booting → Online` is **deliberate** (daemon `RuntimeReady` before FSM sees Bootstrapping). Don't remove.
+- Box has **no webhooks** — `RuntimeReconcilerJob` (1 min) is the only driver of
+  box-observation edges (Booting→Bootstrapping when the VM is up,
+  Suspending→Suspended when the stop lands). Box statuses: `provisioning`,
+  `ready`/`idle`/`running` (up), `archived` (stopped+snapshot), `error`.
+- Only the daemon's `RuntimeReady` hub call flips Bootstrapping → Online — a VM
+  being up says nothing about the daemon having bootstrapped.
 - `Suspended` has **no direct edge to Crashed** — wake first, then force-respawn from Online.
 
 ## Cold-start provisioning
 
-**File:** `RuntimeProvisionerJob.cs` (Hangfire, batch 10, 60s lock).
+**File:** `RuntimeProvisionerJob.cs` (Hangfire, batch 10, 60s lock). Three shapes:
 
-1. Resolve daemon bundle (`ResolveDaemonVersionQuery("stable")`)
-2. Create Fly volume (skipped on copy-branch fork). Name: `"vol_" + Guid[..30]`
-3. Mint runtime JWT (`IRuntimeTokenService`) — audit row written **before** token returned
-4. `CreateMachineRequest` with env (§ below), `PersistRootfs = "always"`, volume at `/data`
-5. POST Fly Machines API → transition `Pending → Booting`
+1. **Fresh fork** (no `BoxId`): resolve newest Active `RuntimeTemplate`, mint
+   runtime JWT (audit-before-issuance), build env
+   (`BoxRuntimeProvisioning.BuildRuntimeEnvAsync` — shared with respawn), then
+   `POST /boxes/{template}/fork` with `name: rt-{runtimeId:N}`, size from
+   `BoxSizeMapper.FromSpec(cpus, memoryMb)` (small 2/4 · default 4/8 · large
+   8/16, rounds UP), the env dict, `noEnv: true` (fork sees none of the platform
+   account's secrets), and the TTL. Stamp `BoxId` + `TemplateBoxId` → Booting.
+2. **Reboot** (`BoxId` set, size unchanged — restart / CopyBranch handoff):
+   resume if archived → Booting → re-arm TTL → wait-up → refresh
+   `/etc/glenn/runtime.env` + `systemctl restart glenn-daemon` via the commands
+   API (fresh JWT). Env refresh is best-effort; a stale JWT surfaces as a failed
+   SignalR connect and the watcher schedules a respawn.
+3. **Disk-preserving resize** (`BoxId` set, size tier changed): stop (snapshot)
+   → fork the snapshot at the new size with fresh env → delete the old box.
 
-**Daemon is NOT in the image.** `bootstrap-daemon.sh` downloads tarball from `DAEMON_BUNDLE_URL`, verifies SHA256, caches at `/opt/agent/.bundle.sha256`, extracts, `exec node daemon.js`.
+**Daemon is NOT in the template's snapshot as a pinned version.**
+`bootstrap-daemon.sh` (installed by the template) resolves + downloads the bundle
+from the main API at every daemon start, so a new publish auto-rolls-out on the
+next daemon restart.
 
-## Env vars stamped on every machine
-
-Set by `RuntimeProvisionerJob` and `RespawnRuntimeJob`:
+## Env contract (stamped per fork, refreshed via env file)
 
 | Key | Purpose |
 |-----|---------|
 | `RUNTIME_ID` | `ProjectRuntime.Id` |
-| `GLENN_RUNTIME_TOKEN` | JWT for SignalR/HTTP (`rt_runtime`, `rt_project`, `rt_branch`, `rt_tenant`, `rt_scope`). 7-day default. Daemon does **not** self-refresh. |
-| `MAIN_API_URL` | SignalR + HTTP home URL |
-| `DAEMON_VERSION` | Informational version string |
-| `DAEMON_BUNDLE_URL` | Download URL for bootstrap script |
-| `DAEMON_BUNDLE_SHA256` | Expected hash — mismatch aborts bootstrap |
+| `GLENN_RUNTIME_TOKEN` | JWT for SignalR/HTTP (`rt_runtime`, `rt_project`, `rt_tenant`, `rt_scope`). 7-day default; **refreshed via `/etc/glenn/runtime.env` on every reboot/respawn**. |
+| `MAIN_API_URL` | SignalR + HTTP home URL AND the bundle-resolve endpoint |
+| `DAEMON_VERSION` / `DAEMON_BUNDLE_URL` / `DAEMON_BUNDLE_SHA256` | Informational stamps — bootstrap re-resolves at boot |
+| `TUNNEL_TOKEN` / `PREVIEW_PORT` / `PREVIEW_HOSTNAME` | Cloudflare preview tunnel trio (when the branch has an assigned subdomain) |
 
-Fly app name and registry image path come from `SystemSettings` (`Fly:AppName`, active `RuntimeImages.Registry`) — configure per deployment, not hardcoded in repo.
+Delivery: per-fork env at fork time (primary) + `/etc/glenn/runtime.env`
+(refresh channel, written via `POST /boxes/{id}/commands`). The
+`glenn-daemon.service` unit loads both (`EnvironmentFile=-/etc/environment` then
+`-/etc/glenn/runtime.env`). `scripts/box-smoke-test.sh` item 10 verifies where
+Box actually lands per-fork env — check it after any Box platform change.
 
-## Bootstrap stages
+## Respawn (crash recovery)
 
-**File:** `BootstrapOrchestrator.ts` — `MAX_ATTEMPTS = 5`, backoff `[1s, 2s, 4s, 8s, 30s]`.
+**File:** `RespawnRuntimeJob.cs`. Box-native respawn is a clean VM reboot of the
+SAME box: stop if up (wedged VM → fresh snapshot) → resume → TTL re-arm → env
+refresh with fresh JWT → Crashed → Booting. The disk (repo, DB data) survives by
+construction. Only when the box has vanished (404) does it fork fresh from the
+template — accepting the previous disk state is gone.
 
-| Stage | File | Critical? |
-|-------|------|-----------|
-| Connecting | `ConnectingStage.ts` | Yes — wait for SignalR |
-| VerifyEnv | `VerifyEnvStage.ts` | Yes |
-| Fetching | `FetchingStage.ts` | Yes — `GetBootstrap` → payload (wire version `v2`) |
-| WritingConfig | `WritingConfigStage.ts` | Yes — writes `/data/.glenn/{env,hooks,mcp}.json` |
-| Install | `InstallStage.ts` | **No** — spec install; failure → BootIssue, continues |
-| CloningRepo | `CloningRepoStage.ts` | Yes — GitHub Basic auth (not Bearer) |
-| RunningSetup | `RunningSetupStage.ts` | **No** — spec setup script |
-| StartingServices | `StartingServicesStage.ts` | **No** — supervisord + healthchecks |
-| ReportReady | `ReportReadyStage.ts` | Yes — `runtimeReady()` → Online |
+## Branch fork (CopyBranch)
 
-Non-critical stages (`critical: false`): deterministic failure records a `BootIssue` and **continues** so runtime reaches Online with `SpecHealth = Degraded`. Transient failures still retry. See `.claude/skills/self-healing-runtime/SKILL.md`.
+`CopyBranchHandler`: stop the source box if up (forks take the LATEST SNAPSHOT,
+and snapshots happen on stop — this pins current disk state, costing the source
+a few seconds of pause) → `POST /boxes/{sourceBox}/fork` with identity-only env
++ `noEnv` → resume the source → new `ProjectRuntime` row with `BoxId` already
+set → provisioner's reboot path delivers the real env + JWT on first tick.
+Compensation stack deletes the forked box + GitHub ref on downstream failure.
 
-## Runtime spec — two shapes
+## Runtime spec — two shapes (unchanged from the Fly era)
 
 | Context | Shape | File |
 |---------|-------|------|
 | Bootstrap wire payload | `BootstrapPayloadV2` — daemon accepts `version: 'v2'` only (`FetchingStage.ts`) | Server expands V3 → V2 for daemon |
 | Proposals / templates / UI | `RuntimeSpecV3` — `{ version: 3, services: [{ kind, name, values }], install?, setup? }` | `RuntimePresets/Contracts/RuntimeSpecV3.cs` |
 
-**V2 service fields** (what the daemon executes after server expansion):
+Install snippets must stay idempotent (`command -v` guards, sentinels) — a
+respawned box re-runs bootstrap against a disk where installs already happened.
 
-```csharp
-ServiceSpec(string Name, string Command, string? User, bool? Autorestart,
-            Dictionary<string,string>? Env, HealthcheckSpec? Healthcheck,
-            string? Install, string? InstallVerify)
-```
+## Bootstrap stages (daemon-side, unchanged)
 
-Install snippets must be idempotent: `command -v` guards, `/data/<svc>/.initialized` sentinels, final `chown` to runtime user.
+**File:** `BootstrapOrchestrator.ts` — Connecting → VerifyEnv → Fetching →
+WritingConfig → Install (non-critical) → CloningRepo → RunningSetup
+(non-critical) → StartingServices (non-critical) → ReportReady. Non-critical
+failures record a `BootIssue` and continue → Online with `SpecHealth=Degraded`
+(see `self-healing-runtime` skill).
 
-## Proposal / approve / apply
+## Hub methods (daemon → server) — unchanged
 
-```
-Daemon/agent → POST /api/runtimes/{id}/proposals (RuntimeSpecV3, runtime JWT)
-User → POST /api/projects/{projectId}/proposals/{id}/approve (user JWT)
-→ SpecDelta.Compute → SignalR push → RuntimeSpecApplier (daemon)
-→ RuntimeSpecDeltaApplied ack
-```
+`RuntimeHub.cs`: `Heartbeat`, `GetBootstrap`, `GetSecrets`/`GetRepoAccessToken`,
+`RuntimeReady`, `ReportSpecHealth`, `RecordRuntimeEvent` (payload must be
+pre-`JSON.stringify`d — see wire-contract trap below), `RuntimeSpecDeltaApplied`.
 
-**Applier order** (`RuntimeSpecApplier.ts`): top-level install → per-service install + add/restart → remove services (stop, remove, unlink conf, purge hash) → setup re-run → ack.
+### SignalR wire contract (JSON.stringify trap)
 
-**Bootstrap reconcile:** `StartingServicesStage` calls `supervisord.reconcileServices()` to drop orphan conf files on cold boot.
+`RuntimeEventPayloadDto.Payload` is a **string**, not `JsonElement`. Daemon must
+`JSON.stringify(envelope.payload)` in `RuntimeEventEmitter.ts#sendNow` before
+`invoke`. Sending a JS object → `InvalidDataException: Error binding arguments`.
 
-## persist_rootfs + installVerify
+### Supervisord conf-dir (still a gotcha)
 
-**Default:** `MachineGuest.PersistRootfs = "always"` in `CreateMachineRequest.cs`. Set at machine **creation** — cannot retrofit; respawn to pick up.
+Template installs `/data/.glenn/supervisor.d` as the drop-in dir but
+`SupervisordController` defaults to `/etc/supervisor/conf.d`. **Both**
+construction sites in `main.ts` must override `confDir: '/data/.glenn/supervisor.d'`.
 
-**installVerify:** Optional bash predicate per install scope. On hash-skip path, non-zero exit forces full re-install. Handles the ~1% case where host migration wipes rootfs but `/data` install-hash survives.
-
-## SignalR wire contract (JSON.stringify trap)
-
-`RuntimeEventPayloadDto.Payload` is a **string**, not `JsonElement`. Daemon must `JSON.stringify(envelope.payload)` in `RuntimeEventEmitter.ts#sendNow` before `invoke`. Sending a JS object → `InvalidDataException: Error binding arguments`.
-
-`ReportSpecHealth` uses raw `invoke('ReportSpecHealth', JSON.stringify(report))` in `SignalRClient.ts` — no TypedSignalR regen required for that method.
-
-## Supervisord conf-dir (common gotcha)
-
-Base image includes `/data/.glenn/supervisor.d/*.conf` but `SupervisordController` defaults to `/etc/supervisor/conf.d`.
-
-**Both** construction sites in `main.ts` must override:
-
-```ts
-confDir: '/data/.glenn/supervisor.d'
-```
-
-## Hub methods (daemon → server)
-
-`RuntimeHub.cs` — all resolve `RuntimeId` from signed `rt_runtime` claim (daemon cannot impersonate another runtime):
-
-| Method | Purpose |
-|--------|---------|
-| `Heartbeat` | Liveness |
-| `GetBootstrap` | Bootstrap payload |
-| `GetSecrets` / `GetRepoAccessToken` | Secrets + git auth |
-| `RuntimeReady` | Flip to Online |
-| `ReportSpecHealth` | SpecHealth after boot |
-| `RecordRuntimeEvent` | Structured events (§ stringify) |
-| `RuntimeSpecDeltaApplied` | Post-apply ack |
-
-## JWT / tokens
-
-**Service:** `RuntimeTokenService.cs` — issuer `glenn-main-api`, audience `glenn-runtime`, 7-day default, audit-before-issuance, `kid` stripped on validation for key rotation.
-
-## Reconciler
-
-`RuntimeReconcilerJob` — every 1 min. Drift fixer only: Fly machine gone → `Crashed` if legal. Skips `Pending` and `Deleted`.
-
-## Image & daemon publish
+## Golden template & daemon publish
 
 | Artifact | Build | Publish |
 |----------|-------|---------|
-| Runtime base image | `Dockerfile.runtime-base` | `publish-runtime-image.sh` (local docker) or `publish-runtime-image-remote.sh` (flyctl remote) |
+| Golden template box | `scripts/build-box-template.sh` (provisions a live box via the Box API, stops it to snapshot) | auto-registers via `POST /api/admin/runtime-templates` (CI publish key) or manually in Super Admin → Runtime Templates |
 | Daemon bundle | `packages/daemon` esbuild | `publish-daemon.sh` → storage + `POST /api/daemon-versions` |
 
-Publish scripts generate a **temporary** `.fly.runtime-base.toml` at repo root during remote builds — there is no committed fly.toml needed. Configure `APP`, `REGISTRY`, `IMAGE_NAME` via env vars on the publish scripts.
+Template boxes must STAY STOPPED (forks take the latest snapshot; a running
+template bills and drifts). `BoxAdminController` refuses to delete a registered
+template; yank it first. `GET /api/daemon-versions/resolve?channel=stable` is
+`[AllowAnonymous]` (bootstrap has no token pre-connect... it does have the JWT,
+but resolution happens before auth is exercised).
 
-`GET /api/daemon-versions/resolve?channel=stable` is `[AllowAnonymous]` (daemon has no token at cold boot).
+## Reconciler & observability
 
-## Known gotchas (bug graveyard)
+- `RuntimeReconcilerJob` (1 min) — state driver + drift fixer (see above).
+- `BoxTtlExtenderJob` (30 min) — TTL guardrail re-arm.
+- `BoxDriftPollerJob` (1 min) — emits `RuntimeBoxDriftDetected` events (no state mutation).
+- `RuntimeDriftQueryService` / `DriftEvaluator` — Super Admin → Runtime Monitor
+  rows (rules: `BoxVanished`, `OrphanBox`, `StateMismatch_OnlineButArchived`,
+  `StateMismatch_SuspendedButRunning`, `StateMismatch_OnlineButNotUp`,
+  `StuckInTransition`, `StaleHeartbeat`).
+- `RuntimeBoxSnapshotService` — the runtime drawer's "our view vs Box" tab.
+- Every Box API call lands one `BoxOperation` audit row (idempotency-keyed
+  replay window 60 s) — `api/admin/box/operations` pages through them.
+
+## Known gotchas (bug graveyard — Box era)
 
 | Gotcha | Fix |
 |--------|-----|
 | JSON.stringify on event payload | Pre-serialize in daemon |
-| persist_rootfs missing | Respawn machine with default |
 | Supervisord conf-dir mismatch | Override both `main.ts` sites |
 | GitHub Basic not Bearer | `CloningRepoStage` |
-| 2 GiB minimum RAM | `@cursor/sdk` + sqlite3 binding; 256 MB OOMs silently |
-| Volume name length | `"vol_" + guid[..30]` |
-| Bare sha256 in RuntimeImages | Store full `registry/.../image@sha256:...` ref |
-| Host-only registry string | Must include image name: `registry.fly.io/my-runtime-base` |
+| `@cursor/sdk` + sqlite3 needs ≥2 GiB | Even the `small` tier (4 GB) clears it — `BoxSizeMapper` rounds up |
+| Fork of a running box takes the LAST snapshot, not live disk | Stop → fork → resume (CopyBranch does this) |
+| Per-fork env is immutable after creation | Fresh JWTs travel via `/etc/glenn/runtime.env` + `systemctl restart glenn-daemon` |
+| Start budget exhaustion (429 / daily_limit) | Transient — rows stay Pending; never mark Failed |
+| Only systemd services survive stop/resume | Everything must hang off `glenn-daemon.service`; hand-run processes die |
+| Template box left running | Bills + snapshot drift; keep archived |
 
 ## Admin endpoints
 
-`api/admin/runtimes` — SuperAdmin only: list, detail, reset, force-suspend, force-delete, force-respawn, force-rebootstrap.
+- `api/admin/runtimes` — SuperAdmin: list, detail, box-snapshot, drift, reset,
+  force-suspend, force-delete, force-respawn, force-rebootstrap.
+- `api/admin/box` — SuperAdmin: boxes/snapshots cleanup, test-connection, operations log.
+- `api/admin/runtime-templates` — template catalog + live candidate-box discovery.
+
+## Quick reference paths
+
+| Thing | Path |
+|-------|------|
+| Box client | `Source/Features/BoxManagement/BoxClient.cs` |
+| Provisioning helpers | `Features/RuntimeLifecycle/Provisioning/BoxRuntimeProvisioning.cs` |
+| Provisioner | `Features/RuntimeLifecycle/Jobs/RuntimeProvisionerJob.cs` |
+| Respawn | `Features/RuntimeLifecycle/Jobs/RespawnRuntimeJob.cs` |
+| Reconciler | `Features/RuntimeLifecycle/Jobs/RuntimeReconcilerJob.cs` |
+| TTL guardrail | `Features/RuntimeLifecycle/Jobs/BoxTtlExtenderJob.cs` |
+| State machine | `Features/RuntimeLifecycle/RuntimeStateMachine.cs` |
+| Templates | `Features/RuntimeTemplates/` |
+| RuntimeSpecV3 | `Features/RuntimePresets/Contracts/RuntimeSpecV3.cs` |
+| Spec applier | `packages/daemon/src/runtime/RuntimeSpecApplier.ts` |
+| Bootstrap orchestrator | `packages/daemon/src/bootstrap/BootstrapOrchestrator.ts` |
+| Runtime hub | `Features/SignalR/Hubs/RuntimeHub.cs` |
+| Bootstrap script | `docker/bootstrap-daemon.sh` |
+| Template builder | `scripts/build-box-template.sh` |
+| Wire-assumption pinning | `scripts/box-smoke-test.sh` |
 
 ## Related skills
 
 | Skill | When |
 |-------|------|
 | `daemon-deploy` | SignalR contract / daemon code changed |
-| `runtime-deployment` | Ship base image, provision, smoke test |
-| `runtime-debug` | SSH, logs, hot-swap bundle |
+| `runtime-deployment` | Build template, provision, smoke test |
+| `runtime-debug` | Commands API, logs, env refresh, recovery |
 | `self-healing-runtime` | Degraded Online, repair loop, SpecHealth |
-
-## Quick reference paths
-
-| Thing | Path |
-|-------|------|
-| State machine | `Features/RuntimeLifecycle/RuntimeStateMachine.cs` |
-| Provisioner | `Features/RuntimeLifecycle/Jobs/RuntimeProvisionerJob.cs` |
-| RuntimeSpecV3 | `Features/RuntimePresets/Contracts/RuntimeSpecV3.cs` |
-| Spec applier | `packages/daemon/src/runtime/RuntimeSpecApplier.ts` |
-| Bootstrap orchestrator | `packages/daemon/src/bootstrap/BootstrapOrchestrator.ts` |
-| Event emitter | `packages/daemon/src/events/RuntimeEventEmitter.ts` |
-| Runtime hub | `Features/SignalR/Hubs/RuntimeHub.cs` |
-| Bootstrap script | `docker/bootstrap-daemon.sh` |

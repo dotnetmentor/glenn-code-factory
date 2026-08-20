@@ -1,7 +1,7 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
-using Source.Features.FlyManagement;
-using Source.Features.FlyManagement.Models;
+using Source.Features.BoxManagement;
+using Source.Features.BoxManagement.Models;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
 
@@ -9,68 +9,47 @@ namespace Source.Features.RuntimeLifecycle.Jobs;
 
 /// <summary>
 /// Recurring Hangfire job that compares what the database thinks each
-/// <see cref="ProjectRuntime"/> is doing to what Fly actually reports, and
+/// <see cref="ProjectRuntime"/> is doing to what Box actually reports, and
 /// nudges drifted rows back onto the rails via the existing
 /// <see cref="RuntimeStateMachine"/>. Runs every minute via
 /// <see cref="RuntimeReconcilerJobRegistration"/>.
 ///
-/// <para><b>Scope.</b> This is a thin <i>drift fixer</i> — not a state rebuilder.
-/// We trust the webhook + provisioner pipeline to drive the happy path; the
-/// reconciler exists to close the small gaps that pipeline leaves: a missed
-/// webhook, a Fly-side state that diverged silently, a machine that vanished
-/// from Fly entirely. Anything we can't legally transition, we log and leave
-/// alone — the next tick (or a fresh webhook) will close the gap.</para>
+/// <para><b>Scope — bigger than the Box era.</b> Box has no webhooks, so the
+/// reconciler is not just a drift fixer any more: it is the ONLY driver of the
+/// box-observation edges (Booting → Bootstrapping when the VM comes up,
+/// Suspending → Suspended when the stop lands). The daemon's own
+/// <c>RuntimeReady</c> hub call still owns Bootstrapping → Online; the
+/// reconciler never assumes Online from VM state alone.</para>
 ///
-/// <para><b>Concurrency.</b> Decorated with
-/// <see cref="DisableConcurrentExecutionAttribute"/> so two Hangfire workers
-/// can't both reconcile the same row. The 120-second timeout gives the
-/// <c>ListMachinesAsync</c> round-trip plus per-row state-machine work
-/// comfortable headroom even in a degraded Fly window before a stuck worker is
-/// allowed to be stepped on by a fresh one.</para>
+/// <para><b>Concurrency.</b> <see cref="DisableConcurrentExecutionAttribute"/>
+/// so two workers can't both reconcile the same row; 120-second timeout gives
+/// the <c>ListBoxesAsync</c> round-trip plus per-row work comfortable headroom
+/// even in a degraded Box window.</para>
 ///
-/// <para><b>Mapping consistency.</b> The (Fly state, runtime state) → target
-/// mapping below is intentionally aligned with
-/// <c>HandleFlyMachineStateChangedHandler</c>. Where the webhook handler emits
-/// only the canonical legal transition for a given Fly event, the reconciler
-/// covers the same ground <i>plus</i> a couple of drift-only entries (e.g. an
-/// <c>Online</c> runtime whose Fly machine is already <c>stopped</c>). Those
-/// drift entries always pick the <i>closest legal target</i> in the state
-/// graph; if the next legal hop is multiple edges away (Online → Suspending →
-/// Suspended), we take the first edge and let the next tick close the rest.</para>
-///
-/// <para><b>Failure isolation.</b> We catch <see cref="FlyApiException"/> at
-/// the top of the job: if Fly is down or rate-limiting, the reconciler logs a
-/// warning and returns clean. Per-row transition failures are caught
-/// individually so one bad row can't poison the batch.</para>
+/// <para><b>Failure isolation.</b> <see cref="BoxApiException"/> at the top of
+/// the pass logs a warning and returns clean; per-row transition failures are
+/// caught individually so one bad row can't poison the batch.</para>
 /// </summary>
 public class RuntimeReconcilerJob
 {
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly ILogger<RuntimeReconcilerJob> _logger;
 
     public RuntimeReconcilerJob(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
         ILogger<RuntimeReconcilerJob> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
         _logger = logger;
     }
 
     /// <summary>
     /// Hangfire entry point. Wraps the inner <see cref="Run(CancellationToken)"/>
-    /// in a linked <see cref="CancellationTokenSource"/> with a hard 110-second
-    /// budget so the job can never hold the
-    /// <see cref="DisableConcurrentExecutionAttribute"/> lock past the 120-second
-    /// TTL — even if a Fly call hangs forever. When the CTS trips, control
-    /// returns, Hangfire releases the lock, and the next tick acquires on
-    /// schedule.
-    ///
-    /// <para><see cref="AutomaticRetry"/> with <c>Attempts = 0</c> stops Hangfire
-    /// from auto-requeuing a partially-cancelled run on top of the next scheduled
-    /// tick.</para>
+    /// in a linked CTS with a hard 110-second budget so the job can never hold the
+    /// lock past the 120-second TTL — even if a Box call hangs forever.
     /// </summary>
     [DisableConcurrentExecution(timeoutInSeconds: 120)]
     [AutomaticRetry(Attempts = 0)]
@@ -81,48 +60,41 @@ public class RuntimeReconcilerJob
         await Run(cts.Token);
     }
 
-    /// <summary>
-    /// Process one reconciliation pass. The
-    /// <see cref="DisableConcurrentExecutionAttribute"/> on the entry point
-    /// guards against two workers running this method at the same time across
-    /// the cluster.
-    /// </summary>
+    /// <summary>Process one reconciliation pass.</summary>
     public async Task Run(CancellationToken ct = default)
     {
-        // ---- 1. Pull Fly's view once per pass ----
-        List<FlyMachine> machines;
+        // ---- 1. Pull Box's view once per pass ----
+        List<BoxVm> boxes;
         try
         {
-            machines = await _fly.ListMachinesAsync(ct);
+            boxes = await _box.ListBoxesAsync(ct);
         }
-        catch (FlyApiException ex)
+        catch (BoxApiException ex)
         {
-            // Fly itself rejected the list call — log and bail. Next tick will retry.
             _logger.LogWarning(
                 ex,
-                "RuntimeReconcilerJob: Fly ListMachines failed (status={StatusCode} code={ErrorCode}); skipping pass",
+                "RuntimeReconcilerJob: Box ListBoxes failed (status={StatusCode} code={ErrorCode}); skipping pass",
                 ex.StatusCode, ex.ErrorCode);
             return;
         }
 
-        var byMachineId = machines.ToDictionary(m => m.Id, m => m);
+        var byBoxId = boxes.ToDictionary(b => b.Id, b => b);
 
-        // ---- 2. Pull our view of runtimes that *should* have a Fly counterpart ----
-        // Skip Pending (provisioner hasn't created Fly resources yet) and Deleted
-        // (terminal — the Fly side is gone on purpose). Track the rows so we can
-        // mutate them in place; one SaveChanges at the end batches the domain events.
+        // ---- 2. Pull our view of runtimes that *should* have a box ----
+        // Skip Pending (provisioner hasn't forked yet) and Deleted (terminal —
+        // the box is gone on purpose).
         var runtimes = await _db.ProjectRuntimes
             .AsTracking()
             .Where(r => r.State != RuntimeState.Pending
                      && r.State != RuntimeState.Deleted
-                     && r.FlyMachineId != null)
+                     && r.BoxId != null)
             .ToListAsync(ct);
 
         if (runtimes.Count == 0)
         {
             _logger.LogInformation(
-                "RuntimeReconcilerJob: no runtimes to scan (fly_machines={FlyCount})",
-                machines.Count);
+                "RuntimeReconcilerJob: no runtimes to scan (boxes={BoxCount})",
+                boxes.Count);
             return;
         }
 
@@ -132,33 +104,31 @@ public class RuntimeReconcilerJob
 
         foreach (var runtime in runtimes)
         {
-            if (!byMachineId.TryGetValue(runtime.FlyMachineId!, out var flyMachine))
+            if (!byBoxId.TryGetValue(runtime.BoxId!, out var boxVm))
             {
-                // Fly has lost the machine. The right target depends on what the
-                // runtime was doing: a Suspending runtime with no machine is a
-                // suspend that completed successfully, a Deleting runtime with no
-                // machine is a destroy that completed successfully, and only
-                // running/booting states represent an unexpected disappearance
-                // that should be marked Crashed (so the respawn supervisor kicks
-                // in). Terminal-ish states (Suspended/Failed/Crashed) are left
-                // alone — flipping them again would churn the audit trail with
-                // no semantic change.
+                // Box has lost the VM (deleted, or TTL'd + purged). The right target
+                // depends on what the runtime was doing: Deleting with no box is a
+                // delete that completed; Suspending with no box means someone deleted
+                // it out from under us — treat as suspend-complete (the DB row keeps
+                // the id; a wake will 404 and re-fork). Live states mean an
+                // unexpected disappearance → Crashed so the respawn supervisor
+                // kicks in. Terminal-ish states are left alone.
                 var (missingTarget, reason) = runtime.State switch
                 {
-                    RuntimeState.Suspending => (RuntimeState.Suspended, "reconciler:suspend_completed_machine_missing"),
-                    RuntimeState.Deleting => (RuntimeState.Deleted, "reconciler:delete_completed_machine_missing"),
+                    RuntimeState.Suspending => (RuntimeState.Suspended, "reconciler:suspend_completed_box_missing"),
+                    RuntimeState.Deleting => (RuntimeState.Deleted, "reconciler:delete_completed_box_missing"),
                     RuntimeState.Online
                         or RuntimeState.Booting
                         or RuntimeState.Bootstrapping
                         or RuntimeState.Waking
-                        => (RuntimeState.Crashed, "reconciler:machine_missing"),
-                    _ => (runtime.State, string.Empty), // Suspended/Failed/Crashed/Pending/Deleted: no-op
+                        => (RuntimeState.Crashed, "reconciler:box_missing"),
+                    _ => (runtime.State, string.Empty), // Suspended/Failed/Crashed: no-op
                 };
 
                 if (missingTarget == runtime.State)
                 {
                     _logger.LogDebug(
-                        "RuntimeReconcilerJob: runtime {RuntimeId} in terminal state {State} has missing Fly machine — no action",
+                        "RuntimeReconcilerJob: runtime {RuntimeId} in terminal state {State} has missing box — no action",
                         runtime.Id, runtime.State);
                     continue;
                 }
@@ -183,56 +153,43 @@ public class RuntimeReconcilerJob
                 {
                     illegalSkipped++;
                     _logger.LogWarning(
-                        "RuntimeReconcilerJob: runtime {RuntimeId} state {State} cannot legally transition to {Target}; machine {MachineId} missing on Fly",
-                        runtime.Id, runtime.State, missingTarget, runtime.FlyMachineId);
+                        "RuntimeReconcilerJob: runtime {RuntimeId} state {State} cannot legally transition to {Target}; box {BoxId} missing",
+                        runtime.Id, runtime.State, missingTarget, runtime.BoxId);
                 }
                 continue;
             }
 
-            // Stuck-Suspending recovery: DB says Suspending but Fly machine is
-            // still started/starting. This is the exact drift created when
-            // something flipped the runtime to Suspending without (or before)
-            // the Fly StopMachine call landed — e.g. branch archive that wrote
-            // state but failed to call Fly, or a transient FlyApiException
-            // swallowed by IdlerJob/ArchiveBranch. The state graph forbids
-            // Suspending → Online so we can't "undo" the DB row; we just retry
-            // the missing side-effect (the actual StopMachine call). On
-            // success, Fly emits a `stopped` event which the next pass / webhook
-            // closes by transitioning Suspending → Suspended via the normal
-            // mapping above.
-            var fly = (flyMachine.State ?? string.Empty).ToLowerInvariant();
-            if (runtime.State == RuntimeState.Suspending
-                && (fly == "started" || fly == "starting"))
+            // Stuck-Suspending recovery: DB says Suspending but the box is still up.
+            // This is the drift created when something flipped the runtime to
+            // Suspending without (or before) the StopBox call landed. The state
+            // graph forbids Suspending → Online, so we retry the missing side-effect
+            // (the actual stop). On success the next pass observes `archived` and
+            // closes Suspending → Suspended via the normal mapping.
+            if (runtime.State == RuntimeState.Suspending && BoxStatus.IsUp(boxVm.Status))
             {
                 try
                 {
-                    await _fly.StopMachineAsync(
-                        machineId: runtime.FlyMachineId!,
-                        options: null,
+                    await _box.StopBoxAsync(
+                        boxId: runtime.BoxId!,
                         runtimeId: runtime.Id,
                         ct: ct);
                     stopRetried++;
                     _logger.LogInformation(
-                        "RuntimeReconcilerJob: retried StopMachine for stuck-Suspending runtime {RuntimeId} (machine {MachineId} state={FlyState})",
-                        runtime.Id, runtime.FlyMachineId, flyMachine.State);
+                        "RuntimeReconcilerJob: retried StopBox for stuck-Suspending runtime {RuntimeId} (box {BoxId} status={Status})",
+                        runtime.Id, runtime.BoxId, boxVm.Status);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
-                        "RuntimeReconcilerJob: StopMachine retry failed for stuck-Suspending runtime {RuntimeId} (machine {MachineId}); will retry next tick",
-                        runtime.Id, runtime.FlyMachineId);
+                        "RuntimeReconcilerJob: StopBox retry failed for stuck-Suspending runtime {RuntimeId} (box {BoxId}); will retry next tick",
+                        runtime.Id, runtime.BoxId);
                 }
-                // Either way, no DB transition this tick — fall through to the
-                // next runtime. The next pass either sees fly:stopped (which
-                // MapDriftTarget closes via Suspending → Suspended) or sees
-                // started again and retries.
                 continue;
             }
 
-            var target = MapDriftTarget(flyMachine.State, runtime.State);
+            var target = MapDriftTarget(boxVm.Status, runtime.State);
             if (target is null || target == runtime.State)
             {
-                // Either no opinion, or DB already matches Fly — leave it alone.
                 continue;
             }
 
@@ -240,12 +197,12 @@ public class RuntimeReconcilerJob
             {
                 illegalSkipped++;
                 _logger.LogWarning(
-                    "RuntimeReconcilerJob: would have transitioned runtime {RuntimeId} {From} -> {To} (fly_state={FlyState}) but state machine rejected",
-                    runtime.Id, runtime.State, target.Value, flyMachine.State);
+                    "RuntimeReconcilerJob: would have transitioned runtime {RuntimeId} {From} -> {To} (box_status={Status}) but state machine rejected",
+                    runtime.Id, runtime.State, target.Value, boxVm.Status);
                 continue;
             }
 
-            var metadata = $"{{\"flyState\":\"{flyMachine.State}\",\"dbState\":\"{runtime.State}\"}}";
+            var metadata = $"{{\"boxStatus\":\"{boxVm.Status}\",\"dbState\":\"{runtime.State}\"}}";
             var transitionResult = runtime.TransitionTo(
                 target.Value,
                 "reconciler:drift",
@@ -273,93 +230,86 @@ public class RuntimeReconcilerJob
         }
 
         _logger.LogInformation(
-            "RuntimeReconcilerJob scanned {Count} runtimes, fixed {Drift} drift, retried StopMachine on {StopRetried} stuck-Suspending, skipped {Illegal} illegal-transition cases",
+            "RuntimeReconcilerJob scanned {Count} runtimes, fixed {Drift} drift, retried StopBox on {StopRetried} stuck-Suspending, skipped {Illegal} illegal-transition cases",
             runtimes.Count, driftFixed, stopRetried, illegalSkipped);
     }
 
     /// <summary>
-    /// Pick the runtime state we want, given Fly's reported state and the
+    /// Pick the runtime state we want, given the box's reported status and the
     /// runtime's current state. Returns <c>null</c> when the reconciler has no
-    /// opinion (Fly state we don't react to, or DB already matches).
+    /// opinion (status we don't react to, or DB already matches).
     ///
-    /// <para>This mirrors the canonical mapping in
-    /// <c>HandleFlyMachineStateChangedHandler</c> but is allowed to take an
-    /// extra step that the webhook handler doesn't (because the webhook
-    /// handler runs <i>per event</i>, while we're closing accumulated drift).
-    /// Any drift target we pick must still be legal under
-    /// <see cref="RuntimeStateMachine"/>; the caller validates with
-    /// <c>CanTransition</c> before committing.</para>
+    /// <para>Box states are coarser than Fly's: up (<c>ready</c>/<c>idle</c>/
+    /// <c>running</c>), coming up (<c>provisioning</c>), stopped-with-snapshot
+    /// (<c>archived</c>), broken (<c>error</c>). The daemon's <c>RuntimeReady</c>
+    /// hub call remains the ONLY path to Online — a VM being up says nothing about
+    /// the daemon having bootstrapped.</para>
     ///
-    /// <para><b>Spec note (Online → Suspended).</b> The card asks for
-    /// <c>fly:stopped + db:Online → Suspended</c>, but the state graph forbids
-    /// that single edge — Online must go through Suspending first. We pick
-    /// <see cref="RuntimeState.Suspending"/> (the closest legal target) and
-    /// rely on the next reconciler tick (or a webhook landing) to close the
-    /// remaining Suspending → Suspended hop.</para>
+    /// <para><b>Spec note (Online → Suspended).</b> <c>archived</c> + db:Online
+    /// takes the closest legal edge (Suspending); the next tick closes
+    /// Suspending → Suspended. Mirrors the old Fly mapping.</para>
     ///
-    /// <para><b>Mid-boot drift (Booting / Bootstrapping / Waking + fly:stopped).</b>
-    /// If Fly reports the machine as stopped/suspended while the DB still thinks
-    /// the runtime is partway through coming up, the machine went down before
-    /// it finished booting — typically a daemon bootstrap that failed so hard
-    /// the supervisor never recovered (e.g. "no model slug configured"
-    /// non-recoverable error in bootstrap-opencode). We mark
-    /// <see cref="RuntimeState.Crashed"/> so <c>ScheduleRespawnHandler</c>
-    /// kicks in and destroys + recreates a fresh machine instead of leaving
-    /// the reconciler logging drift events forever. Booting / Bootstrapping /
-    /// Waking → Crashed are all legal in <see cref="RuntimeStateMachine"/>.</para>
+    /// <para><b>Mid-boot drift (Booting/Bootstrapping/Waking + archived/error).</b>
+    /// The box went down (or errored) before the daemon confirmed — mark Crashed so
+    /// <c>ScheduleRespawnHandler</c> kicks in and the respawn reboots the box.</para>
     /// </summary>
-    private static RuntimeState? MapDriftTarget(string flyState, RuntimeState currentState)
+    private static RuntimeState? MapDriftTarget(string boxStatus, RuntimeState currentState)
     {
-        var fly = (flyState ?? string.Empty).ToLowerInvariant();
+        var status = (boxStatus ?? string.Empty).ToLowerInvariant();
+        var up = BoxStatus.IsUp(status);
+        var archived = BoxStatus.IsArchived(status);
+        var error = BoxStatus.IsError(status);
 
-        return (fly, currentState) switch
+        // ----- box is up: the VM exists and runs, daemon confirmation pending -----
+        if (up)
         {
-            // ----- "started" lines up with Online -----
-            ("started", RuntimeState.Booting) => RuntimeState.Bootstrapping,
-            // Waking + fly:started means "Fly machine is up but daemon hasn't
-            // confirmed yet". We hand off to Bootstrapping; only the daemon's
-            // RuntimeReady hub call is allowed to flip Bootstrapping → Online.
-            // (Daemon-as-downloadable: the cold-boot now includes a tarball
-            // download + extract step, so Online can't be assumed from machine
-            // state alone.)
-            ("started", RuntimeState.Waking) => RuntimeState.Bootstrapping,
+            return currentState switch
+            {
+                RuntimeState.Booting => RuntimeState.Bootstrapping,
+                // Waking + up means "box resumed but daemon hasn't confirmed yet".
+                // Hand off to Bootstrapping; only the daemon's RuntimeReady hub
+                // call is allowed to flip Bootstrapping → Online.
+                RuntimeState.Waking => RuntimeState.Bootstrapping,
+                _ => null,
+            };
+        }
 
-            // ----- "stopped"/"suspended" lines up with Suspended -----
-            ("stopped", RuntimeState.Suspending) => RuntimeState.Suspended,
-            ("suspended", RuntimeState.Suspending) => RuntimeState.Suspended,
-            // Drift: Fly stopped the machine but we still think it's Online (missed
-            // a Suspending transition). Closest legal hop is Suspending; the next
-            // tick will pick up Suspending -> Suspended.
-            ("stopped", RuntimeState.Online) => RuntimeState.Suspending,
-            ("suspended", RuntimeState.Online) => RuntimeState.Suspending,
+        // ----- box is archived (stopped with snapshot) -----
+        if (archived)
+        {
+            return currentState switch
+            {
+                RuntimeState.Suspending => RuntimeState.Suspended,
+                // Drift: the box archived itself (TTL guardrail!) or someone stopped
+                // it out-of-band while we think it's Online. Closest legal hop is
+                // Suspending; the next tick closes Suspending → Suspended.
+                RuntimeState.Online => RuntimeState.Suspending,
+                // Went down mid-boot → Crashed so the respawn supervisor reboots it.
+                RuntimeState.Booting => RuntimeState.Crashed,
+                RuntimeState.Bootstrapping => RuntimeState.Crashed,
+                RuntimeState.Waking => RuntimeState.Crashed,
+                _ => null,
+            };
+        }
 
-            // ----- Fly stopped/suspended while DB still says mid-boot -----
-            // The machine went down while we expected it to be coming up. Mark Crashed
-            // so ScheduleRespawnHandler kicks in (destroy + recreate fresh machine).
-            // The legality check (CanTransition) at the call site catches any state
-            // graph mismatch.
-            ("stopped", RuntimeState.Booting) => RuntimeState.Crashed,
-            ("stopped", RuntimeState.Bootstrapping) => RuntimeState.Crashed,
-            ("stopped", RuntimeState.Waking) => RuntimeState.Crashed,
-            ("suspended", RuntimeState.Booting) => RuntimeState.Crashed,
-            ("suspended", RuntimeState.Bootstrapping) => RuntimeState.Crashed,
-            ("suspended", RuntimeState.Waking) => RuntimeState.Crashed,
+        // ----- box-side hard failure -----
+        if (error)
+        {
+            return currentState switch
+            {
+                RuntimeState.Online => RuntimeState.Crashed,
+                RuntimeState.Booting => RuntimeState.Crashed,
+                RuntimeState.Bootstrapping => RuntimeState.Crashed,
+                RuntimeState.Waking => RuntimeState.Crashed,
+                // Suspending + error: the stop failed hard box-side. Suspended is
+                // the closest truthful terminal for the DB; a later wake surfaces
+                // the error again and the respawn path recovers.
+                RuntimeState.Suspending => RuntimeState.Suspended,
+                _ => null,
+            };
+        }
 
-            // ----- "destroyed" -----
-            ("destroyed", RuntimeState.Suspending) => RuntimeState.Suspended,
-            ("destroyed", RuntimeState.Deleting) => RuntimeState.Deleted,
-
-            // ----- "crashed"/"failed" -----
-            ("crashed", RuntimeState.Online) => RuntimeState.Crashed,
-            ("crashed", RuntimeState.Bootstrapping) => RuntimeState.Crashed,
-            ("crashed", RuntimeState.Booting) => RuntimeState.Crashed,
-            ("crashed", RuntimeState.Waking) => RuntimeState.Crashed,
-            ("failed", RuntimeState.Online) => RuntimeState.Crashed,
-            ("failed", RuntimeState.Bootstrapping) => RuntimeState.Crashed,
-            ("failed", RuntimeState.Booting) => RuntimeState.Crashed,
-            ("failed", RuntimeState.Waking) => RuntimeState.Crashed,
-
-            _ => null,
-        };
+        // provisioning (or unknown future status): no opinion — let it settle.
+        return null;
     }
 }

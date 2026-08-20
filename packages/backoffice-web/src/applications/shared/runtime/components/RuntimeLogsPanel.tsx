@@ -32,7 +32,7 @@ import { useBranchRuntimeStatus } from '@/applications/shared/runtime/hooks/useB
 import { LogViewer, type LogViewerLine } from './LogViewer'
 import { ServicesTabContainer } from './ServicesTabContainer'
 import { ActivityTab } from './ActivityTab'
-import { FlyMachineTab } from './FlyMachineTab'
+import { BoxTab } from './BoxTab'
 import { RuntimeStatusHeader } from './RuntimeStatusHeader'
 import { SysstatsView } from './SysstatsView'
 import { DaemonLogsView } from './DaemonLogsView'
@@ -262,7 +262,7 @@ function RuntimeDebugPanelBody({
   // them back to Logs the first time they open the panel — the switcher
   // won't render those tabs anymore.
   useEffect(() => {
-    if ((activeView === 'fly' || activeView === 'spec') && !isSuperAdmin) {
+    if ((activeView === 'box' || activeView === 'spec') && !isSuperAdmin) {
       debugPanel.setActiveView('logs')
     }
   }, [activeView, isSuperAdmin, debugPanel])
@@ -578,11 +578,11 @@ function RuntimeDebugPanelBody({
           </ViewLayer>
         )}
         {isSuperAdmin && (
-          <ViewLayer active={activeView === 'fly'}>
-            <FlyMachineTab
+          <ViewLayer active={activeView === 'box'}>
+            <BoxTab
               projectId={projectId}
               branchId={branchId}
-              active={activeView === 'fly'}
+              active={activeView === 'box'}
               isSuperAdmin={isSuperAdmin}
             />
           </ViewLayer>
@@ -944,7 +944,7 @@ function PanelHeader({
           ))}
         {activeView === 'services' && <ServicesControls />}
         {activeView === 'timeline' && <TimelineControls />}
-        {activeView === 'fly' && <FlyControls />}
+        {activeView === 'box' && <BoxControls />}
       </Box>
 
       {/* Per-view action icons */}
@@ -992,7 +992,7 @@ function PanelHeader({
 interface SegmentedSwitcherProps {
   activeView: RuntimeDebugPanelView
   onChange: (view: RuntimeDebugPanelView) => void
-  /** Gate for the superadmin-only Fly tab. */
+  /** Gate for the superadmin-only Box tab. */
   isSuperAdmin: boolean
 }
 
@@ -1002,7 +1002,7 @@ const VIEW_LABELS: Record<RuntimeDebugPanelView, string> = {
   timeline: 'Timeline',
   sysstats: 'Sysstats',
   spec: 'Spec',
-  fly: 'Fly',
+  box: 'Box',
 }
 
 /**
@@ -1014,18 +1014,18 @@ const VIEW_LABELS: Record<RuntimeDebugPanelView, string> = {
  * (the primitive owns a full-width hairline-divided container that doesn't fit
  * here).
  *
- * <p>The {@code spec} and {@code fly} segments are rendered only for
+ * <p>The {@code spec} and {@code box} segments are rendered only for
  * SuperAdmin users — for everyone else they simply aren't there. We don't
  * render them disabled because we don't want regular users to perceive
  * hidden surfaces.</p>
  */
 function SegmentedSwitcher({ activeView, onChange, isSuperAdmin }: SegmentedSwitcherProps) {
   // Final order is general-to-specialized, super-admin-only items at the
-  // tail: Logs · Services · Timeline · Sysstats · Spec · Fly. Sysstats sits
+  // tail: Logs · Services · Timeline · Sysstats · Spec · Box. Sysstats sits
   // before Spec because it's open to everyone — keeping the always-visible
   // group contiguous on the left.
   const views: ReadonlyArray<RuntimeDebugPanelView> = isSuperAdmin
-    ? ['logs', 'services', 'timeline', 'sysstats', 'spec', 'fly']
+    ? ['logs', 'services', 'timeline', 'sysstats', 'spec', 'box']
     : ['logs', 'services', 'timeline', 'sysstats']
 
   return (
@@ -1218,7 +1218,7 @@ function ServicesControls() {
   )
 }
 
-function FlyControls() {
+function BoxControls() {
   return (
     <Typography
       variant="caption"
@@ -1228,7 +1228,7 @@ function FlyControls() {
         letterSpacing: '-0.005em',
       }}
     >
-      DB vs Fly machine — superadmin only
+      DB vs box VM — superadmin only
     </Typography>
   )
 }

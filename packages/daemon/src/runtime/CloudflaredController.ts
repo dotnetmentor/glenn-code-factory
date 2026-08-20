@@ -7,7 +7,7 @@
 // the `cloudflared` binary at `/usr/local/bin/cloudflared` (see
 // /workspace/Dockerfile.runtime-base, layer 1d). When the .NET API provisions a
 // runtime machine for a project with a tunnel allocated, it passes three env
-// vars on the Fly machine: TUNNEL_TOKEN, PREVIEW_PORT, PREVIEW_HOSTNAME (see
+// vars on the runtime box: TUNNEL_TOKEN, PREVIEW_PORT, PREVIEW_HOSTNAME (see
 // /workspace/packages/dotnet-api/Source/Features/RuntimeLifecycle/Jobs/
 // RuntimeProvisionerJob.cs).
 //
@@ -230,7 +230,7 @@ export class CloudflaredController {
    *       "cloudflared will not automatically update if installed by a
    *        package manager."
    *   * `--protocol http2` is no longer a recognised flag on the `run`
-   *     subcommand. The default protocol is QUIC, which works fine on Fly
+   *     subcommand. The default protocol is QUIC, which works fine on Box
    *     machines (verified by inspecting the live runtime's tunnel
    *     registration logs).
    * Appending unknown flags made cloudflared exit with "Incorrect Usage:

@@ -66,7 +66,7 @@ public interface IRuntimeClient
     /// Server-to-daemon: wipe local bootstrap state and re-run the bootstrap
     /// flow against a freshly-fetched bundle. Pushed by the admin
     /// force-rebootstrap endpoint when an operator needs to recover a stuck
-    /// or partially-bootstrapped runtime without a full Fly machine recreate.
+    /// or partially-bootstrapped runtime without a full box recreate.
     /// See <see cref="Contracts.ForceRebootstrapPayload"/> for the trigger and
     /// audit-trail rationale.
     /// </summary>

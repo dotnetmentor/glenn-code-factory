@@ -1,7 +1,7 @@
 using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Source.Features.FlyManagement;
+using Source.Features.BoxManagement;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
@@ -32,8 +32,8 @@ namespace Source.Features.RuntimeLifecycle.Commands.RestartRuntime;
 ///         </list></item>
 ///   <item>Restart path: calls <see cref="ProjectRuntime.Restart"/>, which
 ///         validates the transition, resets <see cref="ProjectRuntime.RespawnRetries"/>,
-///         keeps <see cref="ProjectRuntime.FlyVolumeId"/> AND
-///         <see cref="ProjectRuntime.FlyMachineId"/> on the row (the
+///         keeps <see cref="ProjectRuntime.box disk"/> AND
+///         <see cref="ProjectRuntime.BoxId"/> on the row (the
 ///         provisioner uses the stale machine id to force-destroy the dead
 ///         machine before booting a replacement on the same volume) and
 ///         raises <c>RuntimeStateChanged</c> with
@@ -69,20 +69,20 @@ public sealed class RestartRuntimeHandler
 
     private readonly ApplicationDbContext _db;
     private readonly IMediator _mediator;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly IBackgroundJobClient _backgroundJobs;
     private readonly ILogger<RestartRuntimeHandler> _logger;
 
     public RestartRuntimeHandler(
         ApplicationDbContext db,
         IMediator mediator,
-        FlyClient fly,
+        BoxClient box,
         IBackgroundJobClient backgroundJobs,
         ILogger<RestartRuntimeHandler> logger)
     {
         _db = db;
         _mediator = mediator;
-        _fly = fly;
+        _box = box;
         _backgroundJobs = backgroundJobs;
         _logger = logger;
     }
@@ -107,7 +107,7 @@ public sealed class RestartRuntimeHandler
         }
 
         // Branch by state. Suspended → wake. Live / failed / stuck mid-boot →
-        // hard reboot on the existing volume (stop the Fly machine first when
+        // hard reboot on the existing volume (stop the box first when
         // one is attached, then walk to Pending for the provisioner).
         switch (runtime.State)
         {
@@ -120,7 +120,7 @@ public sealed class RestartRuntimeHandler
             case RuntimeState.Booting:
             case RuntimeState.Bootstrapping:
             case RuntimeState.Waking:
-                await StopMachineBestEffortAsync(runtime, cancellationToken);
+                await StopBoxBestEffortAsync(runtime, cancellationToken);
                 break;
 
             case RuntimeState.Pending:
@@ -201,8 +201,8 @@ public sealed class RestartRuntimeHandler
             runtime.State,
             runtime.StateChangedAt,
             runtime.LastHeartbeatAt,
-            runtime.FlyMachineId,
-            runtime.ImageDigest,
+            runtime.BoxId,
+            runtime.TemplateBoxId,
             runtime.Region,
             recent));
     }
@@ -284,34 +284,33 @@ public sealed class RestartRuntimeHandler
             runtime.State,
             runtime.StateChangedAt,
             runtime.LastHeartbeatAt,
-            runtime.FlyMachineId,
-            runtime.ImageDigest,
+            runtime.BoxId,
+            runtime.TemplateBoxId,
             runtime.Region,
             recent));
     }
 
-    private async Task StopMachineBestEffortAsync(
+    private async Task StopBoxBestEffortAsync(
         ProjectRuntime runtime,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(runtime.FlyMachineId))
+        if (string.IsNullOrEmpty(runtime.BoxId))
         {
             return;
         }
 
         try
         {
-            await _fly.StopMachineAsync(
-                machineId: runtime.FlyMachineId,
-                options: null,
-                runtimeId: runtime.Id,
-                ct: cancellationToken);
+            await _box.StopBoxAsync(
+                    boxId: runtime.BoxId,
+                    runtimeId: runtime.Id,
+                    ct: cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "RestartRuntime: Fly StopMachine call failed for machine {MachineId} (runtime {RuntimeId}); provisioner will reconcile.",
-                runtime.FlyMachineId, runtime.Id);
+                "RestartRuntime: Box StopBox call failed for box {BoxId} (runtime {RuntimeId}); provisioner will reconcile.",
+                runtime.BoxId, runtime.Id);
         }
     }
 }

@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Source.Features.FlyManagement;
-using Source.Features.FlyManagement.Models;
+using Source.Features.BoxManagement;
+using Source.Features.BoxManagement.Models;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
 
@@ -10,48 +10,47 @@ namespace Source.Features.RuntimeLifecycle.Drift;
 /// Default implementation of <see cref="IRuntimeDriftQueryService"/>. Pulls
 /// every non-soft-deleted <see cref="ProjectRuntime"/> in one shot (with
 /// Project → Workspace and Branch eager-loaded so the DTO can carry display
-/// names), pulls Fly's machine listing in one shot, then walks both in memory
+/// names), pulls Box's listing in one shot, then walks both in memory
 /// to produce the merged drift view.
 ///
-/// <para><b>Orphan filtering heuristic.</b> Project runtime machines are
-/// created via <c>RuntimeProvisionerJob</c> / <c>RespawnRuntimeJob</c> with
-/// the name pattern <c>"rt_{runtime.Id:N}".Substring(0, 30)</c>. Anything
-/// else in the Fly app (a control-plane daemon-base machine, a one-shot
-/// migration runner, etc.) won't share that prefix. We therefore treat any
-/// machine whose name starts with <c>"rt_"</c> AND isn't referenced by a
-/// <see cref="ProjectRuntime.FlyMachineId"/> as a true runtime orphan; other
-/// names are skipped so infrastructure noise doesn't pollute the operator
-/// view. If we ever add other naming patterns for project runtimes (sandboxes,
-/// preview envs, …) extend the predicate here.</para>
+/// <para><b>Orphan filtering heuristic.</b> Project runtime boxes are forked
+/// via <c>RuntimeProvisionerJob</c> / <c>RespawnRuntimeJob</c> / CopyBranch with
+/// the name pattern <c>"rt-{runtime.Id:N}"[..30]</c> (see
+/// <c>BoxRuntimeProvisioning.BuildBoxName</c>). Anything else on the account —
+/// golden template boxes, scratch boxes an operator forked by hand — won't share
+/// that prefix. We therefore treat any box whose name starts with <c>"rt-"</c>
+/// AND isn't referenced by a <see cref="ProjectRuntime.BoxId"/> as a true
+/// runtime orphan; other names are skipped so template noise doesn't pollute
+/// the operator view.</para>
 /// </summary>
 public sealed class RuntimeDriftQueryService : IRuntimeDriftQueryService
 {
     /// <summary>
-    /// Name prefix every project-runtime Fly machine is created with — see
-    /// <c>RuntimeProvisionerJob.ProvisionAsync</c> and
-    /// <c>RespawnRuntimeJob</c>. Anything else in the Fly app is infrastructure
-    /// and not eligible to be reported as an orphan runtime.
+    /// Name prefix every project-runtime box is forked with — see
+    /// <c>BoxRuntimeProvisioning.BuildBoxName</c>. Anything else on the account
+    /// (golden templates, scratch boxes) is not eligible to be reported as an
+    /// orphan runtime.
     /// </summary>
-    public const string ProjectRuntimeMachineNamePrefix = "rt_";
+    public const string ProjectRuntimeBoxNamePrefix = "rt-";
 
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly ILogger<RuntimeDriftQueryService> _logger;
 
     public RuntimeDriftQueryService(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
         ILogger<RuntimeDriftQueryService> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
         _logger = logger;
     }
 
     /// <inheritdoc />
     public async Task<RuntimeDriftListResponse> BuildSnapshotAsync(CancellationToken ct = default)
     {
-        // Stamp the snapshot time BEFORE the DB / Fly round trips so all the
+        // Stamp the snapshot time BEFORE the DB / Box round trips so all the
         // "seconds since X" deltas in the DTOs are computed against a single
         // consistent clock value — otherwise rows further down the list would
         // drift seconds-of-clock relative to the first one.
@@ -70,30 +69,30 @@ public sealed class RuntimeDriftQueryService : IRuntimeDriftQueryService
             .Where(r => r.State != RuntimeState.Deleted)
             .ToListAsync(ct);
 
-        // ---- 2. Pull Fly's view once. FlyApiException bubbles to the controller. ----
-        var flyMachines = await _fly.ListMachinesAsync(ct);
-        var flyById = flyMachines.ToDictionary(m => m.Id, m => m);
+        // ---- 2. Pull Box's view once. BoxApiException bubbles to the controller. ----
+        var boxes = await _box.ListBoxesAsync(ct);
+        var boxById = boxes.ToDictionary(b => b.Id, b => b);
 
         // ---- 3. Build a DTO per runtime + evaluate the drift rules. ----
         var items = new List<RuntimeDriftDto>(runtimes.Count + 4);
 
-        // Track which Fly machine ids are claimed by a runtime so the orphan
+        // Track which box ids are claimed by a runtime so the orphan
         // pass below can subtract them out in O(n). Using a HashSet because
         // multiple runtimes claiming the same machine id is "shouldn't happen"
         // but we want the dedup to be cheap if it does.
-        var claimedFlyIds = new HashSet<string>(StringComparer.Ordinal);
+        var claimedBoxIds = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var runtime in runtimes)
         {
-            FlyMachine? flyMachine = null;
-            if (!string.IsNullOrEmpty(runtime.FlyMachineId)
-                && flyById.TryGetValue(runtime.FlyMachineId, out var match))
+            BoxVm? boxVm = null;
+            if (!string.IsNullOrEmpty(runtime.BoxId)
+                && boxById.TryGetValue(runtime.BoxId, out var match))
             {
-                flyMachine = match;
-                claimedFlyIds.Add(runtime.FlyMachineId);
+                boxVm = match;
+                claimedBoxIds.Add(runtime.BoxId);
             }
 
-            var (severity, reasons) = DriftEvaluator.EvaluateRuntime(runtime, flyMachine, now);
+            var (severity, reasons) = DriftEvaluator.EvaluateRuntime(runtime, boxVm, now);
 
             items.Add(new RuntimeDriftDto
             {
@@ -104,11 +103,11 @@ public sealed class RuntimeDriftQueryService : IRuntimeDriftQueryService
                 BranchId = runtime.BranchId,
                 BranchName = runtime.Branch?.Name,
                 DbState = runtime.State,
-                FlyState = flyMachine?.State,
-                FlyMachineId = runtime.FlyMachineId,
-                // Prefer the Fly-reported region when we have it (it's the live
-                // truth); fall back to the DB's snapshot when Fly's row is gone.
-                Region = flyMachine?.Region ?? runtime.Region,
+                BoxStatus = boxVm?.Status,
+                BoxId = runtime.BoxId,
+                // Prefer the Box-reported region when we have it (it's the live
+                // truth); fall back to the DB's snapshot when the box is gone.
+                Region = boxVm?.Region ?? runtime.Region,
                 LastHeartbeatAt = runtime.LastHeartbeatAt,
                 SecondsSinceHeartbeat = runtime.LastHeartbeatAt is null
                     ? null
@@ -120,17 +119,17 @@ public sealed class RuntimeDriftQueryService : IRuntimeDriftQueryService
             });
         }
 
-        // ---- 4. Orphan pass. Any Fly machine whose name signals "project runtime"
-        // but that no DB row references is added as an orphan DTO. We deliberately
-        // do NOT flag arbitrary non-runtime machines — the Fly app also hosts our
-        // own control plane / daemon-base machinery that's managed out of band.
-        foreach (var fly in flyMachines)
+        // ---- 4. Orphan pass. Any box whose name signals "project runtime" but
+        // that no DB row references is added as an orphan DTO. We deliberately do
+        // NOT flag arbitrary boxes — the account also holds the golden templates
+        // and whatever an operator forked by hand.
+        foreach (var boxVm in boxes)
         {
-            if (claimedFlyIds.Contains(fly.Id)) continue;
-            if (string.IsNullOrEmpty(fly.Name)) continue;
-            if (!fly.Name.StartsWith(ProjectRuntimeMachineNamePrefix, StringComparison.Ordinal)) continue;
+            if (claimedBoxIds.Contains(boxVm.Id)) continue;
+            if (string.IsNullOrEmpty(boxVm.Name)) continue;
+            if (!boxVm.Name.StartsWith(ProjectRuntimeBoxNamePrefix, StringComparison.Ordinal)) continue;
 
-            items.Add(DriftEvaluator.BuildOrphanDto(fly));
+            items.Add(DriftEvaluator.BuildOrphanDto(boxVm));
         }
 
         // ---- 5. Sort: severity desc, then secondsSinceStateChange desc as a
@@ -149,8 +148,8 @@ public sealed class RuntimeDriftQueryService : IRuntimeDriftQueryService
         var driftCount = items.Count(i => i.DriftSeverity != DriftSeverity.Ok);
 
         _logger.LogInformation(
-            "RuntimeDrift snapshot: runtimes={Runtimes} flyMachines={FlyCount} orphans={Orphans} drift={Drift}",
-            runtimes.Count, flyMachines.Count, items.Count - runtimes.Count, driftCount);
+            "RuntimeDrift snapshot: runtimes={Runtimes} boxes={BoxCount} orphans={Orphans} drift={Drift}",
+            runtimes.Count, boxes.Count, items.Count - runtimes.Count, driftCount);
 
         return new RuntimeDriftListResponse
         {

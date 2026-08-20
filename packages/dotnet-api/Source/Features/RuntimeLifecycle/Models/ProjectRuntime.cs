@@ -7,18 +7,20 @@ using Source.Shared.Results;
 namespace Source.Features.RuntimeLifecycle.Models;
 
 /// <summary>
-/// Central record tracking a project's runtime — the Fly Machine + Volume pair
-/// it boots on, and where it currently sits in the lifecycle state graph
+/// Central record tracking a project's runtime — the Box VM (box.ascii.dev) it
+/// runs on, and where it currently sits in the lifecycle state graph
 /// (<see cref="RuntimeState"/>).
 ///
 /// <list type="bullet">
 ///   <item>One row per project. Created when a project first asks for a runtime.</item>
 ///   <item><see cref="ProjectId"/> is a plain Guid — no FK — because the Project
 ///         entity belongs to a future spec. This mirrors the
-///         <c>FlyOperation.RuntimeId</c> and <c>BootstrapRun.RuntimeId</c>
+///         <c>BoxOperation.RuntimeId</c> and <c>BootstrapRun.RuntimeId</c>
 ///         convention.</item>
 ///   <item>Soft-deletable: <c>Deleted</c> state has a 30-day window before the
-///         janitor hard-deletes the row and the Fly resources behind it.</item>
+///         janitor hard-deletes the row; the Box behind it is deleted at
+///         Deleting time (a stopped box costs ~nothing, but a deleted project
+///         must not leave billable snapshots behind).</item>
 /// </list>
 ///
 /// <para>This card is intentionally <i>data only</i>. The state-machine
@@ -70,47 +72,50 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     public DateTime StateChangedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// Fly machine id once the Booting transition has produced one. Indexed
-    /// so we can resolve "which runtime is this Fly webhook about?" in O(1).
+    /// Box id once provisioning has forked one from the template. Indexed so
+    /// the reconciler can resolve "which runtime owns this box?" in O(1).
+    /// Unlike the Fly-era machine id, the box IS the persistence — its disk
+    /// survives stop/resume — so this id is stable for the runtime's whole
+    /// life (only ResetFromScratch and size-change reprovision replace it).
     /// </summary>
-    public string? FlyMachineId { get; set; }
+    public string? BoxId { get; set; }
 
-    /// <summary>Fly volume id once the volume has been created. Retained across suspensions.</summary>
-    public string? FlyVolumeId { get; set; }
+    /// <summary>
+    /// Id of the golden template box this runtime was forked from (see the
+    /// RuntimeTemplates feature). Audit-only — respawns resume the existing
+    /// box rather than re-forking, so this never drives a boot after the
+    /// first provision.
+    /// </summary>
+    public string? TemplateBoxId { get; set; }
 
-    /// <summary>OCI digest of the runtime base image this machine was booted from, e.g. <c>sha256:...</c>.</summary>
-    public string? ImageDigest { get; set; }
-
-    /// <summary>Fly region the machine + volume live in, e.g. <c>"arn"</c>. Required.</summary>
+    /// <summary>Box region the VM lives in (EU: e.g. <c>"de"</c>, <c>"fi"</c>, <c>"fr"</c>). Informational — forks inherit the template's region.</summary>
     public string Region { get; set; } = string.Empty;
 
-    /// <summary>Volume size in gigabytes. Defaults to 5; can be expanded per-runtime later.</summary>
-    /// <remarks>
-    /// Why 5 and not 1: Fly auto-formats new volumes as ext4 with the default
-    /// bytes-per-inode of 16 KiB, so inode count scales linearly with bytes.
-    /// At 1 GB we got only ~64k inodes — exhausted by a single npm install
-    /// (e.g. <c>@mui/icons-material</c> alone ships ~8.6k tiny <c>.d.ts</c> files),
-    /// causing <c>ENOSPC: no space left on device</c> even with bytes still free.
-    /// 5 GB ≈ ~320k inodes which comfortably covers a typical monorepo install.
-    ///
-    /// <para>Now snapshotted from <c>Project.RuntimeVolumeSizeGb</c> at row
-    /// creation time so a project-wide spec update doesn't retroactively
-    /// re-size live runtimes — only newly-spawned ones pick up the new value.</para>
-    /// </remarks>
+    /// <summary>
+    /// Requested disk size in gigabytes, snapshotted from
+    /// <c>Project.RuntimeVolumeSizeGb</c>. Informational on Box — every box
+    /// ships &gt;50 GB of disk regardless — but retained so the requested spec
+    /// stays auditable and pre-Box rows keep their history.
+    /// </summary>
     public int VolumeSizeGb { get; set; } = 5;
 
     /// <summary>
-    /// Fly CPU class for this runtime's machine. Snapshotted from
-    /// <c>Project.RuntimeCpuKind</c> at row creation time. Stored on the runtime
-    /// (not just read live from the project) so the spec that booted this
-    /// machine is always auditable, even after the project's defaults move on.
+    /// Legacy CPU-class label snapshotted from <c>Project.RuntimeCpuKind</c>.
+    /// Box has no CPU-class notion (its tiers are picked from
+    /// <see cref="Cpus"/> + <see cref="MemoryMb"/> via <c>BoxSizeMapper</c>);
+    /// retained for audit of the requested spec only.
     /// </summary>
     public string CpuKind { get; set; } = Project.DefaultRuntimeCpuKind;
 
-    /// <summary>vCPU count for this runtime's machine. Snapshotted from <c>Project.RuntimeCpus</c>.</summary>
+    /// <summary>
+    /// Requested vCPU count, snapshotted from <c>Project.RuntimeCpus</c>.
+    /// Together with <see cref="MemoryMb"/> this picks the Box size tier
+    /// (small 2/4, default 4/8, large 8/16) via <c>BoxSizeMapper</c> — the
+    /// mapping rounds up so a runtime never lands on a smaller box than asked.
+    /// </summary>
     public int Cpus { get; set; } = Project.DefaultRuntimeCpus;
 
-    /// <summary>RAM in MiB for this runtime's machine. Snapshotted from <c>Project.RuntimeMemoryMb</c>.</summary>
+    /// <summary>Requested RAM in MiB, snapshotted from <c>Project.RuntimeMemoryMb</c>. See <see cref="Cpus"/>.</summary>
     public int MemoryMb { get; set; } = Project.DefaultRuntimeMemoryMb;
 
     /// <summary>
@@ -377,9 +382,9 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     /// <summary>
     /// User-initiated restart for a runtime stuck in <see cref="RuntimeState.Failed"/>
     /// or <see cref="RuntimeState.Crashed"/>. Walks the runtime to <c>Pending</c> so
-    /// the <c>RuntimeProvisionerJob</c> picks the row up on its next tick and spawns
-    /// a fresh Fly machine — reusing the existing <see cref="FlyVolumeId"/> so the
-    /// user's working data survives the restart.
+    /// the <c>RuntimeProvisionerJob</c> picks the row up on its next tick and
+    /// reboots the existing box (stop + resume) — the box's disk IS the user's
+    /// working data, so it survives the restart by construction.
     ///
     /// <list type="bullet">
     ///   <item>Legal from any live runtime the user might want to hard-reboot:
@@ -393,11 +398,9 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     ///         anything.</item>
     ///   <item>Resets <see cref="RespawnRetries"/> to 0 — the operator is explicitly
     ///         re-arming the runtime's failure budget for the new boot attempt.</item>
-    ///   <item><b>Deliberately keeps <see cref="FlyMachineId"/>.</b> The provisioner's
-    ///         reuse-volume path uses the stale machine id to force-destroy the dead
-    ///         machine before creating the replacement (idempotent — Fly's 404 means
-    ///         "already gone, continue"). Clearing it here would orphan the dead
-    ///         machine on Fly's side, which is exactly the bug this method fixes.</item>
+    ///   <item><b>Deliberately keeps <see cref="BoxId"/>.</b> The provisioner's
+    ///         existing-box path stops and resumes that box; only
+    ///         <see cref="ResetFromScratch"/> abandons it.</item>
     ///   <item>Raises <see cref="RuntimeStateChanged"/> with <c>reason="user_restart"</c>
     ///         and <c>triggeredBy="user:{userId}"</c> so the audit trail in
     ///         <c>RuntimeStateEvents</c> attributes the action to the right user.</item>
@@ -412,10 +415,10 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     /// <summary>
     /// Snapshots new hardware sizing onto this row and walks to
     /// <see cref="RuntimeState.Pending"/> so <see cref="Jobs.RuntimeProvisionerJob"/>
-    /// destroys the old Fly machine and creates a replacement with the updated
-    /// guest config. Reuses <see cref="FlyVolumeId"/> — disk bytes on the volume
-    /// are unchanged even when <paramref name="volumeSizeGb"/> differs from the
-    /// live Fly volume's provisioned size.
+    /// re-sizes the runtime. On Box a size change is a disk-preserving fork:
+    /// stop the current box (fresh snapshot), fork it at the new size tier,
+    /// delete the old box. <see cref="BoxId"/> is therefore kept here — the
+    /// provisioner needs it as the fork source.
     /// </summary>
     public Result ReprovisionAfterSpecChange(
         string cpuKind,
@@ -474,11 +477,10 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
         State = RuntimeState.Pending;
         RespawnRetries = 0;
         StateChangedAt = DateTime.UtcNow;
-        // NOTE: FlyMachineId is intentionally NOT cleared — the provisioner's
-        // reuse-volume path uses it to force-destroy the dead Fly machine before
-        // creating the replacement. See RuntimeProvisionerJob.ProvisionAsync.
-        // FlyVolumeId is also preserved — that's the whole point of restart vs
-        // a full re-provision: the user's working data on the volume survives.
+        // NOTE: BoxId is intentionally NOT cleared — the provisioner's
+        // existing-box path stops + resumes that box, and its disk carries the
+        // user's working data. That's the whole point of restart vs a full
+        // reset-from-scratch. See RuntimeProvisionerJob.ProvisionAsync.
 
         // Same daemon-connection-invariant reasoning as TransitionTo: a runtime
         // leaving Failed has no live daemon, so stale heartbeats must not leak
@@ -501,12 +503,12 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     }
 
     /// <summary>
-    /// User-initiated full reprovision: drop Fly machine + volume references and
-    /// walk to <see cref="RuntimeState.Pending"/> so
-    /// <see cref="Jobs.RuntimeProvisionerJob"/> creates fresh infrastructure.
-    /// Unlike <see cref="Restart"/>, this clears <see cref="FlyVolumeId"/> —
-    /// the escape hatch when the volume is gone, pending_destroy, or otherwise
-    /// unusable.
+    /// User-initiated full reprovision: drop the box reference and walk to
+    /// <see cref="RuntimeState.Pending"/> so <see cref="Jobs.RuntimeProvisionerJob"/>
+    /// forks a fresh box from the active template. Unlike <see cref="Restart"/>,
+    /// this abandons the box AND its disk — the escape hatch when the box is
+    /// gone, wedged, or its filesystem is beyond repair. The caller deletes the
+    /// old box best-effort before invoking this.
     /// </summary>
     public Result ResetFromScratch(Guid userId)
     {
@@ -518,8 +520,8 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
 
         var fromState = State;
         State = RuntimeState.Pending;
-        FlyMachineId = null;
-        FlyVolumeId = null;
+        BoxId = null;
+        TemplateBoxId = null;
         RespawnRetries = 0;
         StateChangedAt = DateTime.UtcNow;
         LastHeartbeatAt = null;

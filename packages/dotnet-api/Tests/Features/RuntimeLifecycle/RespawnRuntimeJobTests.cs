@@ -1,25 +1,24 @@
 using System.Net;
 using System.Text;
-using Api.Tests.Features.FlyManagement;
+using Api.Tests.Features.BoxManagement;
 using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Source.Features.BoxManagement;
+using Source.Features.BoxManagement.Configuration;
 using Source.Features.Cloudflare.Configuration;
 using Source.Features.Cloudflare.Services;
 using Source.Features.DaemonVersions.Models;
-using Source.Features.FlyManagement;
-using Source.Features.FlyManagement.Configuration;
-using Source.Features.RuntimeImages.Models;
 using Source.Features.RuntimeLifecycle.Configuration;
 using Source.Features.RuntimeLifecycle.Events;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Features.RuntimeLifecycle.Models;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Features.RuntimeTokens.Services;
 using Source.Features.SystemSettings.Services;
 using Source.Infrastructure;
@@ -29,7 +28,7 @@ namespace Api.Tests.Features.RuntimeLifecycle;
 
 /// <summary>
 /// Unit tests for <see cref="RespawnRuntimeJob"/>. Mirrors the bootstrap that
-/// <c>RuntimeProvisionerJobTests</c> uses: a real <see cref="FlyClient"/>
+/// <c>RuntimeProvisionerJobTests</c> uses: a real <see cref="BoxClient"/>
 /// driven by a scripted <see cref="HttpMessageHandler"/>, and a wired
 /// <see cref="ApplicationDbContext"/> with the
 /// <see cref="DomainEventInterceptor"/> + MediatR registered so the
@@ -137,35 +136,32 @@ public class RespawnRuntimeJobTests : IDisposable
     // Helpers
     // ------------------------------------------------------------------
 
-    private static readonly FlyOptions DefaultFlyOptions = new()
+    private const string TemplateBoxId = "box_template_gold";
+
+    private static BoxOptions DefaultBoxOptions() => new()
     {
-        ApiToken = "fly_pat_secret_xyz",
-        OrgSlug = "personal",
-        AppName = "test-app",
-        DefaultRegion = "arn",
+        ApiKey = "box_test_key",
+        ApiBaseUrl = "https://api.ascii.dev/v1",
+        DefaultTtlSeconds = 21_600,
     };
 
-    private RespawnRuntimeJob CreateJob(HttpMessageHandler handler)
+    private RespawnRuntimeJob CreateJob(HttpMessageHandler handler, string? publicApiUrl = "https://test-api.example.com")
     {
-        var http = new HttpClient(handler, disposeHandler: false)
-        {
-            BaseAddress = new Uri("https://api.machines.dev/v1/"),
-        };
-        var fly = new FlyClient(
+        // No BaseAddress — BoxClient builds absolute URLs from the accessor.
+        var http = new HttpClient(handler, disposeHandler: false);
+        var box = new BoxClient(
             http,
-            new StubFlyOptionsAccessor(DefaultFlyOptions),
+            new StubBoxOptionsAccessor(DefaultBoxOptions()),
             _db,
-            new Mock<ILogger<FlyClient>>().Object);
+            NullLogger<BoxClient>.Instance);
         var runtimeOptions = new StubRuntimeOptionsAccessor(new RuntimeOptions
         {
-            PublicApiUrl = "https://test-api.example.com",
+            PublicApiUrl = publicApiUrl ?? string.Empty,
         });
 
-        // The respawn job now reconciles Cloudflare tunnel ingress on every
-        // respawn of a runtime with a non-default PreviewPort — matching the
-        // provisioner's belt-and-braces logic. Stub the API client with an
-        // always-success handler so existing test coverage holds; CloudflareApiClient's
-        // own wire-shape tests live elsewhere.
+        // Always-success Cloudflare stub — the respawn job reconciles tunnel
+        // ingress best-effort; wire shape is covered by CloudflareApiClient's
+        // own dedicated tests.
         var cloudflareHttp = new HttpClient(new AlwaysSuccessCloudflareHandler(), disposeHandler: false)
         {
             BaseAddress = new Uri("https://api.cloudflare.com/client/v4/"),
@@ -182,7 +178,8 @@ public class RespawnRuntimeJobTests : IDisposable
 
         return new RespawnRuntimeJob(
             _db,
-            fly,
+            box,
+            new StubBoxOptionsAccessor(DefaultBoxOptions()),
             runtimeOptions,
             _runtimeTokenService,
             _mediator,
@@ -216,21 +213,17 @@ public class RespawnRuntimeJobTests : IDisposable
 
     private async Task<ProjectRuntime> SeedRuntimeAsync(
         RuntimeState state = RuntimeState.Crashed,
-        string? flyMachineId = "mach_old",
-        string? flyVolumeId = "vol_persist",
-        string? imageDigest = null,
+        string? boxId = "box_old",
         int respawnRetries = 0)
     {
         var runtime = new ProjectRuntime
         {
             ProjectId = Guid.NewGuid(),
-            Region = "arn",
+            Region = "de",
             VolumeSizeGb = 1,
             State = state,
             RespawnRetries = respawnRetries,
-            FlyMachineId = flyMachineId,
-            FlyVolumeId = flyVolumeId,
-            ImageDigest = imageDigest ?? ("sha256:" + new string('a', 64)),
+            BoxId = boxId,
             // Required for IRuntimeTokenService.MintAsync to succeed — live
             // runtimes inherit this from Project.WorkspaceId; seed it here so
             // the respawn job's mint step doesn't refuse and short-circuit.
@@ -243,8 +236,7 @@ public class RespawnRuntimeJobTests : IDisposable
 
     /// <summary>
     /// Seed an active daemon-bundle row so <c>ResolveDaemonVersionQuery</c>
-    /// returns a hit during the respawn flow. Tests that exercise the
-    /// happy path call this.
+    /// returns a hit during the respawn flow.
     /// </summary>
     private async Task<DaemonVersion> SeedActiveDaemonVersionAsync(
         string version = "2026.05.10.000000",
@@ -267,30 +259,30 @@ public class RespawnRuntimeJobTests : IDisposable
         return v;
     }
 
-    /// <summary>
-
-    private async Task<RuntimeImage> SeedActiveImageAsync(string tag = "2026.05.08-aaa", DateTime? builtAt = null)
+    /// <summary>Seed an Active golden-template row — the fork source when the box is gone.</summary>
+    private async Task<RuntimeTemplate> SeedActiveTemplateAsync(string boxId = TemplateBoxId)
     {
-        var image = new RuntimeImage
+        var template = new RuntimeTemplate
         {
             Id = Guid.NewGuid(),
-            Tag = tag,
-            Digest = "sha256:" + new string('a', 64),
-            Registry = "registry.fly.io/fwd-runtime",
+            BoxId = boxId,
+            Label = "base-2026.08.20-test",
             GitSha = "abc1234",
-            BuiltAt = builtAt ?? DateTime.UtcNow,
-            SizeMb = 200,
-            Status = RuntimeImageStatus.Active,
+            BuiltAt = DateTime.UtcNow,
+            Status = RuntimeTemplateStatus.Active,
         };
-        _db.RuntimeImages.Add(image);
+        _db.RuntimeTemplates.Add(template);
         await _db.SaveChangesAsync();
-        return image;
+        return template;
     }
 
-    /// <summary>Canned JSON for <c>FlyMachine</c> response bodies.</summary>
-    private static string MachineJson(string id) =>
+    /// <summary>
+    /// Canned Box resource JSON. Size "small" matches BoxSizeMapper.FromSpec for
+    /// the default seeded spec (2 cpu / 4096 MB).
+    /// </summary>
+    private static string BoxJson(string id, string status = "ready") =>
         $$"""
-        {"id":"{{id}}","name":"rt","state":"created","region":"arn","instance_id":null,"private_ip":null,"created_at":"2026-05-08T10:00:00Z"}
+        {"id":"{{id}}","name":"rt","status":"{{status}}","size":"small","region":"de","ttlSeconds":21600,"createdAt":"2026-05-08T10:00:00Z"}
         """;
 
     // ------------------------------------------------------------------
@@ -303,11 +295,11 @@ public class RespawnRuntimeJobTests : IDisposable
         var handler = new ScriptedHandler();
         var job = CreateJob(handler);
 
-        // No runtime exists with this id — job must no-op without hitting Fly.
+        // No runtime exists with this id — job must no-op without hitting Box.
         await job.Run(Guid.NewGuid(), CancellationToken.None);
 
         handler.CallCount.Should().Be(0,
-            "a missing runtime row must short-circuit before any Fly call");
+            "a missing runtime row must short-circuit before any Box call");
         (await _db.RuntimeStateEvents.CountAsync()).Should().Be(0);
     }
 
@@ -331,38 +323,48 @@ public class RespawnRuntimeJobTests : IDisposable
     }
 
     [Fact]
-    public async Task Run_HappyPath_DestroysAndCreates()
+    public async Task Run_CrashedBoxStillUp_StopsResumesAndTransitionsToBooting()
     {
-        await SeedActiveImageAsync();
+        // A crashed runtime whose box is up-but-wedged: the Box-native respawn is
+        // a clean VM reboot of the SAME box — stop (fresh snapshot), resume,
+        // re-arm TTL, wait for it to come up, refresh the env with the fresh JWT.
         await SeedActiveDaemonVersionAsync();
         var runtime = await SeedRuntimeAsync(
             state: RuntimeState.Crashed,
-            flyMachineId: "mach_old_abc",
-            flyVolumeId: "vol_persist_xyz",
+            boxId: "box_wedged",
             respawnRetries: 0);
 
         var handler = new ScriptedHandler();
-        // Destroy returns the {"ok":true} envelope (any 2xx body works).
-        handler.Enqueue(HttpStatusCode.OK, "{\"ok\":true}");
-        // Create returns a fresh machine.
-        handler.Enqueue(HttpStatusCode.OK, MachineJson("mach_new_def"));
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_wedged", status: "running")); // GetBox
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                     // POST stop
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                     // POST resume
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_wedged", status: "running")); // PATCH ttl
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_wedged", status: "ready"));   // GetBox (wait-up, FIRST poll is up)
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                     // POST commands (env refresh)
 
         var job = CreateJob(handler);
 
         await job.Run(runtime.Id, CancellationToken.None);
 
-        // Two upstream calls: destroy old + create new.
-        handler.CallCount.Should().Be(2);
+        handler.CallCount.Should().Be(6);
+        handler.Requests[1].Method.Should().Be(HttpMethod.Post);
+        handler.Requests[1].Url.Should().EndWith("/boxes/box_wedged/stop",
+            "an up-but-wedged box is stopped first so the resume boots from a fresh snapshot");
+        handler.Requests[2].Method.Should().Be(HttpMethod.Post);
+        handler.Requests[2].Url.Should().EndWith("/boxes/box_wedged/resume");
+        handler.Requests[3].Method.Should().Be(HttpMethod.Patch);
+        handler.Requests[3].Url.Should().EndWith("/boxes/box_wedged");
+        handler.Requests[5].Method.Should().Be(HttpMethod.Post);
+        handler.Requests[5].Url.Should().EndWith("/boxes/box_wedged/commands",
+            "the env refresh delivers the freshly-minted JWT and bounces the daemon");
+        handler.Requests[5].Body.Should().Contain("GLENN_RUNTIME_TOKEN");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
-        refreshed.FlyMachineId.Should().Be("mach_new_def",
-            "the new machine id must replace the old one");
-        refreshed.FlyVolumeId.Should().Be("vol_persist_xyz",
-            "the volume is reused — that's the whole point of respawn-on-volume");
-        refreshed.RespawnRetries.Should().Be(1,
-            "the respawn job is the canonical bump site for the retry counter");
         refreshed.State.Should().Be(RuntimeState.Booting,
             "Crashed -> Booting closes the respawn loop");
+        refreshed.BoxId.Should().Be("box_wedged", "reboot keeps the same box — its disk is the persistence");
+        refreshed.RespawnRetries.Should().Be(1,
+            "the respawn job is the canonical bump site for the retry counter");
 
         // Audit row written by PersistRuntimeStateEventHandler.
         var events = await _db.RuntimeStateEvents.AsNoTracking()
@@ -372,144 +374,112 @@ public class RespawnRuntimeJobTests : IDisposable
         var audit = events.Single();
         audit.FromState.Should().Be(RuntimeState.Crashed);
         audit.ToState.Should().Be(RuntimeState.Booting);
-        audit.Reason.Should().Be("respawn:created");
+        audit.Reason.Should().Be("respawn:rebooted");
         audit.TriggeredBy.Should().Be("respawn-job");
         audit.Metadata.Should().NotBeNullOrWhiteSpace();
-        audit.Metadata!.Should().Contain("mach_old_abc",
-            "metadata must record the old machine id for traceability");
-        audit.Metadata!.Should().Contain("mach_new_def",
-            "metadata must record the new machine id for traceability");
+        audit.Metadata!.Should().Contain("box_wedged",
+            "metadata must record the box id for traceability");
+        audit.Metadata!.Should().Contain("\"rebooted\":true");
     }
 
     [Fact]
-    public async Task Run_DestroyReturns404_StillCreates()
+    public async Task Run_CrashedBoxGone404_ForksFreshFromTemplate()
     {
-        await SeedActiveImageAsync();
         await SeedActiveDaemonVersionAsync();
+        var template = await SeedActiveTemplateAsync();
         var runtime = await SeedRuntimeAsync(
             state: RuntimeState.Crashed,
-            flyMachineId: "mach_already_gone");
+            boxId: "box_vanished");
 
         var handler = new ScriptedHandler();
-        // Destroy 404: machine already gone (Fly cleaned it up, or a redeliver).
-        handler.Enqueue(HttpStatusCode.NotFound, "{\"error\":\"not_found\"}");
-        // Create still proceeds.
-        handler.Enqueue(HttpStatusCode.OK, MachineJson("mach_new_404path"));
+        handler.Enqueue(HttpStatusCode.NotFound, "{\"error\":{\"code\":\"not_found\"}}"); // GetBox 404
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_fresh_fork"));                    // POST fork
 
         var job = CreateJob(handler);
 
         await job.Run(runtime.Id, CancellationToken.None);
 
         handler.CallCount.Should().Be(2,
-            "404 on destroy must not abort the create");
+            "404 on GetBox means box gone — fork fresh from the template, no reboot dance");
+        handler.Requests[1].Method.Should().Be(HttpMethod.Post);
+        handler.Requests[1].Url.Should().EndWith($"/boxes/{TemplateBoxId}/fork",
+            "the fresh fork must come from the active golden template");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Booting);
-        refreshed.FlyMachineId.Should().Be("mach_new_404path");
+        refreshed.BoxId.Should().Be("box_fresh_fork",
+            "the new box id must replace the vanished one");
+        refreshed.TemplateBoxId.Should().Be(template.BoxId);
         refreshed.RespawnRetries.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task Run_NoFlyMachineId_SkipsDestroy()
-    {
-        await SeedActiveImageAsync();
-        await SeedActiveDaemonVersionAsync();
-        // Edge case: a Crashed runtime with no FlyMachineId. There's nothing
-        // to destroy, but the create path should still run.
-        var runtime = await SeedRuntimeAsync(
-            state: RuntimeState.Crashed,
-            flyMachineId: null,
-            flyVolumeId: "vol_persist_zzz");
-
-        var handler = new ScriptedHandler();
-        // Only the create call should fire.
-        handler.Enqueue(HttpStatusCode.OK, MachineJson("mach_first"));
-
-        var job = CreateJob(handler);
-
-        await job.Run(runtime.Id, CancellationToken.None);
-
-        handler.CallCount.Should().Be(1,
-            "no machine id means no destroy — only the create call runs");
-
-        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
-        refreshed.State.Should().Be(RuntimeState.Booting);
-        refreshed.FlyMachineId.Should().Be("mach_first");
-    }
-
-    [Fact]
-    public async Task Run_NoActiveImage_TransitionsToFailed()
-    {
-        // The production code no longer reads runtime.ImageDigest for the
-        // registry/tag — it re-resolves the currently active RuntimeImage so
-        // newly-respawned VMs always land on the current platform image.
-        // When there is no active image, the runtime is transitioned to
-        // Failed with reason "respawn:no_active_image" so an operator can fix
-        // the platform configuration. This replaces the obsolete
-        // Run_NoImageDigest_Throws test.
-        var runtime = await SeedRuntimeAsync(
-            state: RuntimeState.Crashed,
-            flyMachineId: "mach_old_no_image");
-
-        // No RuntimeImage rows seeded — the resolve must miss.
-        var handler = new ScriptedHandler();
-        // The destroy call still fires before the image check; the create
-        // never does because the image check transitions to Failed and returns.
-        handler.Enqueue(HttpStatusCode.OK, "{\"ok\":true}");
-
-        var job = CreateJob(handler);
-
-        await job.Run(runtime.Id, CancellationToken.None);
-
-        handler.CallCount.Should().Be(1,
-            "destroy runs first, but the create must be skipped once we discover no active image");
-
-        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
-        refreshed.State.Should().Be(RuntimeState.Failed,
-            "no active image must surface as an operator-actionable Failed state");
-        refreshed.RespawnRetries.Should().Be(0,
-            "retries are bumped only on a successful create");
 
         var events = await _db.RuntimeStateEvents.AsNoTracking()
             .Where(e => e.RuntimeId == runtime.Id)
             .ToListAsync();
         events.Should().HaveCount(1);
-        events.Single().Reason.Should().Be("respawn:no_active_image",
+        var audit = events.Single();
+        audit.Reason.Should().Be("respawn:rebooted");
+        audit.Metadata!.Should().Contain("box_vanished",
+            "metadata must record the old box id for traceability");
+        audit.Metadata!.Should().Contain("box_fresh_fork",
+            "metadata must record the new box id for traceability");
+        audit.Metadata!.Should().Contain("\"rebooted\":false");
+    }
+
+    [Fact]
+    public async Task Run_CrashedBoxGone404_NoActiveTemplate_TransitionsToFailed()
+    {
+        await SeedActiveDaemonVersionAsync();
+        // No RuntimeTemplate rows seeded — the re-fork must fail the runtime.
+        var runtime = await SeedRuntimeAsync(
+            state: RuntimeState.Crashed,
+            boxId: "box_vanished_no_tpl");
+
+        var handler = new ScriptedHandler();
+        handler.Enqueue(HttpStatusCode.NotFound, "{\"error\":{\"code\":\"not_found\"}}"); // GetBox 404
+
+        var job = CreateJob(handler);
+
+        await job.Run(runtime.Id, CancellationToken.None);
+
+        handler.CallCount.Should().Be(1,
+            "no fork can be issued without an active template");
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Failed,
+            "no active template must surface as an operator-actionable Failed state");
+        refreshed.RespawnRetries.Should().Be(0,
+            "retries are bumped only on a successful reboot/fork");
+
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        events.Single().Reason.Should().Be("respawn:no_active_template",
             "the structured reason is what the operator dashboard surfaces");
     }
 
     [Fact]
-    public async Task Run_CreateFails_NoTransition()
+    public async Task Run_MissingPublicApiUrl_TransitionsToFailed()
     {
-        await SeedActiveImageAsync();
-        await SeedActiveDaemonVersionAsync();
-        var runtime = await SeedRuntimeAsync(
-            state: RuntimeState.Crashed,
-            flyMachineId: "mach_old_fail",
-            respawnRetries: 0);
+        var runtime = await SeedRuntimeAsync(state: RuntimeState.Crashed);
 
         var handler = new ScriptedHandler();
-        // Destroy succeeds.
-        handler.Enqueue(HttpStatusCode.OK, "{\"ok\":true}");
-        // Create fails with a 500 — Hangfire should retry the whole job.
-        handler.Enqueue(HttpStatusCode.InternalServerError, "{\"error\":\"upstream\"}");
+        var job = CreateJob(handler, publicApiUrl: "");
 
-        var job = CreateJob(handler);
+        await job.Run(runtime.Id, CancellationToken.None);
 
-        var act = async () => await job.Run(runtime.Id, CancellationToken.None);
-
-        await act.Should().ThrowAsync<FlyApiException>(
-            "Fly 500 on create must propagate so Hangfire retries");
+        handler.CallCount.Should().Be(0,
+            "misconfiguration must short-circuit before any Box call");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
-        refreshed.State.Should().Be(RuntimeState.Crashed,
-            "no transition when the create call fails");
-        refreshed.RespawnRetries.Should().Be(0,
-            "retries are bumped only on a successful create");
+        refreshed.State.Should().Be(RuntimeState.Failed,
+            "a daemon without MAIN_API_URL can never dial back — refuse to respawn");
 
-        // No audit row for the (non-existent) transition.
-        (await _db.RuntimeStateEvents.CountAsync(e => e.RuntimeId == runtime.Id))
-            .Should().Be(0);
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        events.Single().Reason.Should().Be("provisioner:no_public_api_url");
     }
 
     // ------------------------------------------------------------------
@@ -523,36 +493,5 @@ public class RespawnRuntimeJobTests : IDisposable
         var attr = method.GetCustomAttributes(typeof(Hangfire.DisableConcurrentExecutionAttribute), inherit: false);
         attr.Should().NotBeEmpty(
             "two Hangfire workers must not race on the same respawn — the attribute is the lock");
-    }
-
-    // ------------------------------------------------------------------
-    // Test doubles — copied from RuntimeProvisionerJobTests for parity.
-    // ------------------------------------------------------------------
-
-    private sealed class ScriptedHandler : HttpMessageHandler
-    {
-        private readonly Queue<HttpResponseMessage> _responses = new();
-        public int CallCount { get; private set; }
-
-        public void Enqueue(HttpStatusCode status, string body)
-        {
-            _responses.Enqueue(new HttpResponseMessage(status)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
-        }
-
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            CallCount++;
-            if (_responses.Count == 0)
-            {
-                throw new InvalidOperationException(
-                    $"ScriptedHandler exhausted after {CallCount} calls — test under-mocked.");
-            }
-            return Task.FromResult(_responses.Dequeue());
-        }
     }
 }

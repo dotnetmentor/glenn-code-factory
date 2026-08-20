@@ -17,7 +17,7 @@ namespace Source.Features.RuntimeLifecycle.Controllers;
 /// 12s ago"). One endpoint, one query, one projection.
 ///
 /// <para><b>Why no MediatR.</b> Same pragmatic reasoning as
-/// <see cref="Source.Features.FlyManagement.Controllers.FlyAdminController"/> and
+/// <see cref="Source.Features.BoxManagement.Controllers.BoxAdminController"/> and
 /// <see cref="Source.Features.RuntimeBootstrap.Controllers.BootstrapRunsController"/>:
 /// this is a thin passthrough over two reads (the runtime row + a Take(5) over its audit
 /// trail). Wrapping in commands/handlers would add four files without changing
@@ -190,8 +190,8 @@ public class RuntimeStatusController : ControllerBase
             runtime.State,
             runtime.StateChangedAt,
             runtime.LastHeartbeatAt,
-            runtime.FlyMachineId,
-            runtime.ImageDigest,
+            runtime.BoxId,
+            runtime.TemplateBoxId,
             runtime.Region,
             recent,
             errorReason,

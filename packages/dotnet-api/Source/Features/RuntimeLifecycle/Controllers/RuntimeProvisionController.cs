@@ -19,7 +19,7 @@ namespace Source.Features.RuntimeLifecycle.Controllers;
 /// Creates a fresh <see cref="Project"/>, default <see cref="ProjectBranch"/>
 /// and <see cref="ProjectRuntime"/> in <see cref="RuntimeState.Pending"/> — the
 /// row that the existing <c>RuntimeProvisionerJob</c> picks up to actually boot
-/// the Fly machine. The optional <see cref="CreateProjectRuntimeRequest.InitialSpec"/>
+/// the box. The optional <see cref="CreateProjectRuntimeRequest.InitialSpec"/>
 /// is what differentiates the manual stack picker (spec set up front) from the
 /// AI-curated flow (spec left null and filled in incrementally via proposals).
 ///

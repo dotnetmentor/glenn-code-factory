@@ -1,14 +1,13 @@
 using System.Net;
-using System.Text;
-using Api.Tests.Features.FlyManagement;
+using Api.Tests.Features.BoxManagement;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using Source.Features.FlyManagement;
-using Source.Features.FlyManagement.Configuration;
+using Source.Features.BoxManagement;
+using Source.Features.BoxManagement.Configuration;
 using Source.Features.RuntimeLifecycle.Events;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Features.RuntimeLifecycle.Models;
@@ -19,7 +18,7 @@ namespace Api.Tests.Features.RuntimeLifecycle;
 
 /// <summary>
 /// Unit tests for <see cref="RuntimeReconcilerJob"/>. We construct a real
-/// <see cref="FlyClient"/> on top of a scripted <see cref="HttpMessageHandler"/>
+/// <see cref="BoxClient"/> on top of a scripted <see cref="HttpMessageHandler"/>
 /// (mirroring the seam <see cref="RuntimeProvisionerJobTests"/> uses) and build a
 /// wired <see cref="ApplicationDbContext"/> with the
 /// <see cref="DomainEventInterceptor"/> + MediatR registered so the
@@ -48,8 +47,8 @@ public class RuntimeReconcilerJobTests : IDisposable
             cfg.RegisterServicesFromAssembly(typeof(RuntimeStateChanged).Assembly));
 
         // ScheduleRespawnHandler is auto-discovered and depends on IBackgroundJobClient;
-        // tests that don't trigger a respawn never invoke its Schedule path, but DI must
-        // still be able to construct the handler.
+        // Crashed transitions in these tests reach its scheduling path, so a mock is
+        // required for DI construction (no-op is fine — we assert DB state, not enqueues).
         services.AddSingleton<IBackgroundJobClient>(new Mock<IBackgroundJobClient>().Object);
 
         services.AddScoped<DomainEventInterceptor>();
@@ -75,37 +74,33 @@ public class RuntimeReconcilerJobTests : IDisposable
     // Helpers
     // ------------------------------------------------------------------
 
-    private static readonly FlyOptions DefaultFlyOptions = new()
+    private static readonly BoxOptions DefaultBoxOptions = new()
     {
-        ApiToken = "fly_pat_secret_xyz",
-        OrgSlug = "personal",
-        AppName = "test-app",
-        DefaultRegion = "arn",
+        ApiKey = "box_test_key",
+        ApiBaseUrl = "https://api.ascii.dev/v1",
     };
 
     private RuntimeReconcilerJob CreateJob(HttpMessageHandler handler)
     {
-        var http = new HttpClient(handler, disposeHandler: false)
-        {
-            BaseAddress = new Uri("https://api.machines.dev/v1/"),
-        };
-        var fly = new FlyClient(
+        // No BaseAddress — BoxClient builds absolute URLs from the accessor.
+        var http = new HttpClient(handler, disposeHandler: false);
+        var box = new BoxClient(
             http,
-            new StubFlyOptionsAccessor(DefaultFlyOptions),
+            new StubBoxOptionsAccessor(DefaultBoxOptions),
             _db,
-            new Mock<ILogger<FlyClient>>().Object);
-        return new RuntimeReconcilerJob(_db, fly, NullLogger<RuntimeReconcilerJob>.Instance);
+            NullLogger<BoxClient>.Instance);
+        return new RuntimeReconcilerJob(_db, box, NullLogger<RuntimeReconcilerJob>.Instance);
     }
 
-    private async Task<ProjectRuntime> SeedRuntimeAsync(RuntimeState state, string? machineId)
+    private async Task<ProjectRuntime> SeedRuntimeAsync(RuntimeState state, string? boxId)
     {
         var runtime = new ProjectRuntime
         {
             ProjectId = Guid.NewGuid(),
-            Region = "arn",
+            Region = "de",
             VolumeSizeGb = 1,
             State = state,
-            FlyMachineId = machineId,
+            BoxId = boxId,
         };
         _db.ProjectRuntimes.Add(runtime);
         await _db.SaveChangesAsync();
@@ -114,9 +109,9 @@ public class RuntimeReconcilerJobTests : IDisposable
 
     /// <summary>
     /// Build a scripted handler that returns the supplied JSON body for a single
-    /// <c>ListMachines</c> call.
+    /// <c>ListBoxes</c> call.
     /// </summary>
-    private static ScriptedHandler MachineListHandler(string body)
+    private static ScriptedHandler BoxListHandler(string body)
     {
         var handler = new ScriptedHandler();
         handler.Enqueue(HttpStatusCode.OK, body);
@@ -124,13 +119,13 @@ public class RuntimeReconcilerJobTests : IDisposable
     }
 
     /// <summary>
-    /// Format Fly's machine-list JSON. State values are stringly-typed on the wire;
-    /// see <c>FlyMachine</c> for the full vocabulary Fly uses.
+    /// Format Box's box-list JSON. Status values are stringly-typed on the wire;
+    /// see <c>BoxStatus</c> for the vocabulary (ready/idle/running/archived/error/provisioning).
     /// </summary>
-    private static string MachineListJson(params (string id, string state)[] machines)
+    private static string BoxListJson(params (string id, string status)[] boxes)
     {
-        var items = string.Join(",", machines.Select(m =>
-            $$"""{"id":"{{m.id}}","name":"rt","state":"{{m.state}}","region":"arn","instance_id":null,"private_ip":null,"created_at":"2026-05-08T10:00:00Z"}"""));
+        var items = string.Join(",", boxes.Select(b =>
+            $$"""{"id":"{{b.id}}","name":"rt","status":"{{b.status}}","size":"small","region":"de","ttlSeconds":21600,"createdAt":"2026-05-08T10:00:00Z"}"""));
         return $"[{items}]";
     }
 
@@ -139,14 +134,14 @@ public class RuntimeReconcilerJobTests : IDisposable
     // ------------------------------------------------------------------
 
     [Fact]
-    public async Task Run_EmptyDbAndEmptyFlyList_NoOp()
+    public async Task Run_EmptyDbAndEmptyBoxList_NoOp()
     {
-        var handler = MachineListHandler("[]");
+        var handler = BoxListHandler("[]");
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // ListMachines was the only call.
+        // ListBoxes was the only call.
         handler.CallCount.Should().Be(1);
         (await _db.ProjectRuntimes.CountAsync()).Should().Be(0);
         (await _db.RuntimeStateEvents.CountAsync()).Should().Be(0);
@@ -155,36 +150,36 @@ public class RuntimeReconcilerJobTests : IDisposable
     [Fact]
     public async Task Run_NoDrift_NoStateChangesNoEvents()
     {
-        // DB matches Fly: runtime is Online and Fly says started.
-        var runtime = await SeedRuntimeAsync(RuntimeState.Online, "mach_ok");
-        var handler = MachineListHandler(MachineListJson(("mach_ok", "started")));
+        // DB matches Box: runtime is Online and its box is up (running).
+        var runtime = await SeedRuntimeAsync(RuntimeState.Online, "box_ok");
+        var handler = BoxListHandler(BoxListJson(("box_ok", "running")));
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Online,
-            "DB matched Fly so no transition should have fired");
+            "DB matched Box so no transition should have fired");
 
         (await _db.RuntimeStateEvents.CountAsync(e => e.RuntimeId == runtime.Id))
             .Should().Be(0, "no drift means no audit row");
     }
 
     [Fact]
-    public async Task Run_FlyMachineMissing_TransitionsToCrashed()
+    public async Task Run_BoxMissing_LiveRuntime_TransitionsToCrashed()
     {
-        // Runtime claims a Fly machine that Fly doesn't know about — classic drift.
-        var runtime = await SeedRuntimeAsync(RuntimeState.Online, "mach_lost");
+        // Runtime claims a box that Box doesn't know about — classic drift.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Online, "box_lost");
 
-        // Fly returns an unrelated machine id, so ours is missing.
-        var handler = MachineListHandler(MachineListJson(("mach_other", "started")));
+        // Box returns an unrelated box id, so ours is missing.
+        var handler = BoxListHandler(BoxListJson(("box_other", "running")));
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Crashed,
-            "missing Fly machine forces a Crashed transition so the supervisor can react");
+            "missing box forces a Crashed transition so the supervisor can react");
 
         var events = await _db.RuntimeStateEvents.AsNoTracking()
             .Where(e => e.RuntimeId == runtime.Id)
@@ -193,18 +188,153 @@ public class RuntimeReconcilerJobTests : IDisposable
         var audit = events.Single();
         audit.FromState.Should().Be(RuntimeState.Online);
         audit.ToState.Should().Be(RuntimeState.Crashed);
-        audit.Reason.Should().Be("reconciler:machine_missing");
+        audit.Reason.Should().Be("reconciler:box_missing");
         audit.TriggeredBy.Should().Be("reconciler");
     }
 
     [Fact]
-    public async Task Run_FlyStoppedDbOnline_TransitionsToSuspending()
+    public async Task Run_BoxMissing_Suspending_TransitionsToSuspended()
     {
-        // Spec card asks for Suspended, but the state graph forbids Online -> Suspended
-        // in a single hop. We pick the closest legal target (Suspending) and let the
-        // next tick or a webhook close Suspending -> Suspended.
-        var runtime = await SeedRuntimeAsync(RuntimeState.Online, "mach_quiet");
-        var handler = MachineListHandler(MachineListJson(("mach_quiet", "stopped")));
+        // Suspending + box gone: someone deleted the box out from under us —
+        // treat as suspend-complete.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Suspending, "box_gone_susp");
+        var handler = BoxListHandler("[]");
+
+        var job = CreateJob(handler);
+        await job.Run(CancellationToken.None);
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Suspended);
+
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        events.Single().Reason.Should().Be("reconciler:suspend_completed_box_missing");
+    }
+
+    [Fact]
+    public async Task Run_BoxMissing_Deleting_TransitionsToDeleted()
+    {
+        var runtime = await SeedRuntimeAsync(RuntimeState.Deleting, "box_gone_del");
+        var handler = BoxListHandler("[]");
+
+        var job = CreateJob(handler);
+        await job.Run(CancellationToken.None);
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Deleted,
+            "Deleting + missing box means the delete completed");
+
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        events.Single().Reason.Should().Be("reconciler:delete_completed_box_missing");
+    }
+
+    [Fact]
+    public async Task Run_BoxMissing_TerminalState_NoOp()
+    {
+        // Suspended is terminal-ish for the reconciler: a missing box is expected
+        // eventually (TTL purge) and must not trigger any transition.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Suspended, "box_gone_terminal");
+        var handler = BoxListHandler("[]");
+
+        var job = CreateJob(handler);
+        await job.Run(CancellationToken.None);
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Suspended);
+        (await _db.RuntimeStateEvents.CountAsync(e => e.RuntimeId == runtime.Id)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Run_BoxUpDbBooting_TransitionsToBootstrapping()
+    {
+        // Box has no webhooks — the reconciler is the ONLY driver of the
+        // "VM came up" edge. Booting + up → Bootstrapping; the daemon's
+        // RuntimeReady hub call still owns Bootstrapping → Online.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Booting, "box_boot");
+        var handler = BoxListHandler(BoxListJson(("box_boot", "ready")));
+
+        var job = CreateJob(handler);
+        await job.Run(CancellationToken.None);
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Bootstrapping,
+            "Booting + box up hands off to Bootstrapping; only the daemon may claim Online");
+
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        var audit = events.Single();
+        audit.FromState.Should().Be(RuntimeState.Booting);
+        audit.ToState.Should().Be(RuntimeState.Bootstrapping);
+        audit.Reason.Should().Be("reconciler:drift");
+        audit.TriggeredBy.Should().Be("reconciler");
+        audit.Metadata.Should().NotBeNull();
+        audit.Metadata!.Should().Contain("\"boxStatus\":\"ready\"");
+        audit.Metadata!.Should().Contain("\"dbState\":\"Booting\"");
+    }
+
+    [Fact]
+    public async Task Run_BoxUpDbWaking_TransitionsToBootstrapping()
+    {
+        // Wake path: box resumed but daemon hasn't confirmed yet.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Waking, "box_wake");
+        var handler = BoxListHandler(BoxListJson(("box_wake", "running")));
+
+        var job = CreateJob(handler);
+        await job.Run(CancellationToken.None);
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Bootstrapping,
+            "Waking + box up hands off to Bootstrapping");
+
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        var audit = events.Single();
+        audit.FromState.Should().Be(RuntimeState.Waking);
+        audit.ToState.Should().Be(RuntimeState.Bootstrapping);
+        audit.Reason.Should().Be("reconciler:drift");
+        audit.Metadata!.Should().Contain("\"boxStatus\":\"running\"");
+        audit.Metadata!.Should().Contain("\"dbState\":\"Waking\"");
+    }
+
+    [Fact]
+    public async Task Run_BoxArchivedDbSuspending_TransitionsToSuspended()
+    {
+        // The stop we issued landed: Suspending advances to Suspended once Box
+        // reports archived.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Suspending, "box_susp");
+        var handler = BoxListHandler(BoxListJson(("box_susp", "archived")));
+
+        var job = CreateJob(handler);
+        await job.Run(CancellationToken.None);
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Suspended);
+
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        events.Single().Reason.Should().Be("reconciler:drift");
+    }
+
+    [Fact]
+    public async Task Run_BoxArchivedDbOnline_TransitionsToSuspending()
+    {
+        // The box archived itself (TTL guardrail) or was stopped out-of-band while
+        // we think it's Online. The state graph forbids Online -> Suspended in a
+        // single hop, so the reconciler picks the closest legal target (Suspending)
+        // and the next tick closes Suspending -> Suspended.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Online, "box_quiet");
+        var handler = BoxListHandler(BoxListJson(("box_quiet", "archived")));
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
@@ -223,25 +353,24 @@ public class RuntimeReconcilerJobTests : IDisposable
         audit.Reason.Should().Be("reconciler:drift");
         audit.TriggeredBy.Should().Be("reconciler");
         audit.Metadata.Should().NotBeNull();
-        audit.Metadata!.Should().Contain("\"flyState\":\"stopped\"");
+        audit.Metadata!.Should().Contain("\"boxStatus\":\"archived\"");
         audit.Metadata!.Should().Contain("\"dbState\":\"Online\"");
     }
 
     [Fact]
-    public async Task Run_FlyStoppedDbBooting_TransitionsToCrashed()
+    public async Task Run_BoxArchivedDbBooting_TransitionsToCrashed()
     {
-        // Mid-boot drift: Fly stopped the machine while the DB still says Booting.
-        // The supervisor needs Crashed so ScheduleRespawnHandler kicks in (destroy
-        // + recreate fresh machine) rather than us logging drift forever.
-        var runtime = await SeedRuntimeAsync(RuntimeState.Booting, "mach_boot_stuck");
-        var handler = MachineListHandler(MachineListJson(("mach_boot_stuck", "stopped")));
+        // Mid-boot drift: the box archived while the DB still says Booting.
+        // The supervisor needs Crashed so ScheduleRespawnHandler kicks in.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Booting, "box_boot_stuck");
+        var handler = BoxListHandler(BoxListJson(("box_boot_stuck", "archived")));
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Crashed,
-            "Booting + fly:stopped means the machine died mid-boot; Crashed lets ScheduleRespawnHandler recover");
+            "Booting + box:archived means the box went down mid-boot; Crashed lets ScheduleRespawnHandler recover");
 
         var events = await _db.RuntimeStateEvents.AsNoTracking()
             .Where(e => e.RuntimeId == runtime.Id)
@@ -251,27 +380,24 @@ public class RuntimeReconcilerJobTests : IDisposable
         audit.FromState.Should().Be(RuntimeState.Booting);
         audit.ToState.Should().Be(RuntimeState.Crashed);
         audit.Reason.Should().Be("reconciler:drift");
-        audit.TriggeredBy.Should().Be("reconciler");
-        audit.Metadata.Should().NotBeNull();
-        audit.Metadata!.Should().Contain("\"flyState\":\"stopped\"");
+        audit.Metadata!.Should().Contain("\"boxStatus\":\"archived\"");
         audit.Metadata!.Should().Contain("\"dbState\":\"Booting\"");
     }
 
     [Fact]
-    public async Task Run_FlyStoppedDbBootstrapping_TransitionsToCrashed()
+    public async Task Run_BoxArchivedDbBootstrapping_TransitionsToCrashed()
     {
         // Same mid-boot drift case but the runtime had advanced from Booting to
-        // Bootstrapping before the machine went down (e.g. daemon hit the
-        // "no model slug configured" non-recoverable error in bootstrap-opencode).
-        var runtime = await SeedRuntimeAsync(RuntimeState.Bootstrapping, "mach_bootstrap_stuck");
-        var handler = MachineListHandler(MachineListJson(("mach_bootstrap_stuck", "stopped")));
+        // Bootstrapping before the box went down.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Bootstrapping, "box_bootstrap_stuck");
+        var handler = BoxListHandler(BoxListJson(("box_bootstrap_stuck", "archived")));
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Crashed,
-            "Bootstrapping + fly:stopped means daemon bootstrap died; Crashed lets ScheduleRespawnHandler recover");
+            "Bootstrapping + box:archived means daemon bootstrap died; Crashed lets ScheduleRespawnHandler recover");
 
         var events = await _db.RuntimeStateEvents.AsNoTracking()
             .Where(e => e.RuntimeId == runtime.Id)
@@ -284,20 +410,19 @@ public class RuntimeReconcilerJobTests : IDisposable
     }
 
     [Fact]
-    public async Task Run_FlySuspendedDbWaking_TransitionsToCrashed()
+    public async Task Run_BoxArchivedDbWaking_TransitionsToCrashed()
     {
-        // Wake path mid-boot drift: we asked Fly to start a suspended machine but
-        // Fly still reports it as suspended. Mark Crashed so the supervisor can
-        // respawn instead of leaving the runtime stuck in Waking forever.
-        var runtime = await SeedRuntimeAsync(RuntimeState.Waking, "mach_wake_stuck");
-        var handler = MachineListHandler(MachineListJson(("mach_wake_stuck", "suspended")));
+        // Wake path mid-boot drift: we asked Box to resume but it still reports
+        // archived. Mark Crashed so the supervisor can respawn.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Waking, "box_wake_stuck");
+        var handler = BoxListHandler(BoxListJson(("box_wake_stuck", "archived")));
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Crashed,
-            "Waking + fly:suspended means the wake never landed; Crashed lets ScheduleRespawnHandler recover");
+            "Waking + box:archived means the resume never landed; Crashed lets ScheduleRespawnHandler recover");
 
         var events = await _db.RuntimeStateEvents.AsNoTracking()
             .Where(e => e.RuntimeId == runtime.Id)
@@ -307,43 +432,85 @@ public class RuntimeReconcilerJobTests : IDisposable
         audit.FromState.Should().Be(RuntimeState.Waking);
         audit.ToState.Should().Be(RuntimeState.Crashed);
         audit.Reason.Should().Be("reconciler:drift");
-        audit.Metadata.Should().NotBeNull();
-        audit.Metadata!.Should().Contain("\"flyState\":\"suspended\"");
+        audit.Metadata!.Should().Contain("\"boxStatus\":\"archived\"");
         audit.Metadata!.Should().Contain("\"dbState\":\"Waking\"");
     }
 
     [Fact]
-    public async Task Run_FlyStoppedDbSuspending_TransitionsToSuspended()
+    public async Task Run_BoxErrorDbOnline_TransitionsToCrashed()
     {
-        // Webhook missed: Suspending should advance to Suspended once Fly confirms stopped.
-        var runtime = await SeedRuntimeAsync(RuntimeState.Suspending, "mach_susp");
-        var handler = MachineListHandler(MachineListJson(("mach_susp", "stopped")));
+        var runtime = await SeedRuntimeAsync(RuntimeState.Online, "box_err");
+        var handler = BoxListHandler(BoxListJson(("box_err", "error")));
+
+        var job = CreateJob(handler);
+        await job.Run(CancellationToken.None);
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Crashed,
+            "box-side hard failure of a live runtime must surface as Crashed");
+
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        events.Single().Metadata!.Should().Contain("\"boxStatus\":\"error\"");
+    }
+
+    [Fact]
+    public async Task Run_BoxErrorDbSuspending_TransitionsToSuspended()
+    {
+        // Suspending + error: the stop failed hard box-side. Suspended is the
+        // closest truthful terminal; a later wake surfaces the error again.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Suspending, "box_err_susp");
+        var handler = BoxListHandler(BoxListJson(("box_err_susp", "error")));
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Suspended);
+    }
 
-        var events = await _db.RuntimeStateEvents.AsNoTracking()
-            .Where(e => e.RuntimeId == runtime.Id)
-            .ToListAsync();
-        events.Should().HaveCount(1);
-        events.Single().Reason.Should().Be("reconciler:drift");
+    [Fact]
+    public async Task Run_StuckSuspending_BoxStillUp_RetriesStopWithoutTransition()
+    {
+        // DB says Suspending but the box is still up — the StopBox side-effect
+        // never landed. The reconciler must re-issue the stop and must NOT
+        // transition this tick (the next pass observes archived and closes
+        // Suspending -> Suspended via the normal mapping).
+        var runtime = await SeedRuntimeAsync(RuntimeState.Suspending, "box_stuck");
+        var handler = new ScriptedHandler();
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson(("box_stuck", "running")));
+        handler.Enqueue(HttpStatusCode.OK, "{}"); // the retried StopBox
+
+        var job = CreateJob(handler);
+        await job.Run(CancellationToken.None);
+
+        handler.CallCount.Should().Be(2, "ListBoxes + the retried StopBox");
+        var stopRequest = handler.Requests[1];
+        stopRequest.Method.Should().Be(HttpMethod.Post);
+        stopRequest.Url.Should().EndWith("/boxes/box_stuck/stop",
+            "the reconciler must retry the missing StopBox side-effect");
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Suspending,
+            "no transition this tick — the next pass observes archived and closes the edge");
+
+        (await _db.RuntimeStateEvents.CountAsync(e => e.RuntimeId == runtime.Id)).Should().Be(0);
     }
 
     [Fact]
     public async Task Run_MixedBatch_OnlyDriftedRowsAreMutated()
     {
-        // Three runtimes — one matches Fly, one drifted, one missing on Fly.
-        var matching = await SeedRuntimeAsync(RuntimeState.Online, "mach_match");
-        var drifted = await SeedRuntimeAsync(RuntimeState.Suspending, "mach_drift");
-        var missing = await SeedRuntimeAsync(RuntimeState.Online, "mach_gone");
+        // Three runtimes — one matches Box, one drifted, one missing on Box.
+        var matching = await SeedRuntimeAsync(RuntimeState.Online, "box_match");
+        var drifted = await SeedRuntimeAsync(RuntimeState.Suspending, "box_drift");
+        var missing = await SeedRuntimeAsync(RuntimeState.Online, "box_vanished");
 
-        var handler = MachineListHandler(MachineListJson(
-            ("mach_match", "started"),
-            ("mach_drift", "stopped")));
-        // mach_gone is intentionally absent.
+        var handler = BoxListHandler(BoxListJson(
+            ("box_match", "running"),
+            ("box_drift", "archived")));
+        // box_vanished is intentionally absent.
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
@@ -353,10 +520,9 @@ public class RuntimeReconcilerJobTests : IDisposable
         var missingState = (await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == missing.Id)).State;
 
         matchingState.Should().Be(RuntimeState.Online, "no drift, no change");
-        driftedState.Should().Be(RuntimeState.Suspended, "Suspending + stopped -> Suspended");
-        missingState.Should().Be(RuntimeState.Crashed, "machine missing on Fly -> Crashed");
+        driftedState.Should().Be(RuntimeState.Suspended, "Suspending + archived -> Suspended");
+        missingState.Should().Be(RuntimeState.Crashed, "box missing on Box -> Crashed");
 
-        // Exactly two audit rows: one for the drifted transition, one for the missing-machine transition.
         var matchingEvents = await _db.RuntimeStateEvents.AsNoTracking()
             .Where(e => e.RuntimeId == matching.Id).ToListAsync();
         var driftedEvents = await _db.RuntimeStateEvents.AsNoTracking()
@@ -373,9 +539,9 @@ public class RuntimeReconcilerJobTests : IDisposable
     public async Task Run_PendingRuntime_IsIgnored()
     {
         // Pending rows are the provisioner's job — the reconciler must not touch them
-        // even when they have no Fly machine yet.
-        var pending = await SeedRuntimeAsync(RuntimeState.Pending, machineId: null);
-        var handler = MachineListHandler("[]");
+        // even when they have no box yet.
+        var pending = await SeedRuntimeAsync(RuntimeState.Pending, boxId: null);
+        var handler = BoxListHandler("[]");
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
@@ -387,22 +553,22 @@ public class RuntimeReconcilerJobTests : IDisposable
     }
 
     [Fact]
-    public async Task Run_FlyApiFails_LogsAndReturnsClean()
+    public async Task Run_BoxApiFails_LogsAndReturnsClean()
     {
-        // Runtime exists but Fly's list call 500s — the reconciler must not touch the
+        // Runtime exists but Box's list call 500s — the reconciler must not touch the
         // row, must not throw, and must leave state intact for a future tick.
-        var runtime = await SeedRuntimeAsync(RuntimeState.Online, "mach_safe");
+        var runtime = await SeedRuntimeAsync(RuntimeState.Online, "box_safe");
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.InternalServerError, "{\"error\":\"upstream_blip\"}");
+        handler.Enqueue(HttpStatusCode.InternalServerError, "{\"error\":{\"code\":\"upstream_blip\"}}");
 
         var job = CreateJob(handler);
 
-        // Should NOT throw — Fly being down is an expected failure mode.
+        // Should NOT throw — Box being down is an expected failure mode.
         await job.Run(CancellationToken.None);
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
-        refreshed.State.Should().Be(RuntimeState.Online, "transient Fly outage must not mutate state");
+        refreshed.State.Should().Be(RuntimeState.Online, "transient Box outage must not mutate state");
 
         (await _db.RuntimeStateEvents.CountAsync(e => e.RuntimeId == runtime.Id)).Should().Be(0);
     }
@@ -418,40 +584,5 @@ public class RuntimeReconcilerJobTests : IDisposable
         var attr = method.GetCustomAttributes(typeof(Hangfire.DisableConcurrentExecutionAttribute), inherit: false);
         attr.Should().NotBeEmpty(
             "two Hangfire workers must not race on the same reconcile pass — the attribute is the lock");
-    }
-
-    // ------------------------------------------------------------------
-    // Test doubles
-    // ------------------------------------------------------------------
-
-    /// <summary>
-    /// FIFO scripted handler. Mirrors the inner sealed class in
-    /// <see cref="RuntimeProvisionerJobTests"/>.
-    /// </summary>
-    private sealed class ScriptedHandler : HttpMessageHandler
-    {
-        private readonly Queue<HttpResponseMessage> _responses = new();
-        public int CallCount { get; private set; }
-
-        public void Enqueue(HttpStatusCode status, string body)
-        {
-            _responses.Enqueue(new HttpResponseMessage(status)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
-        }
-
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            CallCount++;
-            if (_responses.Count == 0)
-            {
-                throw new InvalidOperationException(
-                    $"ScriptedHandler exhausted after {CallCount} calls — test under-mocked.");
-            }
-            return Task.FromResult(_responses.Dequeue());
-        }
     }
 }

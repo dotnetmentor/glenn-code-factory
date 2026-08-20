@@ -3,31 +3,28 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Api.Tests.Features.FlyManagement;
-using Api.Tests.Infrastructure;
+using Api.Tests.Features.BoxManagement;
 using Hangfire;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.DependencyInjection;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Source.Features.BoxManagement;
+using Source.Features.BoxManagement.Configuration;
+using Source.Features.BoxManagement.Models;
 using Source.Features.Cloudflare.Configuration;
 using Source.Features.Cloudflare.Models;
 using Source.Features.Cloudflare.Services;
 using Source.Features.DaemonVersions.Models;
-using Source.Features.FlyManagement;
-using Source.Features.FlyManagement.Configuration;
-using Source.Features.FlyManagement.Models;
 using Source.Features.Projects.Models;
-using Source.Features.RuntimeImages.Models;
 using Source.Features.RuntimeLifecycle.Configuration;
 using Source.Features.RuntimeLifecycle.Events;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Features.RuntimeLifecycle.Models;
-using Source.Features.RuntimeTokens.Models;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Features.RuntimeTokens.Services;
 using Source.Features.SystemSettings.Services;
 using Source.Infrastructure;
@@ -37,9 +34,8 @@ namespace Api.Tests.Features.RuntimeLifecycle;
 
 /// <summary>
 /// Unit tests for <see cref="RuntimeProvisionerJob"/>. We construct a real
-/// <see cref="FlyClient"/> on top of a scripted <see cref="HttpMessageHandler"/>
-/// (mirroring the seam <see cref="FlyManagement.FlyAdminControllerTests"/> uses) and
-/// build a wired <see cref="ApplicationDbContext"/> with the
+/// <see cref="BoxClient"/> on top of a scripted <see cref="HttpMessageHandler"/>
+/// and build a wired <see cref="ApplicationDbContext"/> with the
 /// <see cref="DomainEventInterceptor"/> + MediatR registered so the
 /// <c>RuntimeStateChanged</c> event flows through the
 /// <c>PersistRuntimeStateEventHandler</c> and audit rows actually land.
@@ -148,36 +144,35 @@ public class RuntimeProvisionerJobTests : IDisposable
     // Helpers
     // ------------------------------------------------------------------
 
-    private static readonly FlyOptions DefaultFlyOptions = new()
+    private const string TemplateBoxId = "box_template_gold";
+
+    private static BoxOptions DefaultBoxOptions() => new()
     {
-        ApiToken = "fly_pat_secret_xyz",
-        OrgSlug = "personal",
-        AppName = "test-app",
-        DefaultRegion = "arn",
+        ApiKey = "box_test_key",
+        ApiBaseUrl = "https://api.ascii.dev/v1",
+        DefaultTtlSeconds = 21_600,
     };
 
-    private RuntimeProvisionerJob CreateJob(HttpMessageHandler handler)
+    private RuntimeProvisionerJob CreateJob(HttpMessageHandler handler, BoxOptions? boxOptions = null)
     {
-        var http = new HttpClient(handler, disposeHandler: false)
-        {
-            BaseAddress = new Uri("https://api.machines.dev/v1/"),
-        };
-        var fly = new FlyClient(
+        boxOptions ??= DefaultBoxOptions();
+
+        // No BaseAddress — BoxClient builds absolute URLs from the accessor.
+        var http = new HttpClient(handler, disposeHandler: false);
+        var box = new BoxClient(
             http,
-            new StubFlyOptionsAccessor(DefaultFlyOptions),
+            new StubBoxOptionsAccessor(boxOptions),
             _db,
-            new Mock<ILogger<FlyClient>>().Object);
+            NullLogger<BoxClient>.Instance);
         var runtimeOptions = new StubRuntimeOptionsAccessor(new RuntimeOptions
         {
             PublicApiUrl = "https://test-api.example.com",
         });
 
-        // The provisioner now reconciles Cloudflare tunnel ingress on every
-        // boot of a runtime with a non-default PreviewPort. Wire a tiny
-        // CloudflareApiClient on top of an always-success handler so the new
-        // code path doesn't blow up the existing test surface — the tests
-        // here aren't trying to assert Cloudflare wire shape (that's covered
-        // in CloudflareApiClient's own dedicated tests).
+        // The provisioner reconciles Cloudflare tunnel ingress for runtimes with
+        // a non-default PreviewPort. Wire a tiny CloudflareApiClient on top of an
+        // always-success handler so that code path doesn't blow up the test
+        // surface — Cloudflare wire shape is covered in its own dedicated tests.
         var cloudflareHttp = new HttpClient(new AlwaysSuccessCloudflareHandler(), disposeHandler: false)
         {
             BaseAddress = new Uri("https://api.cloudflare.com/client/v4/"),
@@ -194,8 +189,8 @@ public class RuntimeProvisionerJobTests : IDisposable
 
         return new RuntimeProvisionerJob(
             _db,
-            fly,
-            new StubFlyOptionsAccessor(DefaultFlyOptions),
+            box,
+            new StubBoxOptionsAccessor(boxOptions),
             _runtimeTokenService,
             runtimeOptions,
             _mediator,
@@ -234,17 +229,11 @@ public class RuntimeProvisionerJobTests : IDisposable
 
     /// <summary>
     /// Seed an active daemon-bundle row so <c>ResolveDaemonVersionQuery</c>
-    /// returns a hit during the provisioner batch. **Also seeds an active
-    /// agent-natives row** by default — the provisioner now requires BOTH to
-    /// be published before it will provision a runtime (matching the prod
-    /// reality where daemon + natives ship in lockstep). Tests that want to
-    /// assert the natives-missing short-circuit can pass
-    /// <paramref name="seedNatives"/>=false.
+    /// returns a hit during the provisioner batch.
     /// </summary>
     private async Task<DaemonVersion> SeedActiveDaemonVersionAsync(
         string version = "2026.05.10.000000",
-        string channel = "stable",
-        bool seedNatives = true)
+        string channel = "stable")
     {
         var v = new DaemonVersion
         {
@@ -260,28 +249,21 @@ public class RuntimeProvisionerJobTests : IDisposable
         };
         _db.DaemonVersions.Add(v);
         await _db.SaveChangesAsync();
-
-        if (seedNatives)
-        {
-        }
-
         return v;
     }
 
-    /// <summary>
-
-    private async Task<ProjectRuntime> SeedPendingAsync(DateTime? createdAt = null)
+    private async Task<ProjectRuntime> SeedPendingAsync(DateTime? createdAt = null, string? boxId = null)
     {
         var runtime = new ProjectRuntime
         {
             ProjectId = Guid.NewGuid(),
-            Region = "arn",
+            Region = "de",
             VolumeSizeGb = 1,
             State = RuntimeState.Pending,
-            // Card 4 of e2e-smoketest: ProjectRuntime.TenantId is required for
-            // MintAsync to succeed. Live runtimes inherit this from
-            // Project.WorkspaceId (Card 3); seed it here so the provisioner's
-            // mint step doesn't refuse and short-circuit to Failed.
+            BoxId = boxId,
+            // ProjectRuntime.TenantId is required for MintAsync to succeed. Live
+            // runtimes inherit this from Project.WorkspaceId; seed it here so the
+            // provisioner's mint step doesn't refuse and short-circuit to Failed.
             TenantId = Guid.NewGuid(),
         };
         _db.ProjectRuntimes.Add(runtime);
@@ -297,37 +279,33 @@ public class RuntimeProvisionerJobTests : IDisposable
         return runtime;
     }
 
-    private async Task<RuntimeImage> SeedActiveImageAsync(string tag = "2026.05.08-aaa", DateTime? builtAt = null)
+    /// <summary>Seed an Active golden-template row — the default fork source.</summary>
+    private async Task<RuntimeTemplate> SeedActiveTemplateAsync(
+        string boxId = TemplateBoxId,
+        DateTime? builtAt = null)
     {
-        var image = new RuntimeImage
+        var template = new RuntimeTemplate
         {
             Id = Guid.NewGuid(),
-            Tag = tag,
-            Digest = "sha256:" + new string('a', 64),
-            Registry = "registry.fly.io/fwd-runtime",
+            BoxId = boxId,
+            Label = "base-2026.08.20-test",
             GitSha = "abc1234",
             BuiltAt = builtAt ?? DateTime.UtcNow,
-            SizeMb = 200,
-            Status = RuntimeImageStatus.Active,
+            Status = RuntimeTemplateStatus.Active,
         };
-        _db.RuntimeImages.Add(image);
+        _db.RuntimeTemplates.Add(template);
         await _db.SaveChangesAsync();
-        return image;
+        return template;
     }
 
     /// <summary>
-    /// Canned JSON the scripted handler can replay back as a <c>FlyVolume</c>.
-    /// Snake-case to match the FlyClient's serialiser settings.
+    /// Canned Box resource JSON (camelCase — BoxClient's serialiser settings).
+    /// The default size matches BoxSizeMapper.FromSpec for the seeded runtime spec
+    /// (2 cpu / 4096 MB → "small") so reboot-path tests don't trip the resize branch.
     /// </summary>
-    private static string VolumeJson(string id) =>
+    private static string BoxJson(string id, string status = "ready", string size = "small") =>
         $$"""
-        {"id":"{{id}}","name":"vol","region":"arn","size_gb":1,"state":"created","attached_machine_id":null,"encrypted":true,"created_at":"2026-05-08T10:00:00Z"}
-        """;
-
-    /// <summary>Canned JSON for <c>FlyMachine</c>.</summary>
-    private static string MachineJson(string id) =>
-        $$"""
-        {"id":"{{id}}","name":"rt","state":"created","region":"arn","instance_id":null,"private_ip":null,"created_at":"2026-05-08T10:00:00Z"}
+        {"id":"{{id}}","name":"rt","status":"{{status}}","size":"{{size}}","region":"de","ttlSeconds":21600,"createdAt":"2026-05-08T10:00:00Z"}
         """;
 
     // ------------------------------------------------------------------
@@ -349,50 +327,93 @@ public class RuntimeProvisionerJobTests : IDisposable
     }
 
     [Fact]
-    public async Task Run_NoActiveImage_LogsWarningAndFails()
+    public async Task Run_NoActiveTemplate_TransitionsToFailed()
     {
         var runtime = await SeedPendingAsync();
+        await SeedActiveDaemonVersionAsync();
+        // No RuntimeTemplate rows — the pre-flight gate must fail the runtime
+        // before any Box call.
         var handler = new ScriptedHandler();
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // No Fly call should have fired — the job fails the runtime before any
-        // provisioning happens (there is nothing to boot without an image).
-        handler.CallCount.Should().Be(0);
+        handler.CallCount.Should().Be(0,
+            "no Box call should fire — there is nothing to fork without a template");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Failed);
-        refreshed.FlyMachineId.Should().BeNull();
-        refreshed.FlyVolumeId.Should().BeNull();
+        refreshed.BoxId.Should().BeNull();
 
-        // The Pending -> Failed transition is recorded as a state event.
-        (await _db.RuntimeStateEvents.CountAsync()).Should().Be(1);
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        events.Single().Reason.Should().Contain("no_active_template",
+            "the structured reason is what the operator dashboard groups on");
     }
 
     [Fact]
-    public async Task Run_PendingRuntime_CreatesVolumeAndMachineAndTransitionsToBooting()
+    public async Task Run_MissingBoxApiKey_TransitionsToFailedIncompleteConfig()
     {
         var runtime = await SeedPendingAsync();
-        var image = await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, VolumeJson("vol_abc"));
-        handler.Enqueue(HttpStatusCode.OK, MachineJson("mach_abc"));
+        var job = CreateJob(handler, new BoxOptions
+        {
+            ApiKey = "", // not configured
+            ApiBaseUrl = "https://api.ascii.dev/v1",
+        });
+
+        await job.Run(CancellationToken.None);
+
+        handler.CallCount.Should().Be(0, "misconfiguration must short-circuit before any Box call");
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Failed);
+
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        events.Single().Reason.Should().Be("provisioner:incomplete_box_config");
+    }
+
+    [Fact]
+    public async Task Run_PendingRuntime_ForksTemplateAndTransitionsToBooting()
+    {
+        var runtime = await SeedPendingAsync();
+        var template = await SeedActiveTemplateAsync();
+        await SeedActiveDaemonVersionAsync();
+
+        var handler = new ScriptedHandler();
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_new_abc"));
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // Two upstream Fly calls (volume + machine), in that order.
-        handler.CallCount.Should().Be(2);
+        // One upstream Box call: the fork.
+        handler.CallCount.Should().Be(1);
+        var forkRequest = handler.Requests.Single();
+        forkRequest.Method.Should().Be(HttpMethod.Post);
+        forkRequest.Url.Should().Be($"https://api.ascii.dev/v1/boxes/{TemplateBoxId}/fork",
+            "a fresh runtime is a fork of the active golden template");
+
+        // Wire shape: camelCase properties, VERBATIM env keys, noEnv isolation, TTL guardrail.
+        forkRequest.Body.Should().Contain("\"RUNTIME_ID\"",
+            "env keys pass through verbatim — the daemon reads RUNTIME_ID, not runtime_id");
+        forkRequest.Body.Should().Contain("\"noEnv\":true",
+            "runtime forks must never inherit the platform account's own secrets");
+        forkRequest.Body.Should().Contain("\"ttlSeconds\":21600",
+            "every fork is stamped with the orphan-cost TTL guardrail");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Booting);
-        refreshed.FlyVolumeId.Should().Be("vol_abc");
-        refreshed.FlyMachineId.Should().Be("mach_abc");
-        refreshed.ImageDigest.Should().Be(image.Digest);
+        refreshed.BoxId.Should().Be("box_new_abc");
+        refreshed.TemplateBoxId.Should().Be(template.BoxId);
 
         // Audit row written via PersistRuntimeStateEventHandler.
         var events = await _db.RuntimeStateEvents.AsNoTracking()
@@ -402,33 +423,63 @@ public class RuntimeProvisionerJobTests : IDisposable
         var audit = events.Single();
         audit.FromState.Should().Be(RuntimeState.Pending);
         audit.ToState.Should().Be(RuntimeState.Booting);
-        audit.Reason.Should().Be("provisioner:created");
+        audit.Reason.Should().Be("provisioner:forked_from_template");
         audit.TriggeredBy.Should().Be("system:provisioner");
+
+        // The BoxOperation audit pipeline recorded the fork.
+        var boxOps = await _db.BoxOperations.AsNoTracking()
+            .Where(o => o.RuntimeId == runtime.Id)
+            .ToListAsync();
+        boxOps.Should().HaveCount(1);
+        boxOps.Single().Operation.Should().Be("ForkBox");
+        boxOps.Single().Status.Should().Be(BoxOperationStatus.Succeeded);
     }
 
     [Fact]
-    public async Task Run_FlyApiException_TransitionsToFailed()
+    public async Task Run_TransientRateLimit_LeavesPending()
     {
         var runtime = await SeedPendingAsync();
-        await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.UnprocessableEntity,
-            "{\"error\":\"name_taken\"}");
+        handler.Enqueue((HttpStatusCode)429, "{\"error\":{\"code\":\"rate_limited\"}}");
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // Fly was called once (the volume create) and 422'd.
+        handler.CallCount.Should().Be(1);
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Pending,
+            "start-budget/rate-limit errors are transient — the next sweep retries when the budget frees up");
+        refreshed.BoxId.Should().BeNull();
+
+        (await _db.RuntimeStateEvents.CountAsync(e => e.RuntimeId == runtime.Id))
+            .Should().Be(0, "transient errors must not move the runtime — retry on next tick");
+    }
+
+    [Fact]
+    public async Task Run_HardBoxApiError_TransitionsToFailed()
+    {
+        var runtime = await SeedPendingAsync();
+        await SeedActiveTemplateAsync();
+        await SeedActiveDaemonVersionAsync();
+
+        var handler = new ScriptedHandler();
+        handler.Enqueue(HttpStatusCode.UnprocessableEntity, "{\"error\":{\"code\":\"invalid_size\"}}");
+
+        var job = CreateJob(handler);
+
+        await job.Run(CancellationToken.None);
+
         handler.CallCount.Should().Be(1);
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Failed,
-            "a Fly 422 on volume create transitions the runtime to Failed");
+            "a Box 422 on fork transitions the runtime to Failed");
 
-        // Audit row records the failure with a structured reason.
         var events = await _db.RuntimeStateEvents.AsNoTracking()
             .Where(e => e.RuntimeId == runtime.Id)
             .ToListAsync();
@@ -436,22 +487,95 @@ public class RuntimeProvisionerJobTests : IDisposable
         var audit = events.Single();
         audit.FromState.Should().Be(RuntimeState.Pending);
         audit.ToState.Should().Be(RuntimeState.Failed);
-        audit.Reason.Should().StartWith("provisioner:fly_error",
+        audit.Reason.Should().StartWith("provisioner:box_error",
             "the reason carries the structured error code so dashboards can group on it");
+        audit.Reason.Should().Contain("invalid_size");
         audit.TriggeredBy.Should().Be("system:provisioner");
 
-        // The Fly audit row should record the failed call too.
-        var flyOps = await _db.FlyOperations.AsNoTracking().Where(o => o.RuntimeId == runtime.Id).ToListAsync();
-        flyOps.Should().HaveCount(1);
-        flyOps.Single().Status.Should().Be(Source.Features.FlyManagement.Models.FlyOperationStatus.Failed);
-        flyOps.Single().HttpStatusCode.Should().Be(422);
+        // The Box audit row should record the failed call too.
+        var boxOps = await _db.BoxOperations.AsNoTracking().Where(o => o.RuntimeId == runtime.Id).ToListAsync();
+        boxOps.Should().HaveCount(1);
+        boxOps.Single().Status.Should().Be(BoxOperationStatus.Failed);
+        boxOps.Single().HttpStatusCode.Should().Be(422);
+        boxOps.Single().ErrorCode.Should().Be("invalid_size");
+    }
+
+    [Fact]
+    public async Task Run_ExistingArchivedBox_ResumesAndTransitionsToBooting()
+    {
+        // Reboot path: the runtime already owns a box (restart, wake-after-fail, ...).
+        // The provisioner must resume it in place — never re-fork — then re-arm the
+        // TTL, wait for it to come up, and refresh the env via the command channel.
+        var runtime = await SeedPendingAsync(boxId: "box_existing");
+        await SeedActiveTemplateAsync();
+        await SeedActiveDaemonVersionAsync();
+
+        var handler = new ScriptedHandler();
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_existing", status: "archived")); // GetBox
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                       // POST resume
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_existing", status: "archived"));// PATCH ttl
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_existing", status: "ready"));   // GetBox (wait-up, FIRST poll is up)
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                       // POST commands (env refresh)
+
+        var job = CreateJob(handler);
+
+        await job.Run(CancellationToken.None);
+
+        handler.CallCount.Should().Be(5);
+        handler.Requests[0].Method.Should().Be(HttpMethod.Get);
+        handler.Requests[0].Url.Should().EndWith("/boxes/box_existing");
+        handler.Requests[1].Method.Should().Be(HttpMethod.Post);
+        handler.Requests[1].Url.Should().EndWith("/boxes/box_existing/resume",
+            "an archived box is resumed in place — its disk is the user's data");
+        handler.Requests[2].Method.Should().Be(HttpMethod.Patch);
+        handler.Requests[2].Url.Should().EndWith("/boxes/box_existing");
+        handler.Requests[2].Body.Should().Contain("\"ttlSeconds\":21600");
+        handler.Requests[4].Method.Should().Be(HttpMethod.Post);
+        handler.Requests[4].Url.Should().EndWith("/boxes/box_existing/commands",
+            "the env refresh rides the command side channel so the daemon boots with a fresh JWT");
+        handler.Requests[4].Body.Should().Contain("RUNTIME_ID");
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Booting);
+        refreshed.BoxId.Should().Be("box_existing", "the box id is stable across reboots");
+
+        var events = await _db.RuntimeStateEvents.AsNoTracking()
+            .Where(e => e.RuntimeId == runtime.Id)
+            .ToListAsync();
+        events.Should().HaveCount(1);
+        events.Single().Reason.Should().Be("provisioner:rebooted_existing_box");
+    }
+
+    [Fact]
+    public async Task Run_ExistingBoxGone404_FallsBackToFreshFork()
+    {
+        var runtime = await SeedPendingAsync(boxId: "box_vanished");
+        var template = await SeedActiveTemplateAsync();
+        await SeedActiveDaemonVersionAsync();
+
+        var handler = new ScriptedHandler();
+        handler.Enqueue(HttpStatusCode.NotFound, "{\"error\":{\"code\":\"not_found\"}}"); // GetBox 404
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_refork"));                        // fork
+
+        var job = CreateJob(handler);
+
+        await job.Run(CancellationToken.None);
+
+        handler.CallCount.Should().Be(2);
+        handler.Requests[1].Url.Should().EndWith($"/boxes/{TemplateBoxId}/fork",
+            "a 404'd box clears BoxId and falls back to a fresh template fork");
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Booting);
+        refreshed.BoxId.Should().Be("box_refork");
+        refreshed.TemplateBoxId.Should().Be(template.BoxId);
     }
 
     [Fact]
     public async Task Run_NetworkException_LeavesPending()
     {
         var runtime = await SeedPendingAsync();
-        await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ThrowingHandler(new HttpRequestException("connection reset"));
@@ -463,8 +587,7 @@ public class RuntimeProvisionerJobTests : IDisposable
         // Row must NOT have been transitioned — the next tick should retry.
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Pending);
-        refreshed.FlyMachineId.Should().BeNull();
-        refreshed.FlyVolumeId.Should().BeNull();
+        refreshed.BoxId.Should().BeNull();
 
         (await _db.RuntimeStateEvents.CountAsync(e => e.RuntimeId == runtime.Id))
             .Should().Be(0, "transport failures must not move the runtime forward — retry on next tick");
@@ -484,23 +607,22 @@ public class RuntimeProvisionerJobTests : IDisposable
             runtimes.Add(r);
         }
 
-        await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
-        // Need 20 scripted responses — 10 volumes + 10 machines, alternating per-runtime.
+        // Need 10 scripted responses — one fork per runtime.
         var handler = new ScriptedHandler();
         for (var i = 0; i < 10; i++)
         {
-            handler.Enqueue(HttpStatusCode.OK, VolumeJson($"vol_{i}"));
-            handler.Enqueue(HttpStatusCode.OK, MachineJson($"mach_{i}"));
+            handler.Enqueue(HttpStatusCode.OK, BoxJson($"box_{i}"));
         }
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // 20 Fly calls (10 × volume + 10 × machine) — proves we processed exactly 10.
-        handler.CallCount.Should().Be(20);
+        // 10 Box calls (one fork each) — proves we processed exactly 10.
+        handler.CallCount.Should().Be(10);
 
         var bootingCount = await _db.ProjectRuntimes.CountAsync(r => r.State == RuntimeState.Booting);
         var pendingCount = await _db.ProjectRuntimes.CountAsync(r => r.State == RuntimeState.Pending);
@@ -514,38 +636,34 @@ public class RuntimeProvisionerJobTests : IDisposable
             .OrderBy(r => r.CreatedAt)
             .ToListAsync();
         stillPending.Should().HaveCount(2);
-        // We seeded ascending CreatedAt; so the leftovers should be runtimes[10] and runtimes[11].
         stillPending.Select(r => r.Id).Should().BeEquivalentTo(new[] { runtimes[10].Id, runtimes[11].Id });
     }
 
     // ------------------------------------------------------------------
-    // RuntimeToken minting (Card 8)
+    // RuntimeToken minting
     // ------------------------------------------------------------------
 
     [Fact]
-    public async Task Run_PendingRuntime_InjectsRuntimeTokenIntoMachineEnv()
+    public async Task Run_PendingRuntime_InjectsRuntimeTokenIntoForkEnv()
     {
         var runtime = await SeedPendingAsync();
-        await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, VolumeJson("vol_abc"));
-        handler.Enqueue(HttpStatusCode.OK, MachineJson("mach_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // Two upstream Fly calls; the second (index 1) is the machine create.
-        handler.CapturedBodies.Should().HaveCount(2);
-        var machineBody = handler.CapturedBodies[1];
+        handler.Requests.Should().HaveCount(1);
+        var forkBody = handler.Requests[0].Body;
 
-        // FlyClient does NOT snake-case dictionary keys — env var names pass
-        // through verbatim, so the daemon reads RUNTIME_ID / GLENN_RUNTIME_TOKEN
-        // (see Run_PendingRuntime_StampsFlyEnv which pins this same contract).
-        using var doc = JsonDocument.Parse(machineBody);
-        var env = doc.RootElement.GetProperty("config").GetProperty("env");
+        // BoxClient does NOT camelCase dictionary keys — env var names pass
+        // through verbatim, so the daemon reads RUNTIME_ID / GLENN_RUNTIME_TOKEN.
+        using var doc = JsonDocument.Parse(forkBody);
+        var env = doc.RootElement.GetProperty("env");
         env.TryGetProperty("RUNTIME_ID", out var runtimeIdProp).Should().BeTrue();
         runtimeIdProp.GetString().Should().Be(runtime.Id.ToString());
 
@@ -556,18 +674,20 @@ public class RuntimeProvisionerJobTests : IDisposable
         // Shape-check only: a JWT is three dot-separated base64url segments. We
         // don't validate the signature here — RuntimeTokenServiceTests covers that.
         token!.Split('.').Should().HaveCount(3, "GLENN_RUNTIME_TOKEN must be a well-formed JWT");
+
+        env.TryGetProperty("MAIN_API_URL", out var apiUrlProp).Should().BeTrue();
+        apiUrlProp.GetString().Should().Be("https://test-api.example.com");
     }
 
     [Fact]
     public async Task Run_PendingRuntime_PersistsExactlyOneRuntimeTokenIssueRow()
     {
         var runtime = await SeedPendingAsync();
-        await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, VolumeJson("vol_abc"));
-        handler.Enqueue(HttpStatusCode.OK, MachineJson("mach_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
 
         var job = CreateJob(handler);
 
@@ -591,22 +711,20 @@ public class RuntimeProvisionerJobTests : IDisposable
     public async Task Run_PendingRuntime_TokenInEnvMatchesAuditRowTokenHash()
     {
         var runtime = await SeedPendingAsync();
-        await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, VolumeJson("vol_abc"));
-        handler.Enqueue(HttpStatusCode.OK, MachineJson("mach_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // Dig the JWT back out of the captured machine-create body.
+        // Dig the JWT back out of the captured fork body.
         // (Env var keys pass through verbatim — uppercase GLENN_RUNTIME_TOKEN.)
-        using var doc = JsonDocument.Parse(handler.CapturedBodies[1]);
+        using var doc = JsonDocument.Parse(handler.Requests[0].Body);
         var token = doc.RootElement
-            .GetProperty("config")
             .GetProperty("env")
             .GetProperty("GLENN_RUNTIME_TOKEN")
             .GetString();
@@ -630,47 +748,41 @@ public class RuntimeProvisionerJobTests : IDisposable
     }
 
     [Fact]
-    public async Task Run_FlyMachineCreateFailure_PersistsRuntimeTokenIssueRowAndTransitionsToFailed()
+    public async Task Run_ForkFails_PersistsRuntimeTokenIssueRowAndTransitionsToFailed()
     {
-        // Volume create succeeds; machine create 422s. Per the spec the audit row
-        // is written by RuntimeTokenService.MintAsync via its OWN SaveChangesAsync,
-        // which runs BEFORE the machine create — so the issuance row is durably
-        // persisted by the time the Fly throw happens, and survives the failure.
-        // That's the documented "Loss of a token never means loss of audit"
-        // guarantee end-to-end. The orphan token simply expires after 7 days.
+        // Per the spec the audit row is written by RuntimeTokenService.MintAsync
+        // via its OWN SaveChangesAsync, which runs BEFORE the fork — so the
+        // issuance row is durably persisted by the time the Box throw happens,
+        // and survives the failure. That's the documented "Loss of a token never
+        // means loss of audit" guarantee end-to-end. The orphan token simply
+        // expires after 7 days.
         var runtime = await SeedPendingAsync();
-        await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, VolumeJson("vol_abc"));
-        handler.Enqueue(HttpStatusCode.UnprocessableEntity, "{\"error\":\"name_taken\"}");
+        handler.Enqueue(HttpStatusCode.UnprocessableEntity, "{\"error\":{\"code\":\"invalid_size\"}}");
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // Existing failure-path contract: runtime moves to Failed (mirrors
-        // Run_FlyApiException_TransitionsToFailed above; we re-assert here so a
-        // future regression in the failure branch surfaces in the token tests too).
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Failed,
-            "a Fly 422 on machine create still transitions the runtime to Failed");
+            "a Box 422 on fork still transitions the runtime to Failed");
 
-        // The audit row lives — RuntimeTokenService.MintAsync committed it before
-        // the machine call threw. Loss of a Machine never means loss of audit.
         var issues = await _db.RuntimeTokenIssues.AsNoTracking()
             .Where(r => r.RuntimeId == runtime.Id)
             .ToListAsync();
         issues.Should().HaveCount(1,
             "the issuance row commits via MintAsync's own SaveChangesAsync BEFORE the " +
-            "Fly machine-create call, so a machine-create failure leaves the audit row intact");
+            "Box fork call, so a fork failure leaves the audit row intact");
         issues.Single().RevokedAt.Should().BeNull(
             "the orphaned token isn't pre-revoked; it expires naturally");
     }
 
     // ------------------------------------------------------------------
-    // Cloudflare preview-tunnel env (Phase 4: TUNNEL_TOKEN / PREVIEW_PORT / PREVIEW_HOSTNAME)
+    // Cloudflare preview-tunnel env (TUNNEL_TOKEN / PREVIEW_PORT / PREVIEW_HOSTNAME)
     // ------------------------------------------------------------------
 
     [Fact]
@@ -679,7 +791,7 @@ public class RuntimeProvisionerJobTests : IDisposable
         // Seed a project with a non-default preview port + a pool row Assigned
         // to the runtime's branch. The provisioner should decrypt the tunnel
         // token and stamp TUNNEL_TOKEN / PREVIEW_PORT / PREVIEW_HOSTNAME on
-        // the machine env so the daemon can start cloudflared.
+        // the fork env so the daemon can start cloudflared.
         var projectId = Guid.NewGuid();
         var branchId = Guid.NewGuid();
         var workspaceId = Guid.NewGuid();
@@ -717,7 +829,7 @@ public class RuntimeProvisionerJobTests : IDisposable
         {
             ProjectId = projectId,
             BranchId = branchId,
-            Region = "arn",
+            Region = "de",
             VolumeSizeGb = 1,
             State = RuntimeState.Pending,
             TenantId = Guid.NewGuid(),
@@ -725,24 +837,21 @@ public class RuntimeProvisionerJobTests : IDisposable
         _db.ProjectRuntimes.Add(runtime);
         await _db.SaveChangesAsync();
 
-        await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, VolumeJson("vol_abc"));
-        handler.Enqueue(HttpStatusCode.OK, MachineJson("mach_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // Dig the env dict out of the machine-create body.
-        handler.CapturedBodies.Should().HaveCount(2);
-        using var doc = JsonDocument.Parse(handler.CapturedBodies[1]);
-        var env = doc.RootElement.GetProperty("config").GetProperty("env");
+        // Dig the env dict out of the fork body.
+        handler.Requests.Should().HaveCount(1);
+        using var doc = JsonDocument.Parse(handler.Requests[0].Body);
+        var env = doc.RootElement.GetProperty("env");
 
-        // Env dict keys pass through verbatim — FlyClient deliberately does NOT
-        // snake-case dictionary keys (the daemon reads RUNTIME_ID, not runtime_id).
         env.TryGetProperty("TUNNEL_TOKEN", out var tunnelTokenProp).Should().BeTrue(
             "TUNNEL_TOKEN must be stamped on the env when the branch has an Assigned subdomain");
         tunnelTokenProp.GetString().Should().Be(plaintextTunnelToken,
@@ -765,23 +874,20 @@ public class RuntimeProvisionerJobTests : IDisposable
         // will simply not start cloudflared, and the runtime boots cleanly
         // without a preview tunnel.
         var runtime = await SeedPendingAsync();
-        await SeedActiveImageAsync();
+        await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, VolumeJson("vol_abc"));
-        handler.Enqueue(HttpStatusCode.OK, MachineJson("mach_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        handler.CapturedBodies.Should().HaveCount(2);
-        using var doc = JsonDocument.Parse(handler.CapturedBodies[1]);
-        var env = doc.RootElement.GetProperty("config").GetProperty("env");
+        handler.Requests.Should().HaveCount(1);
+        using var doc = JsonDocument.Parse(handler.Requests[0].Body);
+        var env = doc.RootElement.GetProperty("env");
 
-        // Env dict keys pass through verbatim — FlyClient deliberately does NOT
-        // snake-case dictionary keys (the daemon reads RUNTIME_ID, not runtime_id).
         env.TryGetProperty("TUNNEL_TOKEN", out _).Should().BeFalse(
             "TUNNEL_TOKEN must be absent when no SubdomainAssignment is bound to the branch");
         env.TryGetProperty("PREVIEW_PORT", out _).Should().BeFalse(
@@ -810,55 +916,6 @@ public class RuntimeProvisionerJobTests : IDisposable
     // ------------------------------------------------------------------
     // Test doubles
     // ------------------------------------------------------------------
-
-    /// <summary>
-    /// FIFO scripted handler. Mirrors the inner sealed class in
-    /// <c>FlyAdminControllerTests</c>.
-    /// </summary>
-    private sealed class ScriptedHandler : HttpMessageHandler
-    {
-        private readonly Queue<HttpResponseMessage> _responses = new();
-        public int CallCount { get; private set; }
-
-        /// <summary>
-        /// Captured request bodies in call order. Lets a test assert what we
-        /// actually sent to Fly (e.g. that the env dict contains
-        /// GLENN_RUNTIME_TOKEN).
-        /// </summary>
-        public List<string> CapturedBodies { get; } = new();
-
-        public void Enqueue(HttpStatusCode status, string body)
-        {
-            _responses.Enqueue(new HttpResponseMessage(status)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
-        }
-
-        protected override async Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            CallCount++;
-            // Capture the request body BEFORE the response is dispatched so a
-            // test that asserts "exception path leaves audit row" still has
-            // the captured payload to inspect.
-            if (request.Content is not null)
-            {
-                CapturedBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
-            }
-            else
-            {
-                CapturedBodies.Add(string.Empty);
-            }
-            if (_responses.Count == 0)
-            {
-                throw new InvalidOperationException(
-                    $"ScriptedHandler exhausted after {CallCount} calls — test under-mocked.");
-            }
-            return _responses.Dequeue();
-        }
-    }
 
     /// <summary>Always throws — simulates a transport-level failure.</summary>
     private sealed class ThrowingHandler : HttpMessageHandler
