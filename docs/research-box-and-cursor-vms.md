@@ -112,6 +112,62 @@ Our workload (long-running, stateful, mostly-idle VMs) is the opposite of what E
 2. **Box: genuinely interesting, not urgent.** At today's scale Fly costs ~$11–13/runtime-month and suspends to near-zero; switching saves little in absolute terms. Box wins if/when (a) fleet compute cost matters, (b) we want 2×–4× beefier runtimes at today's price, or (c) we lean on disk-fork for instant branch runtimes. The counterweight is betting the whole product on a young vendor with no SLA.
 3. **Cheap next step:** a ~1-day spike — create a box via API, restore a runtime snapshot of our supervisord stack (Postgres + .NET + Vite + tunnel + daemon), measure stop→resume latency and fork time, and confirm TTL override + API completeness. That converts this from paper research into a real go/no-go, without touching `FlyManagement`.
 
+---
+
+# Part 2 — Box-native rewrite (decision: replace Fly entirely)
+
+*Added 2026-08-20 after decision to go all-in. Fly infrastructure has already been torn down, so there is no migration constraint and no reason to keep a provider abstraction. Sources: [Box platform guide](https://docs.ascii.dev/box/platform-guide), [API v1 reference](https://docs.ascii.dev/box/api/v1).*
+
+## Feasibility: yes — Box's docs describe our architecture almost literally
+
+Box's platform guide recommends, for platforms like ours: per-project **no-env forked boxes** tagged via per-fork env vars, a **custom daemon installed as an always-on systemd service** ("survives stop/resume/fork") driven from your backend, **template-based forking** for provisioning ("forks ready in seconds"), and **stop/resume** as the cost model ("Pattern 3", $1 ≈ 27 hours of compute, "$1–5/month typical users"). That is our daemon + supervisord + suspend/wake design, natively supported.
+
+## Concept mapping (Fly → Box-native)
+
+| Today (Fly) | Box-native | Notes |
+|---|---|---|
+| `Dockerfile.runtime-base` + registry publish scripts | **Golden template box** → stop → snapshot | Build the stack once on a box (Node, postgres, mise, Playwright, daemon preinstalled), snapshot it. No Docker pipeline, no flyctl, no registry. |
+| `RuntimeProvisionerJob` → Fly Machines API + volume create | `POST /boxes/{templateId}/fork` with `noEnv: true` + per-fork env | Per-fork env replaces machine env stamping (`RUNTIME_ID`, `GLENN_RUNTIME_TOKEN`, `MAIN_API_URL`, `DAEMON_BUNDLE_*`). Ready in seconds. |
+| Copy-branch fork (volume copy) | Same `fork` endpoint on the project's box | One primitive for both provisioning and branch-fork. |
+| Suspend / Wake | `POST /boxes/{id}/stop` / `resume` | Billing pauses on stop; filesystem, packages, and systemd services persist. **Caveat: hand-run processes don't survive — daemon/supervisord must be systemd units in the template.** |
+| `/data` volume + `persist_rootfs="always"` + install-hash + `installVerify` | Whole-disk persistence | Entire gotcha class deleted. `/data` becomes a plain directory. |
+| `RuntimeReconcilerJob` polling Fly | `GET /boxes/{id}` status polling | Box states (`provisioning`/`ready`/`running`/`idle`/`archived`/`error`) map onto our FSM; handle retriable `box_starting` (409). |
+| Cloudflare tunnel for preview | `host <port> --private` → `https://<sub>-<port>.on.ascii.dev?_token=…` | Built-in private HTTPS with token auth. Tunnel can go, or stay for custom domains later. |
+| `flyctl ssh` (runtime-debug skill) | `box ssh` / `scp`, plus **files API, commands API, desktop-streaming URL** | Commands + files endpoints give the repair loop a daemon-independent side channel; desktop stream = live inspection of a stuck runtime. |
+| Cleanup jobs deleting machines/volumes | **TTL as safety net** | See below — directly addresses the cost-spike incident. |
+
+**What survives unchanged:** the daemon core, bootstrap stage pipeline (minus persistence hacks), SignalR hub contract, runtime JWTs, RuntimeSpec V3/V2, proposals/apply flow, supervisord layout (now under systemd), self-healing/SpecHealth.
+
+**What gets deleted:** `FlyManagement/` entirely, volume naming/creation, `persist_rootfs` + `installVerify` machinery, both runtime-image publish scripts, region markup logic.
+
+## The cost-spike lesson, solved structurally
+
+The Fly bill spiked because cleanup didn't work and orphaned machines kept billing. Box's TTL default (1 h, auto-archive) inverts that failure mode: **create every box with a finite `ttlSeconds` and have the daemon heartbeat extend it** (`PATCH /boxes/{id}`). If our control plane loses track of a box, it archives itself and billing stops — orphans cost ~nothing instead of accumulating. Complementing that: wire `DELETE` (permanent, confirmation-header-guarded) **only** to explicit user "delete project" actions, never to idle timeouts — Box's docs say the same.
+
+## Constraints to design around
+
+- **Start budget:** 600 starts/hour, 1,500/day account-wide; create, fork, and resume each count. So *don't* stop/resume per message — resume on session start, idle-stop after an inactivity window (which is our suspend model anyway).
+- **Concurrency:** 100–1,200 active boxes self-serve; beyond that, coordinate with the founders in advance.
+- **EU-only regions** (DE/FI/FR) — fine for our users, encode region as config anyway.
+- **Vendor maturity:** unchanged from Part 1 — young company, no SLA. Mitigation stays mandatory: nightly `pg_dump` → R2 per runtime (snapshot files are even downloadable via `GET /snapshots/{id}/download` as a second escape hatch). Repo is on GitHub, secrets live in the main API, so a dead box is reconstructible except for DB data + uncommitted edits.
+- **Costs:** ~$26/mo per always-on default box (4 vCPU/8 GB), ~$13/mo small (2 vCPU/4 GB — still 2× today's spec); with stop/resume, low single digits per mostly-idle project. $20/mo account minimum.
+
+## Spike checklist (verify before the rewrite starts)
+
+1. Per-fork env vars: confirm where they surface inside the box (systemd environment? login shell?) and that the daemon can read them.
+2. `ttlSeconds` + `PATCH` extension semantics; behavior at TTL expiry (archive = stop-with-snapshot, confirmed resumable).
+3. Stop→resume latency with the full stack (postgres + .NET + Vite + daemon reconnecting to SignalR) and whether `host --private` URLs survive a resume or must be re-established.
+4. Fork of a *project* box (not just template): network identity, new env injection, JWT re-stamp.
+5. Webhooks — referenced in docs but no endpoints listed; if absent, reconciler stays poll-based (fine, it already is).
+6. Golden-template build script: reproducible `box new` → provision script → stop → snapshot flow, versioned like the daemon bundle.
+
+## Rewrite scope (rough)
+
+- **Server:** new `BoxManagement` client (thin — ~8 endpoints), rewrite `RuntimeProvisionerJob`/`RespawnRuntimeJob`/`RuntimeReconcilerJob`, remap FSM transitions, TTL-heartbeat, settings (`Box:ApiKey`, template snapshot id, region). The biggest chunk.
+- **Daemon:** small — remove volume/rootfs assumptions, add TTL-extend heartbeat call (or let the server do it off the SignalR heartbeat, which is simpler and keeps the daemon host-agnostic).
+- **Ops/skills:** rewrite `runtime-deployment` and `runtime-debug` skills for box CLI/API; template-build script replaces both image publish scripts.
+- **New backup job:** `pg_dump` → R2 nightly.
+
 ## Sources
 
 - [Box product page](https://box.ascii.dev/) · [Box compare page](https://box.ascii.dev/compare) · [Axentia review of Box](https://axentia.in/blog/box-a-cloud-sandbox-built-for-ai-agents) · [launch post](https://x.com/AniC_dev/status/2081101746051367307)
