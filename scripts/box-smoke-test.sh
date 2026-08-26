@@ -185,6 +185,36 @@ echo "── 12. Snapshots listing"
 split_resp "$(api GET /snapshots)"
 [[ "$RESP_CODE" == "200" ]] && ok "GET /snapshots → 200 ($(echo "$RESP_BODY" | head -c 80)...)" || bad "snapshots → $RESP_CODE"
 
+echo "── 12b. WebGL via headless Chrome + SwiftShader (agent self-validation path)"
+# Boxes ship Chrome but no GPU. The agent's whole "look at my own frontend work"
+# loop depends on software WebGL actually producing pixels, so prove it on a
+# stock box: draw a red frame in WebGL, read the pixel back, print a verdict.
+WEBGL_HTML_B64=$(base64 -w0 <<'HTML'
+<!doctype html><canvas id="c" width="8" height="8"></canvas><script>
+const c = document.getElementById('c');
+const gl = c.getContext('webgl2', {preserveDrawingBuffer:true}) || c.getContext('webgl', {preserveDrawingBuffer:true});
+if (!gl) { document.body.textContent = 'WEBGL_NO_CONTEXT'; }
+else {
+  gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  const p = new Uint8Array(4);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p);
+  document.body.textContent = (p[0] > 200 && p[1] < 50)
+    ? 'WEBGL_DRAW_OK ' + gl.getParameter(gl.VERSION)
+    : 'WEBGL_DRAW_FAIL ' + p.join(',');
+}
+</script>
+HTML
+)
+WEBGL_CMD="echo '$WEBGL_HTML_B64' | base64 -d > /tmp/webgl-probe.html && CHROME=\$(command -v google-chrome-stable || command -v chromium-browser || command -v chromium) && timeout 90 \"\$CHROME\" --headless=new --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader --enable-unsafe-swiftshader --disable-gpu-compositing --virtual-time-budget=5000 --dump-dom file:///tmp/webgl-probe.html 2>/dev/null | grep -o 'WEBGL_[A-Z_]*[^<]*' | head -1"
+split_resp "$(api POST "/boxes/$BOX_ID/commands" "$(python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1]}))' "$WEBGL_CMD")")"
+if echo "$RESP_BODY" | grep -q "WEBGL_DRAW_OK"; then
+    ok "software WebGL renders + reads back correct pixels: $(echo "$RESP_BODY" | grep -o 'WEBGL_DRAW_OK[^\"]*' | head -c 120)"
+elif echo "$RESP_BODY" | grep -q "WEBGL_"; then
+    bad "WebGL probe ran but did not draw: $(echo "$RESP_BODY" | grep -o 'WEBGL_[^\"]*' | head -c 200) — agent visual self-validation (snap-preview) would be broken!"
+else
+    bad "WebGL probe could not run (no Chrome on stock box, or command failed): $(echo "$RESP_BODY" | head -c 300)"
+fi
+
 echo "── 13. Delete (confirmation header)"
 for VICTIM in "$FORK_ID" "$BOX_ID"; do
     [[ -z "$VICTIM" ]] && continue

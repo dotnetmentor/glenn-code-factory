@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Wrapper for snap-preview.cjs — the agent's in-box visual self-validation tool.
+# CommonJS + NODE_PATH so require('playwright') resolves the template's global
+# npm install (ESM would ignore NODE_PATH; don't convert).
+export NODE_PATH="${NODE_PATH:-$(npm root -g 2>/dev/null)}"
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/playwright-browsers}"
+exec node /usr/local/bin/snap-preview.cjs "$@"

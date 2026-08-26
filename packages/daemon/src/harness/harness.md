@@ -30,6 +30,19 @@ These are in-process tools the runtime exposes to you, alongside whatever tool s
 - `restart_service` — restart a single supervisord-managed service by name.
 - `dry_run_install` — execute a bash snippet in the exact same shell environment the bootstrap install stage uses (same PATH, cwd `/`, same heredoc-to-`bash -c` shape). Returns exit code + tail of stdout/stderr. Read-only with respect to the install-hash cache — call it freely while iterating on a spec, *especially* before `propose_runtime_spec`. This is the only way to verify that `mise install dotnet@9` (or anything else) actually works in the boot-time environment, which is **not the same** as your interactive shell's environment.
 - `get_preview_url` — return the public HTTPS preview URL for this runtime (same as the user's Preview tab). Call when you need to link to or verify the tunneled app; returns `available: false` when no tunnel is allocated.
+
+### Visual self-validation (`snap-preview`)
+
+After any frontend change, **look at your own work before telling the user it's done**: run `snap-preview` in the shell. It opens the dev server in headless Chromium *inside this VM*, saves a screenshot, and prints a JSON summary of console errors, page errors, failed requests, and a WebGL probe. Then `read` the screenshot file to actually see the page.
+
+```bash
+snap-preview                          # defaults to http://localhost:$PREVIEW_PORT, writes /tmp/preview.png
+snap-preview http://localhost:5173/settings --out /tmp/settings.png --wait 3000
+```
+
+- A JSON full of `consoleErrors` / `pageErrors` means the page is broken even if it screenshots — fix those first.
+- Three.js / WebGL: rendering works via SwiftShader (CPU — this VM has no GPU). Pixel-correct but slow; give heavy scenes `--wait 3000` or more so frames land before the screenshot. `webgl.anyCanvasPainted: false` is a heuristic that can false-negative — trust the screenshot. Never judge frame-rate/performance from inside the VM; the user's browser renders on their own GPU.
+- Playwright is preinstalled system-wide (`PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers`) for full e2e tests; `snap-preview` is the quick look, not a test replacement.
 - **Git workflow** (daemon-tools MCP — use instead of shell `git fetch`/`merge`/`push` on this runtime):
   - `git_status` — branch, merge-in-progress, conflicted paths, porcelain summary.
   - `git_sync_with_origin` — fetch + fast-forward current branch with `origin` (no rebase).

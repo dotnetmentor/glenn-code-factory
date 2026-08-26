@@ -163,6 +163,8 @@ echo "📄 Installing platform scripts + supervisord config ..."
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/bootstrap-daemon.sh"    /usr/local/bin/bootstrap-daemon.sh 755
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/entrypoint.sh"          /usr/local/bin/entrypoint.sh       755
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/agent-debug.sh"         /usr/local/bin/agent-debug         755
+box_put_file "$BOX_ID" "$REPO_ROOT/docker/snap-preview.cjs"       /usr/local/bin/snap-preview.cjs    644
+box_put_file "$BOX_ID" "$REPO_ROOT/docker/snap-preview"           /usr/local/bin/snap-preview        755
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/supervisord.base.conf"  /etc/supervisor/supervisord.conf   644
 
 echo "⚙️  Installing the glenn-daemon systemd unit ..."
@@ -205,6 +207,21 @@ box_exec "$BOX_ID" "write + enable glenn-daemon.service" \
 # without env — that's expected on the template; supervisord itself must come up).
 box_exec "$BOX_ID" "smoke: unit starts, supervisord runs" \
     "sudo systemctl start glenn-daemon.service && sleep 5 && sudo systemctl is-active glenn-daemon.service && pgrep -f supervisord >/dev/null && sudo systemctl stop glenn-daemon.service"
+
+# Sanity: the agent's visual self-validation loop must work on the template —
+# headless Chromium + SwiftShader software WebGL (boxes have no GPU). The probe
+# page draws a red frame via WebGL (preserveDrawingBuffer so the readback is
+# deterministic); snap-preview must report a live context and painted pixels.
+WEBGL_PROBE_B64=$(base64 -w0 <<'HTML'
+<!doctype html><canvas id="c" width="64" height="64"></canvas><script>
+const gl = document.getElementById('c').getContext('webgl', { preserveDrawingBuffer: true });
+if (gl) { gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
+document.title = gl ? 'webgl-ok' : 'webgl-missing';
+</script>
+HTML
+)
+box_exec "$BOX_ID" "smoke: snap-preview renders WebGL (SwiftShader)" \
+    "echo '$WEBGL_PROBE_B64' | base64 -d | sudo tee /tmp/webgl-probe.html >/dev/null && sudo -u agent env PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers snap-preview file:///tmp/webgl-probe.html --wait 500 --out /tmp/webgl-probe.png | sudo tee /tmp/webgl-probe.json && grep -q '\"contextAvailable\": true' /tmp/webgl-probe.json && grep -q '\"anyCanvasPainted\": true' /tmp/webgl-probe.json && test -s /tmp/webgl-probe.png"
 
 if [[ "${KEEP_RUNNING:-0}" == "1" ]]; then
     echo "⚠️  KEEP_RUNNING=1 — leaving the box up for inspection. Stop it manually to snapshot:"

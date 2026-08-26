@@ -177,7 +177,18 @@ construction sites in `main.ts` must override `confDir: '/data/.glenn/supervisor
 
 Template boxes must STAY STOPPED (forks take the latest snapshot; a running
 template bills and drifts). `BoxAdminController` refuses to delete a registered
-template; yank it first. `GET /api/daemon-versions/resolve?channel=stable` is
+template; yank it first.
+
+### Agent visual self-validation (`snap-preview`)
+
+The template bakes Playwright + Chromium (`PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers`)
+and `/usr/local/bin/snap-preview` (`docker/snap-preview{,.cjs}`): headless-Chromium
+screenshot + console/page-error JSON + WebGL probe for the in-box agent to check its
+own frontend work (taught in `packages/daemon/src/harness/harness.md`). Boxes have
+**no GPU** — WebGL/Three.js renders via SwiftShader (flags `--use-angle=swiftshader
+--enable-unsafe-swiftshader`): pixel-correct, slow, never a perf signal. End users
+render client-side through the tunnel, so they're unaffected. The template build and
+`box-smoke-test.sh` §12b both hard-verify the SwiftShader path draws real pixels. `GET /api/daemon-versions/resolve?channel=stable` is
 `[AllowAnonymous]` (bootstrap has no token pre-connect... it does have the JWT,
 but resolution happens before auth is exercised).
 
