@@ -2,10 +2,10 @@ using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Source.Features.Cloudflare.Commands;
-using Source.Features.FlyManagement.Configuration;
+using Source.Features.BoxManagement.Configuration;
 using Source.Features.GitHub.Services;
 using Source.Features.Projects.Models;
-using Source.Features.RuntimeImages.Models;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
@@ -17,7 +17,7 @@ namespace Source.Features.Projects.Commands.ForkBranchFromGit;
 /// <summary>
 /// Handles <see cref="ForkBranchFromGitCommand"/> — see the command summary for the
 /// "fork from git ref" contract. The new <see cref="ProjectRuntime"/> is left in
-/// <see cref="RuntimeState.Pending"/> with no <see cref="ProjectRuntime.FlyVolumeId"/>;
+/// <see cref="RuntimeState.Pending"/> with no <see cref="ProjectRuntime.box disk"/>;
 /// the recurring <c>RuntimeProvisionerJob</c> creates a fresh volume and the daemon's
 /// bootstrap clones the new git ref into it on first start.
 ///
@@ -25,7 +25,7 @@ namespace Source.Features.Projects.Commands.ForkBranchFromGit;
 /// <list type="number">
 ///   <item>Auth + body sanity.</item>
 ///   <item>Project + workspace membership (404 collapse).</item>
-///   <item>Runtime provisioning preconditions (Active image, Fly settings).</item>
+///   <item>Runtime provisioning preconditions (Active template, Box settings).</item>
 ///   <item>Local-side name conflict — system branch with the requested new name.</item>
 ///   <item>GitHub-side validation — source git branch exists; new name not already taken on the remote.</item>
 ///   <item>Push the new ref. From here on, any failure runs compensations.</item>
@@ -70,7 +70,7 @@ public sealed class ForkBranchFromGitHandler
 
     private readonly ApplicationDbContext _db;
     private readonly IGithubApiClient _github;
-    private readonly IFlyOptionsAccessor _flyOptions;
+    private readonly IBoxOptionsAccessor _boxOptions;
     private readonly IMediator _mediator;
     private readonly IBackgroundJobClient _backgroundJobs;
     private readonly ILogger<ForkBranchFromGitHandler> _logger;
@@ -78,14 +78,14 @@ public sealed class ForkBranchFromGitHandler
     public ForkBranchFromGitHandler(
         ApplicationDbContext db,
         IGithubApiClient github,
-        IFlyOptionsAccessor flyOptions,
+        IBoxOptionsAccessor boxOptions,
         IMediator mediator,
         IBackgroundJobClient backgroundJobs,
         ILogger<ForkBranchFromGitHandler> logger)
     {
         _db = db;
         _github = github;
-        _flyOptions = flyOptions;
+        _boxOptions = boxOptions;
         _mediator = mediator;
         _backgroundJobs = backgroundJobs;
         _logger = logger;
@@ -166,21 +166,18 @@ public sealed class ForkBranchFromGitHandler
         }
 
         // -------- 3. Pre-flight: runtime provisioning preconditions --------
-        var hasActiveImage = await _db.RuntimeImages
-            .AnyAsync(i => i.Status == RuntimeImageStatus.Active, cancellationToken);
-        if (!hasActiveImage)
+        var hasActiveTemplate = await _db.RuntimeTemplates
+            .AnyAsync(t => t.Status == RuntimeTemplateStatus.Active, cancellationToken);
+        if (!hasActiveTemplate)
         {
             return Result.Failure<ForkBranchFromGitResult>(
-                "No active runtime image is registered. Ask an admin to activate one in Super Admin → Runtime Images.");
+                "No active runtime template is registered. Build one with scripts/build-box-template.sh and activate it in Super Admin → Runtime Templates.");
         }
 
-        var fly = _flyOptions.Current;
-        if (string.IsNullOrWhiteSpace(fly.ApiToken) ||
-            string.IsNullOrWhiteSpace(fly.OrgSlug) ||
-            string.IsNullOrWhiteSpace(fly.AppName))
+        if (string.IsNullOrWhiteSpace(_boxOptions.Current.ApiKey))
         {
             return Result.Failure<ForkBranchFromGitResult>(
-                "Fly settings are incomplete. Configure them in Super Admin → System Settings.");
+                "Box settings are incomplete. Configure Box:ApiKey in Super Admin → System Settings.");
         }
 
         // -------- 4. Local name collision (cheap) --------

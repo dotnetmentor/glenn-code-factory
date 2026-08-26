@@ -67,7 +67,8 @@ public static class HangfireExtensions
         services.AddScoped<RuntimeReconcilerJob>();
         services.AddScoped<RuntimeJanitorJob>();
         services.AddScoped<HeartbeatWatcherJob>();
-        services.AddScoped<FlyDriftPollerJob>();
+        services.AddScoped<BoxDriftPollerJob>();
+        services.AddScoped<BoxTtlExtenderJob>();
         services.AddScoped<IdlerJob>();
         services.AddScoped<RespawnRuntimeJob>();
 

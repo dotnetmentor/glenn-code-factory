@@ -102,5 +102,5 @@ If errors persist after publish, the API likely wasn't restarted — see step 0.
 
 | Skill | When |
 |-------|------|
-| `runtime-deployment` | Runtime base image, Fly provisioning, end-to-end smoke test |
+| `runtime-deployment` | Golden template box, Box fork provisioning, end-to-end smoke test |
 | `runtime-debug` | SSH into a machine, read daemon logs, hot-swap bundle, diagnose OOM/parse errors |

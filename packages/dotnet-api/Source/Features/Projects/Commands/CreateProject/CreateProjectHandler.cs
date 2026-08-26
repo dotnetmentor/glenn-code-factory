@@ -2,12 +2,12 @@ using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Source.Features.Cloudflare.Commands;
-using Source.Features.FlyManagement.Configuration;
+using Source.Features.BoxManagement.Configuration;
 using Source.Features.GitHub.Models;
 using Source.Features.GitHub.Services;
 using Source.Features.GitHub.Services.Dtos;
 using Source.Features.Projects.Models;
-using Source.Features.RuntimeImages.Models;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Features.Workspaces.Models;
@@ -101,7 +101,7 @@ public sealed class CreateProjectHandler : ICommandHandler<CreateProjectCommand,
     public const string GithubUserAuthRequiredError = "github_user_auth_required";
 
     private readonly ApplicationDbContext _db;
-    private readonly IFlyOptionsAccessor _flyOptions;
+    private readonly IBoxOptionsAccessor _boxOptions;
     private readonly IMediator _mediator;
     private readonly IBackgroundJobClient _backgroundJobs;
     private readonly IGithubApiClient _githubApiClient;
@@ -110,7 +110,7 @@ public sealed class CreateProjectHandler : ICommandHandler<CreateProjectCommand,
 
     public CreateProjectHandler(
         ApplicationDbContext db,
-        IFlyOptionsAccessor flyOptions,
+        IBoxOptionsAccessor boxOptions,
         IMediator mediator,
         IBackgroundJobClient backgroundJobs,
         IGithubApiClient githubApiClient,
@@ -118,7 +118,7 @@ public sealed class CreateProjectHandler : ICommandHandler<CreateProjectCommand,
         ILogger<CreateProjectHandler> logger)
     {
         _db = db;
-        _flyOptions = flyOptions;
+        _boxOptions = boxOptions;
         _mediator = mediator;
         _backgroundJobs = backgroundJobs;
         _githubApiClient = githubApiClient;
@@ -446,24 +446,21 @@ public sealed class CreateProjectHandler : ICommandHandler<CreateProjectCommand,
         // matching guards as a belt-and-braces, but blocking here gives the user
         // an immediate, actionable error instead of an indefinite "Provisioning…".
 
-        var hasActiveImage = await _db.RuntimeImages
-            .AnyAsync(i => i.Status == RuntimeImageStatus.Active, cancellationToken);
-        if (!hasActiveImage)
+        var hasActiveTemplate = await _db.RuntimeTemplates
+            .AnyAsync(t => t.Status == RuntimeTemplateStatus.Active, cancellationToken);
+        if (!hasActiveTemplate)
         {
             return Result.Failure<CreateProjectOutcome>(
-                "No active runtime image is registered. Ask an admin to activate one in Super Admin → Runtime Images.");
+                "No active runtime template is registered. Build one with scripts/build-box-template.sh and activate it in Super Admin → Runtime Templates.");
         }
 
-        // Cheap presence check on Fly settings — NOT a live API ping. The
-        // /api/admin/fly/test-connection endpoint is the right tool for liveness;
-        // here we just want "can the provisioner even attempt the call?"
-        var fly = _flyOptions.Current;
-        if (string.IsNullOrWhiteSpace(fly.ApiToken) ||
-            string.IsNullOrWhiteSpace(fly.OrgSlug) ||
-            string.IsNullOrWhiteSpace(fly.AppName))
+        // Cheap presence check on Box settings — NOT a live API ping. The
+        // /api/admin/box/test-connection endpoint is the right tool for liveness;
+        // here we just want "can the provisioner even attempt the fork?"
+        if (string.IsNullOrWhiteSpace(_boxOptions.Current.ApiKey))
         {
             return Result.Failure<CreateProjectOutcome>(
-                "Fly settings are incomplete. Configure them in Super Admin → System Settings.");
+                "Box settings are incomplete. Configure Box:ApiKey in Super Admin → System Settings.");
         }
 
         // -------- 2c. Resolve catalog spec (workspace-spec-catalog Scene 3) --------
@@ -548,9 +545,9 @@ public sealed class CreateProjectHandler : ICommandHandler<CreateProjectCommand,
             IsDefault = true,
         };
 
-        // Region default mirrors the existing admin onboarding endpoint
-        // (RuntimeProvisionController) so the smoke-test runtime lands in the
-        // same Fly region as everything else.
+        // Region is informational on Box — forks inherit the template's EU
+        // region; the provisioner overwrites this with the box's reported
+        // region once the fork lands.
         var runtime = new ProjectRuntime
         {
             Id = Guid.NewGuid(),
@@ -562,17 +559,15 @@ public sealed class CreateProjectHandler : ICommandHandler<CreateProjectCommand,
             TenantId = request.WorkspaceId,
             State = RuntimeState.Pending,
             StateChangedAt = DateTime.UtcNow,
-            Region = "arn",
+            Region = "eu",
             // Runtime SERVICES spec now lives on Project (resolved above and
             // assigned to project.Spec / project.SpecVersion). The runtime row
             // no longer carries a Spec field — bootstrap reads from the
             // project on every cold-boot. See `project-level-runtime-spec`.
             // Runtime MACHINE spec (CPU/RAM/disk) — snapshot the project's
-            // current default so the Fly machine inherits the per-project Fly
-            // sizing (CPU class, cores, RAM, volume size). Defaults match the
-            // historical MachineGuest() tuple — see Project.DefaultRuntime* —
-            // so nothing changes for projects that haven't customised their
-            // spec.
+            // current default; BoxSizeMapper picks the Box size tier from the
+            // cpu/mem pair at provision time (rounding up). See
+            // Project.DefaultRuntime*.
             CpuKind = project.RuntimeCpuKind,
             Cpus = project.RuntimeCpus,
             MemoryMb = project.RuntimeMemoryMb,

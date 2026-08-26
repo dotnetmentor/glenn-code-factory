@@ -566,7 +566,7 @@ interface RuntimeStateViewProps {
  *       point. It becomes interactive for {@link RuntimeState.Suspended},
  *       {@link RuntimeState.Failed}, and {@link RuntimeState.Crashed} —
  *       clicking the badge fires the runtime restart endpoint (Suspended →
- *       Fly StartMachine, Failed/Crashed → full restart). The pill carries
+ *       box resume, Failed/Crashed → full restart). The pill carries
  *       the error message in its tooltip, so no banner strip is needed.</li>
  *   <li>{@link ChatCanvas} always renders below. It already adapts its
  *       composer placeholder based on {@code runtimeState} (Suspended wakes

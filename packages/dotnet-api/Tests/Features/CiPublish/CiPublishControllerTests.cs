@@ -8,8 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Source.Features.CiPublish;
 using Source.Features.CiPublish.Models;
 using Source.Features.DaemonVersions.Models;
-using Source.Features.RuntimeImages.Models;
-using Source.Features.SystemSettings.Services;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Features.Users.Models;
 using Source.Infrastructure;
 using Source.Infrastructure.AuthorizationModels;
@@ -72,16 +71,14 @@ public class CiPublishControllerTests : IntegrationTestBase
             BundleStorageKey = "test/key",
             ReleasedAt = DateTime.UtcNow,
         });
-        db.RuntimeImages.Add(new RuntimeImage
+        db.RuntimeTemplates.Add(new RuntimeTemplate
         {
             Id = Guid.NewGuid(),
-            Tag = "2026.06.02-deadbee",
-            Digest = "sha256:abc",
-            Registry = "registry.fly.io/glenn-runtime-base",
+            BoxId = $"box_tpl_{Guid.NewGuid():N}",
+            Label = "base-2026.06.02-deadbee",
             GitSha = "abc123fullsha",
             BuiltAt = DateTime.UtcNow,
-            SizeMb = 100,
-            Status = RuntimeImageStatus.Active,
+            Status = RuntimeTemplateStatus.Active,
         });
         await db.SaveChangesAsync();
 
@@ -168,20 +165,6 @@ public class CiPublishControllerTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task RegistryCredentials_WithValidKey_ReturnsFlyLoginMaterial()
-    {
-        await SeedFlySettingsAsync();
-
-        var response = await CiClient().GetAsync("/api/ci/registry-credentials");
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var body = await response.Content.ReadFromJsonAsync<CiRegistryCredentialsDto>();
-        body!.RegistryHost.Should().Be("registry.fly.io");
-        body.Username.Should().Be("x");
-        body.Password.Should().Be("fly_pat_secret_xyz");
-    }
-
-    [Fact]
     public async Task ListDaemonVersions_WithCiKey_Returns401()
     {
         var response = await CiClient().GetAsync("/api/daemon-versions");
@@ -189,21 +172,19 @@ public class CiPublishControllerTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task RegisterRuntimeImage_WithCiKey_Returns201()
+    public async Task RegisterRuntimeTemplate_WithCiKey_Returns201()
     {
         var req = new
         {
-            tag = $"2026.06.02-{Guid.NewGuid():N}",
-            digest = "sha256:ci-test",
-            registry = "registry.fly.io/glenn-runtime-base",
+            boxId = $"box_ci_{Guid.NewGuid():N}",
+            label = $"base-2026.06.02-{Guid.NewGuid():N}"[..30],
             gitSha = "ci-sha",
             builtAt = DateTime.UtcNow,
-            sizeMb = 10,
             notes = "ci test",
         };
 
-        var response = await CiClient().PostAsJsonAsync("/api/admin/runtime-images", req);
-        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var response = await CiClient().PostAsJsonAsync("/api/admin/runtime-templates", req);
+        response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -244,16 +225,6 @@ public class CiPublishControllerTests : IntegrationTestBase
         {
             File.Delete(bundlePath);
         }
-    }
-
-    private async Task SeedFlySettingsAsync()
-    {
-        using var scope = CreateScope();
-        var settings = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
-        await settings.SetAsync("Fly:ApiToken", "fly_pat_secret_xyz", isSecret: true);
-        await settings.SetAsync("Fly:OrgSlug", "personal", isSecret: false);
-        await settings.SetAsync("Fly:AppName", "test-app", isSecret: false);
-        await settings.SetAsync("Fly:DefaultRegion", "arn", isSecret: false);
     }
 
     private async Task<(HttpClient Client, string UserId)> RegisterSuperAdminAsync()

@@ -217,6 +217,63 @@ namespace api.Migrations
                     b.ToTable("Attachments");
                 });
 
+            modelBuilder.Entity("Source.Features.BoxManagement.Models.BoxOperation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("HttpStatusCode")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("LatencyMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RequestKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("RequestPayload")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ResponsePayload")
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid?>("RuntimeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestKey")
+                        .HasDatabaseName("IX_BoxOperations_RequestKey");
+
+                    b.HasIndex("RuntimeId", "CreatedAt")
+                        .HasDatabaseName("IX_BoxOperations_RuntimeId_CreatedAt");
+
+                    b.ToTable("BoxOperations");
+                });
+
             modelBuilder.Entity("Source.Features.Cloudflare.Models.SubdomainAssignment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1168,63 +1225,6 @@ namespace api.Migrations
                         .HasDatabaseName("IX_ErrorSignatures_LastSeenAt_IsResolved");
 
                     b.ToTable("ErrorSignatures");
-                });
-
-            modelBuilder.Entity("Source.Features.FlyManagement.Models.FlyOperation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ErrorCode")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<int?>("HttpStatusCode")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("LatencyMs")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Operation")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("RequestKey")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("RequestPayload")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("ResponsePayload")
-                        .HasColumnType("jsonb");
-
-                    b.Property<Guid?>("RuntimeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RequestKey")
-                        .HasDatabaseName("IX_FlyOperations_RequestKey");
-
-                    b.HasIndex("RuntimeId", "CreatedAt")
-                        .HasDatabaseName("IX_FlyOperations_RuntimeId_CreatedAt");
-
-                    b.ToTable("FlyOperations");
                 });
 
             modelBuilder.Entity("Source.Features.GitHub.Models.GithubInstallation", b =>
@@ -2512,64 +2512,6 @@ namespace api.Migrations
                     b.ToTable("RuntimeEvents");
                 });
 
-            modelBuilder.Entity("Source.Features.RuntimeImages.Models.RuntimeImage", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("BuiltAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Digest")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("GitSha")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<string>("Registry")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<int>("SizeMb")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("Tag")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Tag")
-                        .IsUnique();
-
-                    b.HasIndex("Status", "BuiltAt")
-                        .HasDatabaseName("IX_RuntimeImages_Status_BuiltAt");
-
-                    b.ToTable("RuntimeImages");
-                });
-
             modelBuilder.Entity("Source.Features.RuntimeLifecycle.Models.ProjectRuntime", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2591,6 +2533,10 @@ namespace api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
+
+                    b.Property<string>("BoxId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uuid");
@@ -2616,20 +2562,8 @@ namespace api.Migrations
                     b.Property<string>("DeletedBy")
                         .HasColumnType("text");
 
-                    b.Property<string>("FlyMachineId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("FlyVolumeId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<int?>("IdleThresholdMinutes")
                         .HasColumnType("integer");
-
-                    b.Property<string>("ImageDigest")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
@@ -2694,6 +2628,10 @@ namespace api.Migrations
                     b.Property<DateTime>("StateChangedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("TemplateBoxId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<Guid?>("TenantId")
                         .HasColumnType("uuid");
 
@@ -2705,11 +2643,11 @@ namespace api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BoxId")
+                        .HasDatabaseName("IX_ProjectRuntimes_BoxId");
+
                     b.HasIndex("BranchId")
                         .HasDatabaseName("IX_ProjectRuntimes_BranchId");
-
-                    b.HasIndex("FlyMachineId")
-                        .HasDatabaseName("IX_ProjectRuntimes_FlyMachineId");
 
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("IX_ProjectRuntimes_ProjectId");
@@ -2915,6 +2853,56 @@ namespace api.Migrations
                         .HasDatabaseName("IX_ServicePresets_Category_DisplayName");
 
                     b.ToTable("ServicePresets");
+                });
+
+            modelBuilder.Entity("Source.Features.RuntimeTemplates.Models.RuntimeTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BoxId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("BuiltAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("GitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BoxId")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "BuiltAt")
+                        .HasDatabaseName("IX_RuntimeTemplates_Status_BuiltAt");
+
+                    b.ToTable("RuntimeTemplates");
                 });
 
             modelBuilder.Entity("Source.Features.RuntimeTokens.Models.RuntimeTokenIssue", b =>

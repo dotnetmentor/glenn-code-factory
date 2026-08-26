@@ -34,7 +34,8 @@ public class HangfireStartupService : IHostedService
         RuntimeReconcilerJobRegistration.Register(_recurringJobManager);
         RuntimeJanitorJobRegistration.Register(_recurringJobManager);
         HeartbeatWatcherJobRegistration.Register(_recurringJobManager);
-        FlyDriftPollerJobRegistration.Register(_recurringJobManager);
+        BoxDriftPollerJobRegistration.Register(_recurringJobManager);
+        BoxTtlExtenderJobRegistration.Register(_recurringJobManager);
         IdlerJobRegistration.Register(_recurringJobManager);
         OrphanSessionJanitorJobRegistration.Register(_recurringJobManager);
         ReconcileStaleSessionsJobRegistration.Register(_recurringJobManager);

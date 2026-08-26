@@ -391,6 +391,148 @@ export const BootstrapStage = {
   Ready: "Ready",
 } as const;
 
+export interface BoxAdminRow {
+  id: string;
+  /** @nullable */
+  name?: string | null;
+  status: string;
+  /** @nullable */
+  size?: string | null;
+  /** @nullable */
+  region?: string | null;
+  /** @nullable */
+  ttlSeconds?: number | null;
+  /** @nullable */
+  createdAt?: string | null;
+  /** @nullable */
+  linkedRuntimeId?: string | null;
+  /** @nullable */
+  linkedProjectId?: string | null;
+  /** @nullable */
+  linkedBranchId?: string | null;
+  /** @nullable */
+  linkedProjectName?: string | null;
+  /** @nullable */
+  linkedBranchName?: string | null;
+  isTemplate: boolean;
+  isOrphan: boolean;
+}
+
+export interface BoxOperation {
+  readonly domainEvents: readonly IDomainEvent[];
+  id: string;
+  /** @nullable */
+  runtimeId?: string | null;
+  operation: string;
+  /** @nullable */
+  requestKey?: string | null;
+  requestPayload: string;
+  /** @nullable */
+  responsePayload?: string | null;
+  /** @nullable */
+  httpStatusCode?: number | null;
+  status: BoxOperationStatus;
+  /** @nullable */
+  errorCode?: string | null;
+  /** @nullable */
+  latencyMs?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BoxOperationStatus =
+  (typeof BoxOperationStatus)[keyof typeof BoxOperationStatus];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const BoxOperationStatus = {
+  Pending: "Pending",
+  Succeeded: "Succeeded",
+  Failed: "Failed",
+} as const;
+
+export interface BoxOperationView {
+  id: string;
+  operation: string;
+  status: string;
+  /** @nullable */
+  httpStatusCode?: number | null;
+  /** @nullable */
+  latencyMs?: number | null;
+  /** @nullable */
+  errorCode?: string | null;
+  createdAt: string;
+  requestPayload: string;
+  /** @nullable */
+  responsePayload?: string | null;
+}
+
+export interface BoxOperationsResponse {
+  items: BoxOperation[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface BoxSnapshotAdminRow {
+  id: string;
+  /** @nullable */
+  boxId?: string | null;
+  /** @nullable */
+  sizeBytes?: number | null;
+  /** @nullable */
+  createdAt?: string | null;
+  /** @nullable */
+  linkedRuntimeId?: string | null;
+  isOrphan: boolean;
+}
+
+export interface BoxSnapshotResponse {
+  ourView: OurRuntimeView;
+  boxView: BoxVmView;
+  recentOperations: BoxOperationView[];
+  generatedAt: string;
+}
+
+export interface BoxTestConnectionResponse {
+  apiKeySet: boolean;
+  pingSucceeded: boolean;
+  /** @nullable */
+  pingError?: string | null;
+  isValid: boolean;
+  message: string;
+}
+
+export interface BoxVm {
+  id: string;
+  /** @nullable */
+  name?: string | null;
+  status: string;
+  /** @nullable */
+  size?: string | null;
+  /** @nullable */
+  region?: string | null;
+  /** @nullable */
+  ttlSeconds?: number | null;
+  /** @nullable */
+  createdAt?: string | null;
+  [key: string]: unknown;
+}
+
+export interface BoxVmView {
+  id: string;
+  /** @nullable */
+  name?: string | null;
+  status: string;
+  /** @nullable */
+  size?: string | null;
+  /** @nullable */
+  region?: string | null;
+  /** @nullable */
+  ttlSeconds?: number | null;
+  /** @nullable */
+  createdAt?: string | null;
+}
+
 export interface BranchEnvVarItem {
   key: string;
   isSecret: boolean;
@@ -411,20 +553,19 @@ export interface BranchRuntimeHardwareSnapshotDto {
   state: RuntimeState;
 }
 
-export interface BulkDestroyFailure {
+export interface BulkDeleteFailure {
   id: string;
   error: string;
 }
 
-export interface BulkDestroyRequest {
+export interface BulkDeleteRequest {
   ids: string[];
-  force: boolean;
 }
 
-export interface BulkDestroyResponse {
+export interface BulkDeleteResponse {
   requested: number;
   succeeded: number;
-  failed: BulkDestroyFailure[];
+  failed: BulkDeleteFailure[];
 }
 
 export interface BulkResolveErrorLogsCommand {
@@ -504,12 +645,6 @@ export interface CiPublishStatusDto {
   runtimeActiveGitSha?: string | null;
   daemonPublishedForRequestedSha: boolean;
   runtimePublishedForRequestedSha: boolean;
-}
-
-export interface CiRegistryCredentialsDto {
-  registryHost: string;
-  username: string;
-  password: string;
 }
 
 export interface ClonePresetRequest {
@@ -1228,10 +1363,6 @@ export interface ErrorReportRequest {
   columnNumber?: number | null;
 }
 
-export interface ExtendVolumeRequest {
-  sizeGb: number;
-}
-
 export interface FileDiffResponse {
   path: string;
   status: string;
@@ -1241,177 +1372,6 @@ export interface FileDiffResponse {
   unifiedDiff?: string | null;
   /** @nullable */
   reason?: string | null;
-}
-
-export interface FlyApp {
-  id: string;
-  name: string;
-  orgSlug: string;
-  status: string;
-  createdAt: string;
-}
-
-export interface FlyMachine {
-  id: string;
-  name: string;
-  state: string;
-  region: string;
-  /** @nullable */
-  instanceId?: string | null;
-  /** @nullable */
-  privateIp?: string | null;
-  createdAt: string;
-}
-
-export interface FlyMachineAdminRow {
-  id: string;
-  name: string;
-  state: string;
-  region: string;
-  /** @nullable */
-  instanceId?: string | null;
-  /** @nullable */
-  privateIp?: string | null;
-  createdAt: string;
-  /** @nullable */
-  linkedRuntimeId?: string | null;
-  /** @nullable */
-  linkedProjectId?: string | null;
-  /** @nullable */
-  linkedBranchId?: string | null;
-  /** @nullable */
-  linkedProjectName?: string | null;
-  /** @nullable */
-  linkedBranchName?: string | null;
-  isOrphan: boolean;
-}
-
-export interface FlyMachineView {
-  id: string;
-  name: string;
-  state: string;
-  region: string;
-  /** @nullable */
-  instanceId?: string | null;
-  /** @nullable */
-  privateIp?: string | null;
-  createdAt: string;
-}
-
-export interface FlyOperation {
-  readonly domainEvents: readonly IDomainEvent[];
-  id: string;
-  /** @nullable */
-  runtimeId?: string | null;
-  operation: string;
-  /** @nullable */
-  requestKey?: string | null;
-  requestPayload: string;
-  /** @nullable */
-  responsePayload?: string | null;
-  /** @nullable */
-  httpStatusCode?: number | null;
-  status: FlyOperationStatus;
-  /** @nullable */
-  errorCode?: string | null;
-  /** @nullable */
-  latencyMs?: number | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type FlyOperationStatus =
-  (typeof FlyOperationStatus)[keyof typeof FlyOperationStatus];
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FlyOperationStatus = {
-  Pending: "Pending",
-  Succeeded: "Succeeded",
-  Failed: "Failed",
-} as const;
-
-export interface FlyOperationView {
-  id: string;
-  operation: string;
-  status: string;
-  /** @nullable */
-  httpStatusCode?: number | null;
-  /** @nullable */
-  latencyMs?: number | null;
-  /** @nullable */
-  errorCode?: string | null;
-  createdAt: string;
-  requestPayload: string;
-  /** @nullable */
-  responsePayload?: string | null;
-}
-
-export interface FlyOperationsResponse {
-  items: FlyOperation[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
-
-export interface FlySnapshotResponse {
-  ourView: OurRuntimeView;
-  flyView: FlyMachineView;
-  recentOperations: FlyOperationView[];
-  generatedAt: string;
-}
-
-export interface FlyTestConnectionResponse {
-  apiTokenSet: boolean;
-  appNameSet: boolean;
-  orgSlugSet: boolean;
-  pingSucceeded: boolean;
-  /** @nullable */
-  pingError?: string | null;
-  appExists: boolean;
-  /** @nullable */
-  appName?: string | null;
-  isValid: boolean;
-  message: string;
-}
-
-export interface FlyVolume {
-  id: string;
-  name: string;
-  region: string;
-  sizeGb: number;
-  state: string;
-  /** @nullable */
-  attachedMachineId?: string | null;
-  encrypted: boolean;
-  createdAt: string;
-}
-
-export interface FlyVolumeAdminRow {
-  id: string;
-  name: string;
-  region: string;
-  sizeGb: number;
-  state: string;
-  /** @nullable */
-  attachedMachineId?: string | null;
-  encrypted: boolean;
-  createdAt: string;
-  /** @nullable */
-  linkedRuntimeId?: string | null;
-  /** @nullable */
-  linkedProjectId?: string | null;
-  /** @nullable */
-  linkedBranchId?: string | null;
-  /** @nullable */
-  linkedProjectName?: string | null;
-  /** @nullable */
-  linkedBranchName?: string | null;
-  isOrphan: boolean;
-}
-
-export interface FlyWebhookAck {
-  status: string;
-  eventType: string;
 }
 
 export interface ForceRebootstrapRequest {
@@ -1852,7 +1812,7 @@ export interface OurRuntimeView {
   state: string;
   region: string;
   /** @nullable */
-  flyMachineId?: string | null;
+  boxId?: string | null;
   /** @nullable */
   lastHeartbeatAt?: string | null;
   stateChangedAt: string;
@@ -2183,11 +2143,9 @@ export interface ProjectRuntime {
   state: RuntimeState;
   stateChangedAt: string;
   /** @nullable */
-  flyMachineId?: string | null;
+  boxId?: string | null;
   /** @nullable */
-  flyVolumeId?: string | null;
-  /** @nullable */
-  imageDigest?: string | null;
+  templateBoxId?: string | null;
   region: string;
   volumeSizeGb: number;
   cpuKind: string;
@@ -2431,26 +2389,13 @@ export interface RegisterRequest {
   password: string;
 }
 
-export interface RegisterRuntimeImageRequest {
-  tag: string;
-  digest: string;
-  registry: string;
+export interface RegisterRuntimeTemplateRequest {
+  boxId: string;
+  label: string;
   gitSha: string;
   builtAt: string;
-  sizeMb: number;
   /** @nullable */
   notes?: string | null;
-}
-
-export interface RegistryTagDto {
-  tag: string;
-  digest: string;
-  /** @nullable */
-  sizeBytes?: number | null;
-  /** @nullable */
-  pushedAt?: string | null;
-  /** @nullable */
-  gitSha?: string | null;
 }
 
 export interface RenameConversationRequest {
@@ -2630,9 +2575,9 @@ export interface RuntimeDriftDto {
   branchName?: string | null;
   dbState: RuntimeState;
   /** @nullable */
-  flyState?: string | null;
+  boxStatus?: string | null;
   /** @nullable */
-  flyMachineId?: string | null;
+  boxId?: string | null;
   /** @nullable */
   region?: string | null;
   /** @nullable */
@@ -2674,39 +2619,6 @@ export const RuntimeEventSeverity = {
   Warn: "Warn",
   Error: "Error",
 } as const;
-
-export interface RuntimeImage {
-  readonly domainEvents: readonly IDomainEvent[];
-  id: string;
-  tag: string;
-  digest: string;
-  registry: string;
-  gitSha: string;
-  builtAt: string;
-  sizeMb: number;
-  status: RuntimeImageStatus;
-  /** @nullable */
-  notes?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type RuntimeImageStatus =
-  (typeof RuntimeImageStatus)[keyof typeof RuntimeImageStatus];
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RuntimeImageStatus = {
-  Active: "Active",
-  Deprecated: "Deprecated",
-  Yanked: "Yanked",
-} as const;
-
-export interface RuntimeImagesResponse {
-  items: RuntimeImage[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
 
 export interface RuntimeProposalDto {
   id: string;
@@ -2786,9 +2698,9 @@ export interface RuntimeStatusResponse {
   /** @nullable */
   lastHeartbeatAt?: string | null;
   /** @nullable */
-  flyMachineId?: string | null;
+  boxId?: string | null;
   /** @nullable */
-  imageDigest?: string | null;
+  templateBoxId?: string | null;
   region: string;
   recentTransitions: RuntimeTransitionDto[];
   /** @nullable */
@@ -2809,6 +2721,37 @@ export interface RuntimeStatusResponse {
   specHealth: RuntimeSpecHealth;
   /** @nullable */
   recentBootIssues?: RuntimeBootIssueDto[] | null;
+}
+
+export interface RuntimeTemplate {
+  readonly domainEvents: readonly IDomainEvent[];
+  id: string;
+  boxId: string;
+  label: string;
+  gitSha: string;
+  builtAt: string;
+  status: RuntimeTemplateStatus;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RuntimeTemplateStatus =
+  (typeof RuntimeTemplateStatus)[keyof typeof RuntimeTemplateStatus];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RuntimeTemplateStatus = {
+  Active: "Active",
+  Deprecated: "Deprecated",
+  Yanked: "Yanked",
+} as const;
+
+export interface RuntimeTemplatesResponse {
+  items: RuntimeTemplate[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface RuntimeTokenIssueDto {
@@ -3127,13 +3070,6 @@ export interface StatusEventDto {
   eventKind: StatusEventDtoEventKind;
 }
 
-export interface StopMachineRequest {
-  /** @nullable */
-  signal?: string | null;
-  /** @nullable */
-  timeout?: number | null;
-}
-
 export interface SubdomainAssignment {
   readonly domainEvents: readonly IDomainEvent[];
   id: string;
@@ -3261,6 +3197,20 @@ export interface TaskEventDto {
   /** @nullable */
   title?: string | null;
   eventKind: TaskEventDtoEventKind;
+}
+
+export interface TemplateCandidateBoxDto {
+  id: string;
+  /** @nullable */
+  name?: string | null;
+  status: string;
+  /** @nullable */
+  size?: string | null;
+  /** @nullable */
+  region?: string | null;
+  /** @nullable */
+  createdAt?: string | null;
+  alreadyRegistered: boolean;
 }
 
 export type ThinkingEventDtoEventKind =
@@ -3540,16 +3490,16 @@ export interface UpdateProjectTemplateRequest {
   sortOrder: number;
 }
 
-export interface UpdateRuntimeImageStatusRequest {
-  status: RuntimeImageStatus;
-}
-
 export interface UpdateRuntimeSpecRequest {
   cpuKind: string;
   cpus: number;
   memoryMb: number;
   volumeSizeGb: number;
   applyToExistingBranches: boolean;
+}
+
+export interface UpdateRuntimeTemplateStatusRequest {
+  status: RuntimeTemplateStatus;
 }
 
 export interface UpdateSecretRequest {
@@ -3946,6 +3896,14 @@ export type GetApiAdminBootstrapRunsParams = {
   pageSize?: number;
 };
 
+export type GetApiAdminBoxOperationsParams = {
+  status?: string;
+  since?: string;
+  runtimeId?: string;
+  page?: number;
+  pageSize?: number;
+};
+
 export type GetApiCiPublishStatusParams = {
   gitSha?: string;
 };
@@ -4028,18 +3986,6 @@ export type PostApiFilesUploadBody = {
   file?: Blob;
 };
 
-export type DeleteApiAdminFlyMachinesIdParams = {
-  force?: boolean;
-};
-
-export type GetApiAdminFlyOperationsParams = {
-  status?: string;
-  since?: string;
-  runtimeId?: string;
-  page?: number;
-  pageSize?: number;
-};
-
 export type GetApiGithubInstallationsInstallationIdReposParams = {
   workspaceId?: string;
 };
@@ -4107,16 +4053,6 @@ export type GetApiRuntimesRuntimeIdHealthSnapshotsParams = {
   since?: string;
 };
 
-export type GetApiAdminRuntimeImagesParams = {
-  status?: string;
-  page?: number;
-  pageSize?: number;
-};
-
-export type GetApiAdminRuntimeImagesRegistryTagsParams = {
-  imageName?: string;
-};
-
 export type GetApiAdminRuntimePresetsMiseVersionsParams = {
   tool?: string;
 };
@@ -4124,6 +4060,12 @@ export type GetApiAdminRuntimePresetsMiseVersionsParams = {
 export type GetApiProjectsProjectIdBranchesBranchIdRuntimeProposalsParams = {
   status?: string;
   limit?: number;
+};
+
+export type GetApiAdminRuntimeTemplatesParams = {
+  status?: string;
+  page?: number;
+  pageSize?: number;
 };
 
 export type GetApiAdminRuntimeTokensParams = {
@@ -6045,6 +5987,1145 @@ export function useGetApiAdminBootstrapRunsId<
   return query;
 }
 
+export const getApiAdminBoxBoxes = (signal?: AbortSignal) => {
+  return customClient<BoxAdminRow[]>({
+    url: `/api/admin/box/boxes`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetApiAdminBoxBoxesQueryKey = () => {
+  return [`/api/admin/box/boxes`] as const;
+};
+
+export const getGetApiAdminBoxBoxesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+  TError = ErrorType<ProblemDetails>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<
+      Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+      TError,
+      TData
+    >
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetApiAdminBoxBoxesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiAdminBoxBoxes>>
+  > = ({ signal }) => getApiAdminBoxBoxes(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiAdminBoxBoxesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiAdminBoxBoxes>>
+>;
+export type GetApiAdminBoxBoxesQueryError = ErrorType<ProblemDetails>;
+
+export function useGetApiAdminBoxBoxes<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminBoxBoxes>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminBoxBoxes<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminBoxBoxes>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminBoxBoxes<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiAdminBoxBoxes<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxBoxes>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetApiAdminBoxBoxesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const getApiAdminBoxBoxesId = (id: string, signal?: AbortSignal) => {
+  return customClient<BoxVm>({
+    url: `/api/admin/box/boxes/${id}`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetApiAdminBoxBoxesIdQueryKey = (id?: string) => {
+  return [`/api/admin/box/boxes/${id}`] as const;
+};
+
+export const getGetApiAdminBoxBoxesIdQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+        TError,
+        TData
+      >
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetApiAdminBoxBoxesIdQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>
+  > = ({ signal }) => getApiAdminBoxBoxesId(id, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiAdminBoxBoxesIdQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>
+>;
+export type GetApiAdminBoxBoxesIdQueryError = ErrorType<ProblemDetails>;
+
+export function useGetApiAdminBoxBoxesId<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminBoxBoxesId<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminBoxBoxesId<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiAdminBoxBoxesId<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxBoxesId>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetApiAdminBoxBoxesIdQueryOptions(id, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const deleteApiAdminBoxBoxesId = (id: string) => {
+  return customClient<void>({
+    url: `/api/admin/box/boxes/${id}`,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteApiAdminBoxBoxesIdMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteApiAdminBoxBoxesId>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteApiAdminBoxBoxesId>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteApiAdminBoxBoxesId"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteApiAdminBoxBoxesId>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteApiAdminBoxBoxesId(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteApiAdminBoxBoxesIdMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteApiAdminBoxBoxesId>>
+>;
+
+export type DeleteApiAdminBoxBoxesIdMutationError = ErrorType<ProblemDetails>;
+
+export const useDeleteApiAdminBoxBoxesId = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deleteApiAdminBoxBoxesId>>,
+      TError,
+      { id: string },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteApiAdminBoxBoxesId>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationOptions = getDeleteApiAdminBoxBoxesIdMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const postApiAdminBoxBoxesIdResume = (
+  id: string,
+  signal?: AbortSignal,
+) => {
+  return customClient<void>({
+    url: `/api/admin/box/boxes/${id}/resume`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getPostApiAdminBoxBoxesIdResumeMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postApiAdminBoxBoxesIdResume>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postApiAdminBoxBoxesIdResume>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["postApiAdminBoxBoxesIdResume"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postApiAdminBoxBoxesIdResume>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return postApiAdminBoxBoxesIdResume(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostApiAdminBoxBoxesIdResumeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postApiAdminBoxBoxesIdResume>>
+>;
+
+export type PostApiAdminBoxBoxesIdResumeMutationError =
+  ErrorType<ProblemDetails>;
+
+export const usePostApiAdminBoxBoxesIdResume = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof postApiAdminBoxBoxesIdResume>>,
+      TError,
+      { id: string },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof postApiAdminBoxBoxesIdResume>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationOptions =
+    getPostApiAdminBoxBoxesIdResumeMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const postApiAdminBoxBoxesIdStop = (
+  id: string,
+  signal?: AbortSignal,
+) => {
+  return customClient<void>({
+    url: `/api/admin/box/boxes/${id}/stop`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getPostApiAdminBoxBoxesIdStopMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postApiAdminBoxBoxesIdStop>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postApiAdminBoxBoxesIdStop>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["postApiAdminBoxBoxesIdStop"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postApiAdminBoxBoxesIdStop>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return postApiAdminBoxBoxesIdStop(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostApiAdminBoxBoxesIdStopMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postApiAdminBoxBoxesIdStop>>
+>;
+
+export type PostApiAdminBoxBoxesIdStopMutationError = ErrorType<ProblemDetails>;
+
+export const usePostApiAdminBoxBoxesIdStop = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof postApiAdminBoxBoxesIdStop>>,
+      TError,
+      { id: string },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof postApiAdminBoxBoxesIdStop>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationOptions = getPostApiAdminBoxBoxesIdStopMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const postApiAdminBoxBoxesBulkDelete = (
+  bulkDeleteRequest: BulkDeleteRequest,
+  signal?: AbortSignal,
+) => {
+  return customClient<BulkDeleteResponse>({
+    url: `/api/admin/box/boxes/bulk-delete`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: bulkDeleteRequest,
+    signal,
+  });
+};
+
+export const getPostApiAdminBoxBoxesBulkDeleteMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postApiAdminBoxBoxesBulkDelete>>,
+    TError,
+    { data: BulkDeleteRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postApiAdminBoxBoxesBulkDelete>>,
+  TError,
+  { data: BulkDeleteRequest },
+  TContext
+> => {
+  const mutationKey = ["postApiAdminBoxBoxesBulkDelete"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postApiAdminBoxBoxesBulkDelete>>,
+    { data: BulkDeleteRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return postApiAdminBoxBoxesBulkDelete(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostApiAdminBoxBoxesBulkDeleteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postApiAdminBoxBoxesBulkDelete>>
+>;
+export type PostApiAdminBoxBoxesBulkDeleteMutationBody = BulkDeleteRequest;
+export type PostApiAdminBoxBoxesBulkDeleteMutationError =
+  ErrorType<ProblemDetails>;
+
+export const usePostApiAdminBoxBoxesBulkDelete = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof postApiAdminBoxBoxesBulkDelete>>,
+      TError,
+      { data: BulkDeleteRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof postApiAdminBoxBoxesBulkDelete>>,
+  TError,
+  { data: BulkDeleteRequest },
+  TContext
+> => {
+  const mutationOptions =
+    getPostApiAdminBoxBoxesBulkDeleteMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const getApiAdminBoxSnapshots = (signal?: AbortSignal) => {
+  return customClient<BoxSnapshotAdminRow[]>({
+    url: `/api/admin/box/snapshots`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetApiAdminBoxSnapshotsQueryKey = () => {
+  return [`/api/admin/box/snapshots`] as const;
+};
+
+export const getGetApiAdminBoxSnapshotsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+  TError = ErrorType<ProblemDetails>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<
+      Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+      TError,
+      TData
+    >
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetApiAdminBoxSnapshotsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>
+  > = ({ signal }) => getApiAdminBoxSnapshots(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiAdminBoxSnapshotsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>
+>;
+export type GetApiAdminBoxSnapshotsQueryError = ErrorType<ProblemDetails>;
+
+export function useGetApiAdminBoxSnapshots<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminBoxSnapshots<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminBoxSnapshots<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiAdminBoxSnapshots<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxSnapshots>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetApiAdminBoxSnapshotsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const deleteApiAdminBoxSnapshotsId = (id: string) => {
+  return customClient<void>({
+    url: `/api/admin/box/snapshots/${id}`,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteApiAdminBoxSnapshotsIdMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteApiAdminBoxSnapshotsId>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteApiAdminBoxSnapshotsId>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteApiAdminBoxSnapshotsId"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteApiAdminBoxSnapshotsId>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteApiAdminBoxSnapshotsId(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteApiAdminBoxSnapshotsIdMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteApiAdminBoxSnapshotsId>>
+>;
+
+export type DeleteApiAdminBoxSnapshotsIdMutationError =
+  ErrorType<ProblemDetails>;
+
+export const useDeleteApiAdminBoxSnapshotsId = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deleteApiAdminBoxSnapshotsId>>,
+      TError,
+      { id: string },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteApiAdminBoxSnapshotsId>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationOptions =
+    getDeleteApiAdminBoxSnapshotsIdMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const postApiAdminBoxSnapshotsBulkDelete = (
+  bulkDeleteRequest: BulkDeleteRequest,
+  signal?: AbortSignal,
+) => {
+  return customClient<BulkDeleteResponse>({
+    url: `/api/admin/box/snapshots/bulk-delete`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: bulkDeleteRequest,
+    signal,
+  });
+};
+
+export const getPostApiAdminBoxSnapshotsBulkDeleteMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postApiAdminBoxSnapshotsBulkDelete>>,
+    TError,
+    { data: BulkDeleteRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postApiAdminBoxSnapshotsBulkDelete>>,
+  TError,
+  { data: BulkDeleteRequest },
+  TContext
+> => {
+  const mutationKey = ["postApiAdminBoxSnapshotsBulkDelete"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postApiAdminBoxSnapshotsBulkDelete>>,
+    { data: BulkDeleteRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return postApiAdminBoxSnapshotsBulkDelete(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostApiAdminBoxSnapshotsBulkDeleteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postApiAdminBoxSnapshotsBulkDelete>>
+>;
+export type PostApiAdminBoxSnapshotsBulkDeleteMutationBody = BulkDeleteRequest;
+export type PostApiAdminBoxSnapshotsBulkDeleteMutationError =
+  ErrorType<ProblemDetails>;
+
+export const usePostApiAdminBoxSnapshotsBulkDelete = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof postApiAdminBoxSnapshotsBulkDelete>>,
+      TError,
+      { data: BulkDeleteRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof postApiAdminBoxSnapshotsBulkDelete>>,
+  TError,
+  { data: BulkDeleteRequest },
+  TContext
+> => {
+  const mutationOptions =
+    getPostApiAdminBoxSnapshotsBulkDeleteMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const postApiAdminBoxTestConnection = (signal?: AbortSignal) => {
+  return customClient<BoxTestConnectionResponse>({
+    url: `/api/admin/box/test-connection`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getPostApiAdminBoxTestConnectionMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postApiAdminBoxTestConnection>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postApiAdminBoxTestConnection>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["postApiAdminBoxTestConnection"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postApiAdminBoxTestConnection>>,
+    void
+  > = () => {
+    return postApiAdminBoxTestConnection();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostApiAdminBoxTestConnectionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postApiAdminBoxTestConnection>>
+>;
+
+export type PostApiAdminBoxTestConnectionMutationError =
+  ErrorType<ProblemDetails>;
+
+export const usePostApiAdminBoxTestConnection = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof postApiAdminBoxTestConnection>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof postApiAdminBoxTestConnection>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationOptions =
+    getPostApiAdminBoxTestConnectionMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const getApiAdminBoxOperations = (
+  params?: GetApiAdminBoxOperationsParams,
+  signal?: AbortSignal,
+) => {
+  return customClient<BoxOperationsResponse>({
+    url: `/api/admin/box/operations`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetApiAdminBoxOperationsQueryKey = (
+  params?: GetApiAdminBoxOperationsParams,
+) => {
+  return [`/api/admin/box/operations`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetApiAdminBoxOperationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  params?: GetApiAdminBoxOperationsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+        TError,
+        TData
+      >
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetApiAdminBoxOperationsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiAdminBoxOperations>>
+  > = ({ signal }) => getApiAdminBoxOperations(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiAdminBoxOperationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiAdminBoxOperations>>
+>;
+export type GetApiAdminBoxOperationsQueryError = ErrorType<ProblemDetails>;
+
+export function useGetApiAdminBoxOperations<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  params: undefined | GetApiAdminBoxOperationsParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminBoxOperations>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminBoxOperations<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  params?: GetApiAdminBoxOperationsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminBoxOperations>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminBoxOperations<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  params?: GetApiAdminBoxOperationsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiAdminBoxOperations<
+  TData = Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  params?: GetApiAdminBoxOperationsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminBoxOperations>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetApiAdminBoxOperationsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
 export const getApiProjectsProjectIdBranchesBranchIdEnv = (
   projectId: string,
   branchId: string,
@@ -7208,148 +8289,6 @@ export function useGetApiCiPublishStatus<
   queryKey: DataTag<QueryKey, TData, TError>;
 } {
   const queryOptions = getGetApiCiPublishStatusQueryOptions(params, options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-export const getApiCiRegistryCredentials = (signal?: AbortSignal) => {
-  return customClient<CiRegistryCredentialsDto>({
-    url: `/api/ci/registry-credentials`,
-    method: "GET",
-    signal,
-  });
-};
-
-export const getGetApiCiRegistryCredentialsQueryKey = () => {
-  return [`/api/ci/registry-credentials`] as const;
-};
-
-export const getGetApiCiRegistryCredentialsQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-  TError = ErrorType<void>,
->(options?: {
-  query?: Partial<
-    UseQueryOptions<
-      Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-      TError,
-      TData
-    >
-  >;
-}) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getGetApiCiRegistryCredentialsQueryKey();
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiCiRegistryCredentials>>
-  > = ({ signal }) => getApiCiRegistryCredentials(signal);
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiCiRegistryCredentialsQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiCiRegistryCredentials>>
->;
-export type GetApiCiRegistryCredentialsQueryError = ErrorType<void>;
-
-export function useGetApiCiRegistryCredentials<
-  TData = Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-  TError = ErrorType<void>,
->(
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-          TError,
-          Awaited<ReturnType<typeof getApiCiRegistryCredentials>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiCiRegistryCredentials<
-  TData = Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-  TError = ErrorType<void>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-          TError,
-          Awaited<ReturnType<typeof getApiCiRegistryCredentials>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiCiRegistryCredentials<
-  TData = Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-  TError = ErrorType<void>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiCiRegistryCredentials<
-  TData = Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-  TError = ErrorType<void>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiCiRegistryCredentials>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetApiCiRegistryCredentialsQueryOptions(options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<
     TData,
@@ -12141,1604 +13080,6 @@ export const usePostApiFilesUpload = <
 
   return useMutation(mutationOptions, queryClient);
 };
-
-export const postApiWebhooksFly = (signal?: AbortSignal) => {
-  return customClient<FlyWebhookAck>({
-    url: `/api/webhooks/fly`,
-    method: "POST",
-    signal,
-  });
-};
-
-export const getPostApiWebhooksFlyMutationOptions = <
-  TError = ErrorType<ProblemDetails | void>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiWebhooksFly>>,
-    TError,
-    void,
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiWebhooksFly>>,
-  TError,
-  void,
-  TContext
-> => {
-  const mutationKey = ["postApiWebhooksFly"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiWebhooksFly>>,
-    void
-  > = () => {
-    return postApiWebhooksFly();
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiWebhooksFlyMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiWebhooksFly>>
->;
-
-export type PostApiWebhooksFlyMutationError = ErrorType<ProblemDetails | void>;
-
-export const usePostApiWebhooksFly = <
-  TError = ErrorType<ProblemDetails | void>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiWebhooksFly>>,
-      TError,
-      void,
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiWebhooksFly>>,
-  TError,
-  void,
-  TContext
-> => {
-  const mutationOptions = getPostApiWebhooksFlyMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const getApiAdminFlyMachines = (signal?: AbortSignal) => {
-  return customClient<FlyMachineAdminRow[]>({
-    url: `/api/admin/fly/machines`,
-    method: "GET",
-    signal,
-  });
-};
-
-export const getGetApiAdminFlyMachinesQueryKey = () => {
-  return [`/api/admin/fly/machines`] as const;
-};
-
-export const getGetApiAdminFlyMachinesQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-  TError = ErrorType<ProblemDetails>,
->(options?: {
-  query?: Partial<
-    UseQueryOptions<
-      Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-      TError,
-      TData
-    >
-  >;
-}) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getGetApiAdminFlyMachinesQueryKey();
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminFlyMachines>>
-  > = ({ signal }) => getApiAdminFlyMachines(signal);
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiAdminFlyMachinesQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminFlyMachines>>
->;
-export type GetApiAdminFlyMachinesQueryError = ErrorType<ProblemDetails>;
-
-export function useGetApiAdminFlyMachines<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyMachines>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyMachines<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyMachines>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyMachines<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiAdminFlyMachines<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyMachines>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetApiAdminFlyMachinesQueryOptions(options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-export const getApiAdminFlyMachinesId = (id: string, signal?: AbortSignal) => {
-  return customClient<FlyMachine>({
-    url: `/api/admin/fly/machines/${id}`,
-    method: "GET",
-    signal,
-  });
-};
-
-export const getGetApiAdminFlyMachinesIdQueryKey = (id?: string) => {
-  return [`/api/admin/fly/machines/${id}`] as const;
-};
-
-export const getGetApiAdminFlyMachinesIdQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-        TError,
-        TData
-      >
-    >;
-  },
-) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getGetApiAdminFlyMachinesIdQueryKey(id);
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>
-  > = ({ signal }) => getApiAdminFlyMachinesId(id, signal);
-
-  return {
-    queryKey,
-    queryFn,
-    enabled: !!id,
-    ...queryOptions,
-  } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiAdminFlyMachinesIdQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>
->;
-export type GetApiAdminFlyMachinesIdQueryError = ErrorType<ProblemDetails>;
-
-export function useGetApiAdminFlyMachinesId<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyMachinesId<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyMachinesId<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiAdminFlyMachinesId<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyMachinesId>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetApiAdminFlyMachinesIdQueryOptions(id, options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-export const deleteApiAdminFlyMachinesId = (
-  id: string,
-  params?: DeleteApiAdminFlyMachinesIdParams,
-) => {
-  return customClient<void>({
-    url: `/api/admin/fly/machines/${id}`,
-    method: "DELETE",
-    params,
-  });
-};
-
-export const getDeleteApiAdminFlyMachinesIdMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof deleteApiAdminFlyMachinesId>>,
-    TError,
-    { id: string; params?: DeleteApiAdminFlyMachinesIdParams },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof deleteApiAdminFlyMachinesId>>,
-  TError,
-  { id: string; params?: DeleteApiAdminFlyMachinesIdParams },
-  TContext
-> => {
-  const mutationKey = ["deleteApiAdminFlyMachinesId"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof deleteApiAdminFlyMachinesId>>,
-    { id: string; params?: DeleteApiAdminFlyMachinesIdParams }
-  > = (props) => {
-    const { id, params } = props ?? {};
-
-    return deleteApiAdminFlyMachinesId(id, params);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type DeleteApiAdminFlyMachinesIdMutationResult = NonNullable<
-  Awaited<ReturnType<typeof deleteApiAdminFlyMachinesId>>
->;
-
-export type DeleteApiAdminFlyMachinesIdMutationError =
-  ErrorType<ProblemDetails>;
-
-export const useDeleteApiAdminFlyMachinesId = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof deleteApiAdminFlyMachinesId>>,
-      TError,
-      { id: string; params?: DeleteApiAdminFlyMachinesIdParams },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof deleteApiAdminFlyMachinesId>>,
-  TError,
-  { id: string; params?: DeleteApiAdminFlyMachinesIdParams },
-  TContext
-> => {
-  const mutationOptions =
-    getDeleteApiAdminFlyMachinesIdMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const postApiAdminFlyMachinesIdStart = (
-  id: string,
-  signal?: AbortSignal,
-) => {
-  return customClient<void>({
-    url: `/api/admin/fly/machines/${id}/start`,
-    method: "POST",
-    signal,
-  });
-};
-
-export const getPostApiAdminFlyMachinesIdStartMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStart>>,
-    TError,
-    { id: string },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStart>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationKey = ["postApiAdminFlyMachinesIdStart"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStart>>,
-    { id: string }
-  > = (props) => {
-    const { id } = props ?? {};
-
-    return postApiAdminFlyMachinesIdStart(id);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminFlyMachinesIdStartMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStart>>
->;
-
-export type PostApiAdminFlyMachinesIdStartMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePostApiAdminFlyMachinesIdStart = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStart>>,
-      TError,
-      { id: string },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStart>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationOptions =
-    getPostApiAdminFlyMachinesIdStartMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const postApiAdminFlyMachinesIdStop = (
-  id: string,
-  stopMachineRequest: StopMachineRequest,
-  signal?: AbortSignal,
-) => {
-  return customClient<void>({
-    url: `/api/admin/fly/machines/${id}/stop`,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: stopMachineRequest,
-    signal,
-  });
-};
-
-export const getPostApiAdminFlyMachinesIdStopMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStop>>,
-    TError,
-    { id: string; data: StopMachineRequest },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStop>>,
-  TError,
-  { id: string; data: StopMachineRequest },
-  TContext
-> => {
-  const mutationKey = ["postApiAdminFlyMachinesIdStop"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStop>>,
-    { id: string; data: StopMachineRequest }
-  > = (props) => {
-    const { id, data } = props ?? {};
-
-    return postApiAdminFlyMachinesIdStop(id, data);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminFlyMachinesIdStopMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStop>>
->;
-export type PostApiAdminFlyMachinesIdStopMutationBody = StopMachineRequest;
-export type PostApiAdminFlyMachinesIdStopMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePostApiAdminFlyMachinesIdStop = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStop>>,
-      TError,
-      { id: string; data: StopMachineRequest },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesIdStop>>,
-  TError,
-  { id: string; data: StopMachineRequest },
-  TContext
-> => {
-  const mutationOptions =
-    getPostApiAdminFlyMachinesIdStopMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const postApiAdminFlyMachinesIdSuspend = (
-  id: string,
-  signal?: AbortSignal,
-) => {
-  return customClient<void>({
-    url: `/api/admin/fly/machines/${id}/suspend`,
-    method: "POST",
-    signal,
-  });
-};
-
-export const getPostApiAdminFlyMachinesIdSuspendMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminFlyMachinesIdSuspend>>,
-    TError,
-    { id: string },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesIdSuspend>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationKey = ["postApiAdminFlyMachinesIdSuspend"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminFlyMachinesIdSuspend>>,
-    { id: string }
-  > = (props) => {
-    const { id } = props ?? {};
-
-    return postApiAdminFlyMachinesIdSuspend(id);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminFlyMachinesIdSuspendMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesIdSuspend>>
->;
-
-export type PostApiAdminFlyMachinesIdSuspendMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePostApiAdminFlyMachinesIdSuspend = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminFlyMachinesIdSuspend>>,
-      TError,
-      { id: string },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesIdSuspend>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationOptions =
-    getPostApiAdminFlyMachinesIdSuspendMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const postApiAdminFlyMachinesBulkDestroy = (
-  bulkDestroyRequest: BulkDestroyRequest,
-  signal?: AbortSignal,
-) => {
-  return customClient<BulkDestroyResponse>({
-    url: `/api/admin/fly/machines/bulk-destroy`,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: bulkDestroyRequest,
-    signal,
-  });
-};
-
-export const getPostApiAdminFlyMachinesBulkDestroyMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminFlyMachinesBulkDestroy>>,
-    TError,
-    { data: BulkDestroyRequest },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesBulkDestroy>>,
-  TError,
-  { data: BulkDestroyRequest },
-  TContext
-> => {
-  const mutationKey = ["postApiAdminFlyMachinesBulkDestroy"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminFlyMachinesBulkDestroy>>,
-    { data: BulkDestroyRequest }
-  > = (props) => {
-    const { data } = props ?? {};
-
-    return postApiAdminFlyMachinesBulkDestroy(data);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminFlyMachinesBulkDestroyMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesBulkDestroy>>
->;
-export type PostApiAdminFlyMachinesBulkDestroyMutationBody = BulkDestroyRequest;
-export type PostApiAdminFlyMachinesBulkDestroyMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePostApiAdminFlyMachinesBulkDestroy = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminFlyMachinesBulkDestroy>>,
-      TError,
-      { data: BulkDestroyRequest },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminFlyMachinesBulkDestroy>>,
-  TError,
-  { data: BulkDestroyRequest },
-  TContext
-> => {
-  const mutationOptions =
-    getPostApiAdminFlyMachinesBulkDestroyMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const getApiAdminFlyVolumes = (signal?: AbortSignal) => {
-  return customClient<FlyVolumeAdminRow[]>({
-    url: `/api/admin/fly/volumes`,
-    method: "GET",
-    signal,
-  });
-};
-
-export const getGetApiAdminFlyVolumesQueryKey = () => {
-  return [`/api/admin/fly/volumes`] as const;
-};
-
-export const getGetApiAdminFlyVolumesQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-  TError = ErrorType<ProblemDetails>,
->(options?: {
-  query?: Partial<
-    UseQueryOptions<
-      Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-      TError,
-      TData
-    >
-  >;
-}) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetApiAdminFlyVolumesQueryKey();
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminFlyVolumes>>
-  > = ({ signal }) => getApiAdminFlyVolumes(signal);
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiAdminFlyVolumesQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminFlyVolumes>>
->;
-export type GetApiAdminFlyVolumesQueryError = ErrorType<ProblemDetails>;
-
-export function useGetApiAdminFlyVolumes<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyVolumes>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyVolumes<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyVolumes>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyVolumes<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiAdminFlyVolumes<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyVolumes>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetApiAdminFlyVolumesQueryOptions(options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-export const deleteApiAdminFlyVolumesId = (id: string) => {
-  return customClient<void>({
-    url: `/api/admin/fly/volumes/${id}`,
-    method: "DELETE",
-  });
-};
-
-export const getDeleteApiAdminFlyVolumesIdMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof deleteApiAdminFlyVolumesId>>,
-    TError,
-    { id: string },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof deleteApiAdminFlyVolumesId>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationKey = ["deleteApiAdminFlyVolumesId"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof deleteApiAdminFlyVolumesId>>,
-    { id: string }
-  > = (props) => {
-    const { id } = props ?? {};
-
-    return deleteApiAdminFlyVolumesId(id);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type DeleteApiAdminFlyVolumesIdMutationResult = NonNullable<
-  Awaited<ReturnType<typeof deleteApiAdminFlyVolumesId>>
->;
-
-export type DeleteApiAdminFlyVolumesIdMutationError = ErrorType<ProblemDetails>;
-
-export const useDeleteApiAdminFlyVolumesId = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof deleteApiAdminFlyVolumesId>>,
-      TError,
-      { id: string },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof deleteApiAdminFlyVolumesId>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationOptions = getDeleteApiAdminFlyVolumesIdMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const postApiAdminFlyVolumesBulkDestroy = (
-  bulkDestroyRequest: BulkDestroyRequest,
-  signal?: AbortSignal,
-) => {
-  return customClient<BulkDestroyResponse>({
-    url: `/api/admin/fly/volumes/bulk-destroy`,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: bulkDestroyRequest,
-    signal,
-  });
-};
-
-export const getPostApiAdminFlyVolumesBulkDestroyMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminFlyVolumesBulkDestroy>>,
-    TError,
-    { data: BulkDestroyRequest },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminFlyVolumesBulkDestroy>>,
-  TError,
-  { data: BulkDestroyRequest },
-  TContext
-> => {
-  const mutationKey = ["postApiAdminFlyVolumesBulkDestroy"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminFlyVolumesBulkDestroy>>,
-    { data: BulkDestroyRequest }
-  > = (props) => {
-    const { data } = props ?? {};
-
-    return postApiAdminFlyVolumesBulkDestroy(data);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminFlyVolumesBulkDestroyMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminFlyVolumesBulkDestroy>>
->;
-export type PostApiAdminFlyVolumesBulkDestroyMutationBody = BulkDestroyRequest;
-export type PostApiAdminFlyVolumesBulkDestroyMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePostApiAdminFlyVolumesBulkDestroy = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminFlyVolumesBulkDestroy>>,
-      TError,
-      { data: BulkDestroyRequest },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminFlyVolumesBulkDestroy>>,
-  TError,
-  { data: BulkDestroyRequest },
-  TContext
-> => {
-  const mutationOptions =
-    getPostApiAdminFlyVolumesBulkDestroyMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const postApiAdminFlyVolumesIdExtend = (
-  id: string,
-  extendVolumeRequest: ExtendVolumeRequest,
-  signal?: AbortSignal,
-) => {
-  return customClient<FlyVolume>({
-    url: `/api/admin/fly/volumes/${id}/extend`,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: extendVolumeRequest,
-    signal,
-  });
-};
-
-export const getPostApiAdminFlyVolumesIdExtendMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminFlyVolumesIdExtend>>,
-    TError,
-    { id: string; data: ExtendVolumeRequest },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminFlyVolumesIdExtend>>,
-  TError,
-  { id: string; data: ExtendVolumeRequest },
-  TContext
-> => {
-  const mutationKey = ["postApiAdminFlyVolumesIdExtend"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminFlyVolumesIdExtend>>,
-    { id: string; data: ExtendVolumeRequest }
-  > = (props) => {
-    const { id, data } = props ?? {};
-
-    return postApiAdminFlyVolumesIdExtend(id, data);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminFlyVolumesIdExtendMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminFlyVolumesIdExtend>>
->;
-export type PostApiAdminFlyVolumesIdExtendMutationBody = ExtendVolumeRequest;
-export type PostApiAdminFlyVolumesIdExtendMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePostApiAdminFlyVolumesIdExtend = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminFlyVolumesIdExtend>>,
-      TError,
-      { id: string; data: ExtendVolumeRequest },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminFlyVolumesIdExtend>>,
-  TError,
-  { id: string; data: ExtendVolumeRequest },
-  TContext
-> => {
-  const mutationOptions =
-    getPostApiAdminFlyVolumesIdExtendMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const getApiAdminFlyApp = (signal?: AbortSignal) => {
-  return customClient<FlyApp>({
-    url: `/api/admin/fly/app`,
-    method: "GET",
-    signal,
-  });
-};
-
-export const getGetApiAdminFlyAppQueryKey = () => {
-  return [`/api/admin/fly/app`] as const;
-};
-
-export const getGetApiAdminFlyAppQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-  TError = ErrorType<ProblemDetails>,
->(options?: {
-  query?: Partial<
-    UseQueryOptions<
-      Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-      TError,
-      TData
-    >
-  >;
-}) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetApiAdminFlyAppQueryKey();
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminFlyApp>>
-  > = ({ signal }) => getApiAdminFlyApp(signal);
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiAdminFlyAppQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminFlyApp>>
->;
-export type GetApiAdminFlyAppQueryError = ErrorType<ProblemDetails>;
-
-export function useGetApiAdminFlyApp<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyApp>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyApp<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyApp>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyApp<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiAdminFlyApp<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyApp>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetApiAdminFlyAppQueryOptions(options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-export const postApiAdminFlyAppEnsure = (signal?: AbortSignal) => {
-  return customClient<FlyApp>({
-    url: `/api/admin/fly/app/ensure`,
-    method: "POST",
-    signal,
-  });
-};
-
-export const getPostApiAdminFlyAppEnsureMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminFlyAppEnsure>>,
-    TError,
-    void,
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminFlyAppEnsure>>,
-  TError,
-  void,
-  TContext
-> => {
-  const mutationKey = ["postApiAdminFlyAppEnsure"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminFlyAppEnsure>>,
-    void
-  > = () => {
-    return postApiAdminFlyAppEnsure();
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminFlyAppEnsureMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminFlyAppEnsure>>
->;
-
-export type PostApiAdminFlyAppEnsureMutationError = ErrorType<ProblemDetails>;
-
-export const usePostApiAdminFlyAppEnsure = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminFlyAppEnsure>>,
-      TError,
-      void,
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminFlyAppEnsure>>,
-  TError,
-  void,
-  TContext
-> => {
-  const mutationOptions = getPostApiAdminFlyAppEnsureMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const postApiAdminFlyTestConnection = (signal?: AbortSignal) => {
-  return customClient<FlyTestConnectionResponse>({
-    url: `/api/admin/fly/test-connection`,
-    method: "POST",
-    signal,
-  });
-};
-
-export const getPostApiAdminFlyTestConnectionMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminFlyTestConnection>>,
-    TError,
-    void,
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminFlyTestConnection>>,
-  TError,
-  void,
-  TContext
-> => {
-  const mutationKey = ["postApiAdminFlyTestConnection"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminFlyTestConnection>>,
-    void
-  > = () => {
-    return postApiAdminFlyTestConnection();
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminFlyTestConnectionMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminFlyTestConnection>>
->;
-
-export type PostApiAdminFlyTestConnectionMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePostApiAdminFlyTestConnection = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminFlyTestConnection>>,
-      TError,
-      void,
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminFlyTestConnection>>,
-  TError,
-  void,
-  TContext
-> => {
-  const mutationOptions =
-    getPostApiAdminFlyTestConnectionMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const getApiAdminFlyOperations = (
-  params?: GetApiAdminFlyOperationsParams,
-  signal?: AbortSignal,
-) => {
-  return customClient<FlyOperationsResponse>({
-    url: `/api/admin/fly/operations`,
-    method: "GET",
-    params,
-    signal,
-  });
-};
-
-export const getGetApiAdminFlyOperationsQueryKey = (
-  params?: GetApiAdminFlyOperationsParams,
-) => {
-  return [`/api/admin/fly/operations`, ...(params ? [params] : [])] as const;
-};
-
-export const getGetApiAdminFlyOperationsQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  params?: GetApiAdminFlyOperationsParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-        TError,
-        TData
-      >
-    >;
-  },
-) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getGetApiAdminFlyOperationsQueryKey(params);
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminFlyOperations>>
-  > = ({ signal }) => getApiAdminFlyOperations(params, signal);
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiAdminFlyOperationsQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminFlyOperations>>
->;
-export type GetApiAdminFlyOperationsQueryError = ErrorType<ProblemDetails>;
-
-export function useGetApiAdminFlyOperations<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  params: undefined | GetApiAdminFlyOperationsParams,
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyOperations>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyOperations<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  params?: GetApiAdminFlyOperationsParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminFlyOperations>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminFlyOperations<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  params?: GetApiAdminFlyOperationsParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiAdminFlyOperations<
-  TData = Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  params?: GetApiAdminFlyOperationsParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminFlyOperations>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetApiAdminFlyOperationsQueryOptions(params, options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
 
 export const getApiGithubInstallationsInstallationIdRepos = (
   installationId: string,
@@ -23748,32 +23089,32 @@ export function useGetApiAdminRuntimesDrift<
   return query;
 }
 
-export const getApiAdminRuntimesRuntimeIdFlySnapshot = (
+export const getApiAdminRuntimesRuntimeIdBoxSnapshot = (
   runtimeId: string,
   signal?: AbortSignal,
 ) => {
-  return customClient<FlySnapshotResponse>({
-    url: `/api/admin/runtimes/${runtimeId}/fly-snapshot`,
+  return customClient<BoxSnapshotResponse>({
+    url: `/api/admin/runtimes/${runtimeId}/box-snapshot`,
     method: "GET",
     signal,
   });
 };
 
-export const getGetApiAdminRuntimesRuntimeIdFlySnapshotQueryKey = (
+export const getGetApiAdminRuntimesRuntimeIdBoxSnapshotQueryKey = (
   runtimeId?: string,
 ) => {
-  return [`/api/admin/runtimes/${runtimeId}/fly-snapshot`] as const;
+  return [`/api/admin/runtimes/${runtimeId}/box-snapshot`] as const;
 };
 
-export const getGetApiAdminRuntimesRuntimeIdFlySnapshotQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+export const getGetApiAdminRuntimesRuntimeIdBoxSnapshotQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
   TError = ErrorType<ProblemDetails>,
 >(
   runtimeId: string,
   options?: {
     query?: Partial<
       UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
         TError,
         TData
       >
@@ -23784,12 +23125,12 @@ export const getGetApiAdminRuntimesRuntimeIdFlySnapshotQueryOptions = <
 
   const queryKey =
     queryOptions?.queryKey ??
-    getGetApiAdminRuntimesRuntimeIdFlySnapshotQueryKey(runtimeId);
+    getGetApiAdminRuntimesRuntimeIdBoxSnapshotQueryKey(runtimeId);
 
   const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>
+    Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>
   > = ({ signal }) =>
-    getApiAdminRuntimesRuntimeIdFlySnapshot(runtimeId, signal);
+    getApiAdminRuntimesRuntimeIdBoxSnapshot(runtimeId, signal);
 
   return {
     queryKey,
@@ -23797,36 +23138,36 @@ export const getGetApiAdminRuntimesRuntimeIdFlySnapshotQueryOptions = <
     enabled: !!runtimeId,
     ...queryOptions,
   } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+    Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
     TError,
     TData
   > & { queryKey: DataTag<QueryKey, TData, TError> };
 };
 
-export type GetApiAdminRuntimesRuntimeIdFlySnapshotQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>
+export type GetApiAdminRuntimesRuntimeIdBoxSnapshotQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>
 >;
-export type GetApiAdminRuntimesRuntimeIdFlySnapshotQueryError =
+export type GetApiAdminRuntimesRuntimeIdBoxSnapshotQueryError =
   ErrorType<ProblemDetails>;
 
-export function useGetApiAdminRuntimesRuntimeIdFlySnapshot<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+export function useGetApiAdminRuntimesRuntimeIdBoxSnapshot<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
   TError = ErrorType<ProblemDetails>,
 >(
   runtimeId: string,
   options: {
     query: Partial<
       UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
         TError,
         TData
       >
     > &
       Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+          Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
           TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>
+          Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>
         >,
         "initialData"
       >;
@@ -23835,24 +23176,24 @@ export function useGetApiAdminRuntimesRuntimeIdFlySnapshot<
 ): DefinedUseQueryResult<TData, TError> & {
   queryKey: DataTag<QueryKey, TData, TError>;
 };
-export function useGetApiAdminRuntimesRuntimeIdFlySnapshot<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+export function useGetApiAdminRuntimesRuntimeIdBoxSnapshot<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
   TError = ErrorType<ProblemDetails>,
 >(
   runtimeId: string,
   options?: {
     query?: Partial<
       UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
         TError,
         TData
       >
     > &
       Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+          Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
           TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>
+          Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>
         >,
         "initialData"
       >;
@@ -23861,15 +23202,15 @@ export function useGetApiAdminRuntimesRuntimeIdFlySnapshot<
 ): UseQueryResult<TData, TError> & {
   queryKey: DataTag<QueryKey, TData, TError>;
 };
-export function useGetApiAdminRuntimesRuntimeIdFlySnapshot<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+export function useGetApiAdminRuntimesRuntimeIdBoxSnapshot<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
   TError = ErrorType<ProblemDetails>,
 >(
   runtimeId: string,
   options?: {
     query?: Partial<
       UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
         TError,
         TData
       >
@@ -23880,15 +23221,15 @@ export function useGetApiAdminRuntimesRuntimeIdFlySnapshot<
   queryKey: DataTag<QueryKey, TData, TError>;
 };
 
-export function useGetApiAdminRuntimesRuntimeIdFlySnapshot<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+export function useGetApiAdminRuntimesRuntimeIdBoxSnapshot<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
   TError = ErrorType<ProblemDetails>,
 >(
   runtimeId: string,
   options?: {
     query?: Partial<
       UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdFlySnapshot>>,
+        Awaited<ReturnType<typeof getApiAdminRuntimesRuntimeIdBoxSnapshot>>,
         TError,
         TData
       >
@@ -23898,7 +23239,7 @@ export function useGetApiAdminRuntimesRuntimeIdFlySnapshot<
 ): UseQueryResult<TData, TError> & {
   queryKey: DataTag<QueryKey, TData, TError>;
 } {
-  const queryOptions = getGetApiAdminRuntimesRuntimeIdFlySnapshotQueryOptions(
+  const queryOptions = getGetApiAdminRuntimesRuntimeIdBoxSnapshotQueryOptions(
     runtimeId,
     options,
   );
@@ -24729,947 +24070,6 @@ export function useGetApiRuntimesRuntimeIdHealthSnapshots<
 
   return query;
 }
-
-export const postApiAdminRuntimeImages = (
-  registerRuntimeImageRequest: RegisterRuntimeImageRequest,
-  signal?: AbortSignal,
-) => {
-  return customClient<RuntimeImage>({
-    url: `/api/admin/runtime-images`,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: registerRuntimeImageRequest,
-    signal,
-  });
-};
-
-export const getPostApiAdminRuntimeImagesMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminRuntimeImages>>,
-    TError,
-    { data: RegisterRuntimeImageRequest },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminRuntimeImages>>,
-  TError,
-  { data: RegisterRuntimeImageRequest },
-  TContext
-> => {
-  const mutationKey = ["postApiAdminRuntimeImages"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminRuntimeImages>>,
-    { data: RegisterRuntimeImageRequest }
-  > = (props) => {
-    const { data } = props ?? {};
-
-    return postApiAdminRuntimeImages(data);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminRuntimeImagesMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminRuntimeImages>>
->;
-export type PostApiAdminRuntimeImagesMutationBody = RegisterRuntimeImageRequest;
-export type PostApiAdminRuntimeImagesMutationError = ErrorType<ProblemDetails>;
-
-export const usePostApiAdminRuntimeImages = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminRuntimeImages>>,
-      TError,
-      { data: RegisterRuntimeImageRequest },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminRuntimeImages>>,
-  TError,
-  { data: RegisterRuntimeImageRequest },
-  TContext
-> => {
-  const mutationOptions = getPostApiAdminRuntimeImagesMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const getApiAdminRuntimeImages = (
-  params?: GetApiAdminRuntimeImagesParams,
-  signal?: AbortSignal,
-) => {
-  return customClient<RuntimeImagesResponse>({
-    url: `/api/admin/runtime-images`,
-    method: "GET",
-    params,
-    signal,
-  });
-};
-
-export const getGetApiAdminRuntimeImagesQueryKey = (
-  params?: GetApiAdminRuntimeImagesParams,
-) => {
-  return [`/api/admin/runtime-images`, ...(params ? [params] : [])] as const;
-};
-
-export const getGetApiAdminRuntimeImagesQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-  TError = ErrorType<unknown>,
->(
-  params?: GetApiAdminRuntimeImagesParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-        TError,
-        TData
-      >
-    >;
-  },
-) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getGetApiAdminRuntimeImagesQueryKey(params);
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminRuntimeImages>>
-  > = ({ signal }) => getApiAdminRuntimeImages(params, signal);
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiAdminRuntimeImagesQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminRuntimeImages>>
->;
-export type GetApiAdminRuntimeImagesQueryError = ErrorType<unknown>;
-
-export function useGetApiAdminRuntimeImages<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-  TError = ErrorType<unknown>,
->(
-  params: undefined | GetApiAdminRuntimeImagesParams,
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimeImages>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminRuntimeImages<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-  TError = ErrorType<unknown>,
->(
-  params?: GetApiAdminRuntimeImagesParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimeImages>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminRuntimeImages<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-  TError = ErrorType<unknown>,
->(
-  params?: GetApiAdminRuntimeImagesParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiAdminRuntimeImages<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-  TError = ErrorType<unknown>,
->(
-  params?: GetApiAdminRuntimeImagesParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImages>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetApiAdminRuntimeImagesQueryOptions(params, options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-export const getApiAdminRuntimeImagesId = (
-  id: string,
-  signal?: AbortSignal,
-) => {
-  return customClient<RuntimeImage>({
-    url: `/api/admin/runtime-images/${id}`,
-    method: "GET",
-    signal,
-  });
-};
-
-export const getGetApiAdminRuntimeImagesIdQueryKey = (id?: string) => {
-  return [`/api/admin/runtime-images/${id}`] as const;
-};
-
-export const getGetApiAdminRuntimeImagesIdQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-        TError,
-        TData
-      >
-    >;
-  },
-) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getGetApiAdminRuntimeImagesIdQueryKey(id);
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>
-  > = ({ signal }) => getApiAdminRuntimeImagesId(id, signal);
-
-  return {
-    queryKey,
-    queryFn,
-    enabled: !!id,
-    ...queryOptions,
-  } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiAdminRuntimeImagesIdQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>
->;
-export type GetApiAdminRuntimeImagesIdQueryError = ErrorType<ProblemDetails>;
-
-export function useGetApiAdminRuntimeImagesId<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminRuntimeImagesId<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminRuntimeImagesId<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiAdminRuntimeImagesId<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  id: string,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesId>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetApiAdminRuntimeImagesIdQueryOptions(id, options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-export const getApiAdminRuntimeImagesLatestActive = (signal?: AbortSignal) => {
-  return customClient<RuntimeImage>({
-    url: `/api/admin/runtime-images/latest-active`,
-    method: "GET",
-    signal,
-  });
-};
-
-export const getGetApiAdminRuntimeImagesLatestActiveQueryKey = () => {
-  return [`/api/admin/runtime-images/latest-active`] as const;
-};
-
-export const getGetApiAdminRuntimeImagesLatestActiveQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-  TError = ErrorType<ProblemDetails>,
->(options?: {
-  query?: Partial<
-    UseQueryOptions<
-      Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-      TError,
-      TData
-    >
-  >;
-}) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getGetApiAdminRuntimeImagesLatestActiveQueryKey();
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>
-  > = ({ signal }) => getApiAdminRuntimeImagesLatestActive(signal);
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiAdminRuntimeImagesLatestActiveQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>
->;
-export type GetApiAdminRuntimeImagesLatestActiveQueryError =
-  ErrorType<ProblemDetails>;
-
-export function useGetApiAdminRuntimeImagesLatestActive<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminRuntimeImagesLatestActive<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminRuntimeImagesLatestActive<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiAdminRuntimeImagesLatestActive<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-  TError = ErrorType<ProblemDetails>,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesLatestActive>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions =
-    getGetApiAdminRuntimeImagesLatestActiveQueryOptions(options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-export const getApiAdminRuntimeImagesRegistryTags = (
-  params?: GetApiAdminRuntimeImagesRegistryTagsParams,
-  signal?: AbortSignal,
-) => {
-  return customClient<RegistryTagDto[]>({
-    url: `/api/admin/runtime-images/registry-tags`,
-    method: "GET",
-    params,
-    signal,
-  });
-};
-
-export const getGetApiAdminRuntimeImagesRegistryTagsQueryKey = (
-  params?: GetApiAdminRuntimeImagesRegistryTagsParams,
-) => {
-  return [
-    `/api/admin/runtime-images/registry-tags`,
-    ...(params ? [params] : []),
-  ] as const;
-};
-
-export const getGetApiAdminRuntimeImagesRegistryTagsQueryOptions = <
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-  TError = ErrorType<ProblemDetails | void>,
->(
-  params?: GetApiAdminRuntimeImagesRegistryTagsParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-        TError,
-        TData
-      >
-    >;
-  },
-) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ??
-    getGetApiAdminRuntimeImagesRegistryTagsQueryKey(params);
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>
-  > = ({ signal }) => getApiAdminRuntimeImagesRegistryTags(params, signal);
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetApiAdminRuntimeImagesRegistryTagsQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>
->;
-export type GetApiAdminRuntimeImagesRegistryTagsQueryError =
-  ErrorType<ProblemDetails | void>;
-
-export function useGetApiAdminRuntimeImagesRegistryTags<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-  TError = ErrorType<ProblemDetails | void>,
->(
-  params: undefined | GetApiAdminRuntimeImagesRegistryTagsParams,
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminRuntimeImagesRegistryTags<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-  TError = ErrorType<ProblemDetails | void>,
->(
-  params?: GetApiAdminRuntimeImagesRegistryTagsParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-          TError,
-          Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetApiAdminRuntimeImagesRegistryTags<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-  TError = ErrorType<ProblemDetails | void>,
->(
-  params?: GetApiAdminRuntimeImagesRegistryTagsParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-
-export function useGetApiAdminRuntimeImagesRegistryTags<
-  TData = Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-  TError = ErrorType<ProblemDetails | void>,
->(
-  params?: GetApiAdminRuntimeImagesRegistryTagsParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof getApiAdminRuntimeImagesRegistryTags>>,
-        TError,
-        TData
-      >
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetApiAdminRuntimeImagesRegistryTagsQueryOptions(
-    params,
-    options,
-  );
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-export const patchApiAdminRuntimeImagesIdStatus = (
-  id: string,
-  updateRuntimeImageStatusRequest: UpdateRuntimeImageStatusRequest,
-) => {
-  return customClient<RuntimeImage>({
-    url: `/api/admin/runtime-images/${id}/status`,
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    data: updateRuntimeImageStatusRequest,
-  });
-};
-
-export const getPatchApiAdminRuntimeImagesIdStatusMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof patchApiAdminRuntimeImagesIdStatus>>,
-    TError,
-    { id: string; data: UpdateRuntimeImageStatusRequest },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof patchApiAdminRuntimeImagesIdStatus>>,
-  TError,
-  { id: string; data: UpdateRuntimeImageStatusRequest },
-  TContext
-> => {
-  const mutationKey = ["patchApiAdminRuntimeImagesIdStatus"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof patchApiAdminRuntimeImagesIdStatus>>,
-    { id: string; data: UpdateRuntimeImageStatusRequest }
-  > = (props) => {
-    const { id, data } = props ?? {};
-
-    return patchApiAdminRuntimeImagesIdStatus(id, data);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PatchApiAdminRuntimeImagesIdStatusMutationResult = NonNullable<
-  Awaited<ReturnType<typeof patchApiAdminRuntimeImagesIdStatus>>
->;
-export type PatchApiAdminRuntimeImagesIdStatusMutationBody =
-  UpdateRuntimeImageStatusRequest;
-export type PatchApiAdminRuntimeImagesIdStatusMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePatchApiAdminRuntimeImagesIdStatus = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof patchApiAdminRuntimeImagesIdStatus>>,
-      TError,
-      { id: string; data: UpdateRuntimeImageStatusRequest },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof patchApiAdminRuntimeImagesIdStatus>>,
-  TError,
-  { id: string; data: UpdateRuntimeImageStatusRequest },
-  TContext
-> => {
-  const mutationOptions =
-    getPatchApiAdminRuntimeImagesIdStatusMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const postApiAdminRuntimeImagesIdDeprecate = (
-  id: string,
-  signal?: AbortSignal,
-) => {
-  return customClient<RuntimeImage>({
-    url: `/api/admin/runtime-images/${id}/deprecate`,
-    method: "POST",
-    signal,
-  });
-};
-
-export const getPostApiAdminRuntimeImagesIdDeprecateMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdDeprecate>>,
-    TError,
-    { id: string },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdDeprecate>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationKey = ["postApiAdminRuntimeImagesIdDeprecate"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdDeprecate>>,
-    { id: string }
-  > = (props) => {
-    const { id } = props ?? {};
-
-    return postApiAdminRuntimeImagesIdDeprecate(id);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminRuntimeImagesIdDeprecateMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdDeprecate>>
->;
-
-export type PostApiAdminRuntimeImagesIdDeprecateMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePostApiAdminRuntimeImagesIdDeprecate = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdDeprecate>>,
-      TError,
-      { id: string },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdDeprecate>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationOptions =
-    getPostApiAdminRuntimeImagesIdDeprecateMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
-
-export const postApiAdminRuntimeImagesIdYank = (
-  id: string,
-  signal?: AbortSignal,
-) => {
-  return customClient<RuntimeImage>({
-    url: `/api/admin/runtime-images/${id}/yank`,
-    method: "POST",
-    signal,
-  });
-};
-
-export const getPostApiAdminRuntimeImagesIdYankMutationOptions = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdYank>>,
-    TError,
-    { id: string },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdYank>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationKey = ["postApiAdminRuntimeImagesIdYank"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdYank>>,
-    { id: string }
-  > = (props) => {
-    const { id } = props ?? {};
-
-    return postApiAdminRuntimeImagesIdYank(id);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PostApiAdminRuntimeImagesIdYankMutationResult = NonNullable<
-  Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdYank>>
->;
-
-export type PostApiAdminRuntimeImagesIdYankMutationError =
-  ErrorType<ProblemDetails>;
-
-export const usePostApiAdminRuntimeImagesIdYank = <
-  TError = ErrorType<ProblemDetails>,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdYank>>,
-      TError,
-      { id: string },
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof postApiAdminRuntimeImagesIdYank>>,
-  TError,
-  { id: string },
-  TContext
-> => {
-  const mutationOptions =
-    getPostApiAdminRuntimeImagesIdYankMutationOptions(options);
-
-  return useMutation(mutationOptions, queryClient);
-};
 
 export const getApiAdminRuntimePresets = (signal?: AbortSignal) => {
   return customClient<ServicePresetDto[]>({
@@ -28479,6 +26879,778 @@ export const usePostApiRuntimesRuntimeIdHeartbeatTick = <
 > => {
   const mutationOptions =
     getPostApiRuntimesRuntimeIdHeartbeatTickMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const postApiAdminRuntimeTemplates = (
+  registerRuntimeTemplateRequest: RegisterRuntimeTemplateRequest,
+  signal?: AbortSignal,
+) => {
+  return customClient<RuntimeTemplate>({
+    url: `/api/admin/runtime-templates`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: registerRuntimeTemplateRequest,
+    signal,
+  });
+};
+
+export const getPostApiAdminRuntimeTemplatesMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postApiAdminRuntimeTemplates>>,
+    TError,
+    { data: RegisterRuntimeTemplateRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postApiAdminRuntimeTemplates>>,
+  TError,
+  { data: RegisterRuntimeTemplateRequest },
+  TContext
+> => {
+  const mutationKey = ["postApiAdminRuntimeTemplates"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postApiAdminRuntimeTemplates>>,
+    { data: RegisterRuntimeTemplateRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return postApiAdminRuntimeTemplates(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostApiAdminRuntimeTemplatesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postApiAdminRuntimeTemplates>>
+>;
+export type PostApiAdminRuntimeTemplatesMutationBody =
+  RegisterRuntimeTemplateRequest;
+export type PostApiAdminRuntimeTemplatesMutationError =
+  ErrorType<ProblemDetails>;
+
+export const usePostApiAdminRuntimeTemplates = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof postApiAdminRuntimeTemplates>>,
+      TError,
+      { data: RegisterRuntimeTemplateRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof postApiAdminRuntimeTemplates>>,
+  TError,
+  { data: RegisterRuntimeTemplateRequest },
+  TContext
+> => {
+  const mutationOptions =
+    getPostApiAdminRuntimeTemplatesMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const getApiAdminRuntimeTemplates = (
+  params?: GetApiAdminRuntimeTemplatesParams,
+  signal?: AbortSignal,
+) => {
+  return customClient<RuntimeTemplatesResponse>({
+    url: `/api/admin/runtime-templates`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetApiAdminRuntimeTemplatesQueryKey = (
+  params?: GetApiAdminRuntimeTemplatesParams,
+) => {
+  return [`/api/admin/runtime-templates`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetApiAdminRuntimeTemplatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetApiAdminRuntimeTemplatesParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+        TError,
+        TData
+      >
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetApiAdminRuntimeTemplatesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>
+  > = ({ signal }) => getApiAdminRuntimeTemplates(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiAdminRuntimeTemplatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>
+>;
+export type GetApiAdminRuntimeTemplatesQueryError = ErrorType<unknown>;
+
+export function useGetApiAdminRuntimeTemplates<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | GetApiAdminRuntimeTemplatesParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminRuntimeTemplates<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetApiAdminRuntimeTemplatesParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminRuntimeTemplates<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetApiAdminRuntimeTemplatesParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiAdminRuntimeTemplates<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetApiAdminRuntimeTemplatesParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplates>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetApiAdminRuntimeTemplatesQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const getApiAdminRuntimeTemplatesId = (
+  id: string,
+  signal?: AbortSignal,
+) => {
+  return customClient<RuntimeTemplate>({
+    url: `/api/admin/runtime-templates/${id}`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetApiAdminRuntimeTemplatesIdQueryKey = (id?: string) => {
+  return [`/api/admin/runtime-templates/${id}`] as const;
+};
+
+export const getGetApiAdminRuntimeTemplatesIdQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+        TError,
+        TData
+      >
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetApiAdminRuntimeTemplatesIdQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>
+  > = ({ signal }) => getApiAdminRuntimeTemplatesId(id, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiAdminRuntimeTemplatesIdQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>
+>;
+export type GetApiAdminRuntimeTemplatesIdQueryError = ErrorType<ProblemDetails>;
+
+export function useGetApiAdminRuntimeTemplatesId<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminRuntimeTemplatesId<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminRuntimeTemplatesId<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiAdminRuntimeTemplatesId<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesId>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetApiAdminRuntimeTemplatesIdQueryOptions(
+    id,
+    options,
+  );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const getApiAdminRuntimeTemplatesLatestActive = (
+  signal?: AbortSignal,
+) => {
+  return customClient<RuntimeTemplate>({
+    url: `/api/admin/runtime-templates/latest-active`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetApiAdminRuntimeTemplatesLatestActiveQueryKey = () => {
+  return [`/api/admin/runtime-templates/latest-active`] as const;
+};
+
+export const getGetApiAdminRuntimeTemplatesLatestActiveQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<
+      Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+      TError,
+      TData
+    >
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetApiAdminRuntimeTemplatesLatestActiveQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>
+  > = ({ signal }) => getApiAdminRuntimeTemplatesLatestActive(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiAdminRuntimeTemplatesLatestActiveQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>
+>;
+export type GetApiAdminRuntimeTemplatesLatestActiveQueryError =
+  ErrorType<ProblemDetails>;
+
+export function useGetApiAdminRuntimeTemplatesLatestActive<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminRuntimeTemplatesLatestActive<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminRuntimeTemplatesLatestActive<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiAdminRuntimeTemplatesLatestActive<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+  TError = ErrorType<ProblemDetails>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesLatestActive>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetApiAdminRuntimeTemplatesLatestActiveQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const getApiAdminRuntimeTemplatesBoxes = (signal?: AbortSignal) => {
+  return customClient<TemplateCandidateBoxDto[]>({
+    url: `/api/admin/runtime-templates/boxes`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetApiAdminRuntimeTemplatesBoxesQueryKey = () => {
+  return [`/api/admin/runtime-templates/boxes`] as const;
+};
+
+export const getGetApiAdminRuntimeTemplatesBoxesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<
+      Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+      TError,
+      TData
+    >
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetApiAdminRuntimeTemplatesBoxesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>
+  > = ({ signal }) => getApiAdminRuntimeTemplatesBoxes(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetApiAdminRuntimeTemplatesBoxesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>
+>;
+export type GetApiAdminRuntimeTemplatesBoxesQueryError = ErrorType<void>;
+
+export function useGetApiAdminRuntimeTemplatesBoxes<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+  TError = ErrorType<void>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminRuntimeTemplatesBoxes<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+  TError = ErrorType<void>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+          TError,
+          Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetApiAdminRuntimeTemplatesBoxes<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+  TError = ErrorType<void>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useGetApiAdminRuntimeTemplatesBoxes<
+  TData = Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+  TError = ErrorType<void>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getApiAdminRuntimeTemplatesBoxes>>,
+        TError,
+        TData
+      >
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetApiAdminRuntimeTemplatesBoxesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const patchApiAdminRuntimeTemplatesIdStatus = (
+  id: string,
+  updateRuntimeTemplateStatusRequest: UpdateRuntimeTemplateStatusRequest,
+) => {
+  return customClient<RuntimeTemplate>({
+    url: `/api/admin/runtime-templates/${id}/status`,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    data: updateRuntimeTemplateStatusRequest,
+  });
+};
+
+export const getPatchApiAdminRuntimeTemplatesIdStatusMutationOptions = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof patchApiAdminRuntimeTemplatesIdStatus>>,
+    TError,
+    { id: string; data: UpdateRuntimeTemplateStatusRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof patchApiAdminRuntimeTemplatesIdStatus>>,
+  TError,
+  { id: string; data: UpdateRuntimeTemplateStatusRequest },
+  TContext
+> => {
+  const mutationKey = ["patchApiAdminRuntimeTemplatesIdStatus"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof patchApiAdminRuntimeTemplatesIdStatus>>,
+    { id: string; data: UpdateRuntimeTemplateStatusRequest }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return patchApiAdminRuntimeTemplatesIdStatus(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PatchApiAdminRuntimeTemplatesIdStatusMutationResult = NonNullable<
+  Awaited<ReturnType<typeof patchApiAdminRuntimeTemplatesIdStatus>>
+>;
+export type PatchApiAdminRuntimeTemplatesIdStatusMutationBody =
+  UpdateRuntimeTemplateStatusRequest;
+export type PatchApiAdminRuntimeTemplatesIdStatusMutationError =
+  ErrorType<ProblemDetails>;
+
+export const usePatchApiAdminRuntimeTemplatesIdStatus = <
+  TError = ErrorType<ProblemDetails>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof patchApiAdminRuntimeTemplatesIdStatus>>,
+      TError,
+      { id: string; data: UpdateRuntimeTemplateStatusRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof patchApiAdminRuntimeTemplatesIdStatus>>,
+  TError,
+  { id: string; data: UpdateRuntimeTemplateStatusRequest },
+  TContext
+> => {
+  const mutationOptions =
+    getPatchApiAdminRuntimeTemplatesIdStatusMutationOptions(options);
 
   return useMutation(mutationOptions, queryClient);
 };

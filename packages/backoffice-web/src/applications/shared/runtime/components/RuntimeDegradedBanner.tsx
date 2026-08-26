@@ -98,7 +98,7 @@ function issueHeadline(issue: ParsedBootIssue): string {
  * Amber "Degraded spec" warning banner. Renders only when the runtime reached
  * Online but its spec did not fully apply ({@code specHealth === 'Degraded'}).
  *
- * <p>Mirrors the {@code RuntimeFlyDriftDetected} drift-banner visual language
+ * <p>Mirrors the {@code RuntimeBoxDriftDetected} drift-banner visual language
  * already used in {@link RuntimeStatusHeader}: an amber strip with a
  * {@link WarningAmberIcon}, a clickable summary that opens a popover listing the
  * parsed boot issues, plus a "Let agent fix it" repair button. While the repair

@@ -14,8 +14,8 @@ namespace Source.Features.Projects.Commands.ForkBranchFromGit;
 /// branch's volume) lives in <c>CopyBranchCommand</c> and is untouched by this card.</para>
 ///
 /// <para><b>Why a fresh clone, not a volume fork.</b> The source side here is "just a
-/// git branch", there's no system branch and therefore no Fly volume to fork. The new
-/// runtime boots from a fresh Fly volume that the daemon's bootstrap clones the new git
+/// git branch", there's no system branch and therefore no box disk to fork. The new
+/// runtime boots from a fresh box disk that the daemon's bootstrap clones the new git
 /// ref into on first start — same shape as the CreateProject onboarding path.</para>
 ///
 /// <para><b>Compensation.</b> If the pushed GitHub ref succeeds but a later step fails

@@ -1,6 +1,6 @@
 # GlennCode Factory
 
-Open-source software factory with a spec-driven agent workflow, workspace UI, and Fly.io agent runtimes powered by the Cursor SDK.
+Open-source software factory with a spec-driven agent workflow, workspace UI, and Box (box.ascii.dev) agent runtimes powered by the Cursor SDK.
 
 **Stack:** .NET 9 · React 19 · PostgreSQL 16 · SignalR · Hangfire · Orval-generated API client
 
@@ -12,13 +12,13 @@ Open-source software factory with a spec-driven agent workflow, workspace UI, an
 |-------|----------------|
 | **Orchestrator API** (`packages/dotnet-api`) | Auth, projects, workspaces, kanban, specs, runtime provisioning, SignalR hubs |
 | **Backoffice UI** (`packages/backoffice-web`) | Super Admin console + per-workspace project UI |
-| **Agent daemon** (`packages/daemon`) | Runs on Fly machines; connects to the API via SignalR, executes agent turns with the **Cursor SDK**, applies runtime specs 
+| **Agent daemon** (`packages/daemon`) | Runs on Box VMs; connects to the API via SignalR, executes agent turns with the **Cursor SDK**, applies runtime specs 
 
 Use it as:
 
 - A **local dev template** — API + React + Postgres on your laptop (login, Super Admin UI)
 - A **self-hosted control plane** — single Docker service + managed Postgres ([`render.yaml`](render.yaml))
-- An **agent platform** — **GitHub App** + Fly.io runtimes + daemon bundle (required for projects and agent chat; there is no non-GitHub project path)
+- An **agent platform** — **GitHub App** + Box runtimes + daemon bundle (required for projects and agent chat; there is no non-GitHub project path)
 
 ---
 
@@ -38,7 +38,7 @@ flowchart TB
     GH["GitHub App<br/>repos · clones · PRs · OAuth"]
   end
 
-  subgraph runtimes["Agent runtimes (Fly.io)"]
+  subgraph runtimes["Agent runtimes (Box)"]
     DA["Daemon<br/>Cursor SDK · bootstrap · tools"]
   end
 
@@ -54,7 +54,7 @@ flowchart TB
 
 **GitHub** is not optional. Every project is backed by a GitHub repository (connect an existing repo, create a new one, or generate from a starter template — all via the GitHub App). The daemon clones and pushes through GitHub; there is no alternate VCS or repo-less mode.
 
-**Agent runtimes** are Fly.io machines. Each project gets one. The **daemon** connects to the API over SignalR and runs agent turns via the **Cursor SDK** (`@cursor/sdk`).
+**Agent runtimes** are Box VMs forked from a golden template box. Each project branch gets one. The **daemon** connects to the API over SignalR and runs agent turns via the **Cursor SDK** (`@cursor/sdk`).
 
 Creating a project provisions a runtime. Agent chat requires that runtime to be online and the daemon connected.
 
@@ -72,7 +72,7 @@ Creating a project provisions a runtime. Agent chat requires that runtime to be 
 For the **agent platform** (projects + agent chat) you also need:
 
 - A **GitHub App** (org or user) — register credentials in System Settings; install the app on repos/orgs
-- **Fly.io** account + published daemon bundle + active runtime base image
+- **Box** (box.ascii.dev) account + published daemon bundle + active golden template box
 - **Cloudflare** credentials for the preview-tunnel subdomain pool
 - Per-project **`CURSOR_API_KEY`** (BYOK)
 
@@ -82,7 +82,7 @@ See [How to set up end-to-end](#how-to-set-up-end-to-end).
 
 ## How to set up end-to-end
 
-**Canonical operator checklist (CLI-first, Fly / GitHub / Cloudflare / Render / CI):**  
+**Canonical operator checklist (CLI-first, Box / GitHub / Cloudflare / Render / CI):**  
 → **[`docs/operator-setup.md`](docs/operator-setup.md)** · [docs index](docs/README.md)
 
 Two paths — pick one:
@@ -105,21 +105,21 @@ npm run dev                   # API + frontend + Cloudflare quick tunnel
 `npm run dev` (via [`scripts/dev.sh`](scripts/dev.sh)) does everything needed locally:
 
 1. Starts Docker Postgres
-2. Reuses a **persistent Cloudflare quick tunnel** to `localhost:5338` when one is already running, otherwise starts one (installs `cloudflared` via Homebrew on macOS if missing). The tunnel **keeps running** when you quit `npm run dev` — same Fly URL across dev restarts.
-3. Sets **`Runtime__PublicApiUrl`** for the API process — overrides System Settings and `.env` so Fly runtimes can dial back
+2. Reuses a **persistent Cloudflare quick tunnel** to `localhost:5338` when one is already running, otherwise starts one (installs `cloudflared` via Homebrew on macOS if missing). The tunnel **keeps running** when you quit `npm run dev` — same runtime URL across dev restarts.
+3. Sets **`Runtime__PublicApiUrl`** for the API process — overrides System Settings and `.env` so Box runtimes can dial back
 4. Runs API (watch) + frontend
 
-Watch the startup banner for the **Fly URL** (`https://….trycloudflare.com`). **Respawn** existing runtimes only when that URL changes (`npm run dev:tunnel:stop` forces a new URL).
+Watch the startup banner for the **runtime URL** (`https://….trycloudflare.com`). **Respawn** existing runtimes only when that URL changes (`npm run dev:tunnel:stop` forces a new URL).
 
 | URL | Purpose |
 |-----|---------|
 | http://localhost:5173 | Browser UI (Vite proxies `/api` + `/hubs`) |
 | http://localhost:5338 | Local API / Swagger |
-| Banner **Fly URL** | What Fly machines use as `MAIN_API_URL` |
+| Banner **runtime URL** | What runtime boxes use as `MAIN_API_URL` |
 
 Log in: OTP appears in the **API terminal** when `Email__Provider=Console`. Use the email from `Bootstrap__SuperAdminEmail`.
 
-**Escape hatch:** `npm run dev:plain` — no tunnel (browser-only; Fly runtimes won't reach you). Stop the persistent tunnel: `npm run dev:tunnel:stop`.
+**Escape hatch:** `npm run dev:plain` — no tunnel (browser-only; Box runtimes won't reach you). Stop the persistent tunnel: `npm run dev:tunnel:stop`.
 
 #### Required `.env` keys (every path)
 
@@ -136,7 +136,7 @@ Full reference: [`.env.example`](.env.example)
 ### Path A — From scratch
 
 1. Complete [shared local setup](#shared-local-control-plane) (or [Render](#self-hosting-render) for production).
-2. Follow **[`docs/operator-setup.md`](docs/operator-setup.md)** — Fly (`glenn-runtimes` vs `glenn-runtime-base`), GitHub App permissions, Cloudflare pool, publish daemon + runtime image, CI secrets, smoke-test.
+2. Follow **[`docs/operator-setup.md`](docs/operator-setup.md)** — Box account + smoke test, GitHub App permissions, Cloudflare pool, publish daemon + build the golden template, CI secrets, smoke-test.
 
 Quick reminders:
 
@@ -169,7 +169,7 @@ The **GitHub App must still exist on github.com** with matching webhook/OAuth UR
 | **DaemonVersions** | `./scripts/publish-daemon.sh` |
 | **RuntimeImages** | `./scripts/publish-runtime-image-remote.sh` |
 | **Subdomain pool** | Super Admin → Subdomains → batch create |
-| **Fly machines / runtimes** | Re-provisioned when you create projects or respawn |
+| **Runtime boxes** | Re-provisioned when you create projects or respawn |
 | **Conversations / agent history** | Not restored |
 
 After import, run publish + subdomain steps in [`docs/operator-setup.md`](docs/operator-setup.md) (§7, §4c, §9). `npm run dev` sets `Runtime__PublicApiUrl` via tunnel automatically; respawn any imported runtimes stuck on an old URL.
@@ -186,7 +186,7 @@ After import, run publish + subdomain steps in [`docs/operator-setup.md`](docs/o
 | [`scripts/publish-runtime-image.sh`](scripts/publish-runtime-image.sh) | Local Docker build + push runtime image |
 | [`scripts/generate-swagger.sh`](scripts/generate-swagger.sh) | Regenerate Orval client after API changes |
 | [`scripts/generate-signalr.sh`](scripts/generate-signalr.sh) | Regenerate SignalR TS client after hub contract changes |
-| [`scripts/lib/platform-auth.mjs`](scripts/lib/platform-auth.mjs) | Mint SuperAdmin JWT + decrypt Fly token from DB (used by publish scripts) |
+| [`scripts/lib/platform-auth.mjs`](scripts/lib/platform-auth.mjs) | Mint SuperAdmin JWT + decrypt provider secrets from DB (used by publish scripts) |
 
 ---
 
@@ -204,7 +204,7 @@ After import, run publish + subdomain steps in [`docs/operator-setup.md`](docs/o
 
 ## First-time onboarding
 
-> **Full agent-platform setup** (Fly, publish, subdomains, smoke-test): see [How to set up end-to-end](#how-to-set-up-end-to-end).
+> **Full agent-platform setup** (Box, publish, subdomains, smoke-test): see [How to set up end-to-end](#how-to-set-up-end-to-end).
 
 ### 1. Clone and install
 
@@ -248,14 +248,14 @@ This will:
 npm run dev
 ```
 
-See [Shared: local control plane](#shared-local-control-plane) for what this starts (tunnel, URLs, Fly URL banner).
+See [Shared: local control plane](#shared-local-control-plane) for what this starts (tunnel, URLs, runtime URL banner).
 
 | Service | URL |
 |---------|-----|
 | Frontend | http://localhost:5173 |
 | API | http://localhost:5338 |
 | Swagger | http://localhost:5338/swagger |
-| Fly daemons | Quick-tunnel URL printed in the startup banner |
+| Runtime daemons | Quick-tunnel URL printed in the startup banner |
 
 ### 5. Log in
 
@@ -283,7 +283,6 @@ The API seeds the bootstrap SuperAdmin on every startup when `Bootstrap__SuperAd
 ├── scripts/                  # setup, swagger gen, daemon publish, migrations
 ├── docs/                     # operator-setup.md (canonical), runtime-volume-layout.md
 ├── Dockerfile                # Production API + bundled frontend
-├── Dockerfile.runtime-base   # Fly agent runtime machine image
 ├── render.yaml               # Render.com blueprint (self-host)
 ├── .env.example              # All env vars documented
 └── CLAUDE.md                 # Instructions for AI coding agents
@@ -352,7 +351,7 @@ All secrets and integration toggles live in environment variables. ASP.NET maps 
 | **GitHub** | GitHub App in System Settings (required for projects) | same — no projects without it |
 | File storage | `Local` → `uploads/` | Cloudflare R2 |
 | Agent chat | workspace or per-project `CURSOR_API_KEY` in credentials (project overrides workspace when allowed) | same (BYOK via Cursor SDK on the daemon) |
-| Agent runtimes | `npm run dev` sets tunnel URL automatically | Fly.io + published daemon/image + subdomain pool |
+| Agent runtimes | `npm run dev` sets tunnel URL automatically | Box + published daemon/template + subdomain pool |
 
 Full list: [`.env.example`](.env.example) · committed [`appsettings.json`](packages/dotnet-api/appsettings.json) has empty placeholders only.
 
@@ -362,23 +361,23 @@ Full list: [`.env.example`](.env.example) · committed [`appsettings.json`](pack
 
 [`render.yaml`](render.yaml) provisions:
 
-- Managed PostgreSQL 16 + single Docker web service (API + built frontend) in **`frankfurt`** (EU; pair with Fly region **`arn`** for Stockholm runtimes)
+- Managed PostgreSQL 16 + single Docker web service (API + built frontend) in **`frankfurt`** (EU; Box runtimes live in EU regions DE/FI/FR)
 
 After blueprint deploy, set secret env vars in the Render dashboard (`SystemSettings__EncryptionKey`, `Jwt__Key`, `Bootstrap__SuperAdminEmail`, etc.).
 
-**GitHub Actions (auto-publish on `main`):** set `CiPublish__ApiKey` on Render (`openssl rand -base64 48`), then add GitHub secrets `CONTROL_PLANE_API` (your Render URL) and `CONTROL_PLANE_PUBLISH_API_KEY` (same value). CI talks to the API only — no Postgres access. Fly registry login uses `GET /api/ci/registry-credentials` (returns the org `Fly:ApiToken` from System Settings).
+**GitHub Actions (auto-publish on `main`):** set `CiPublish__ApiKey` on Render (`openssl rand -base64 48`), then add GitHub secrets `CONTROL_PLANE_API` (your Render URL) and `CONTROL_PLANE_PUBLISH_API_KEY` (same value). CI talks to the API only — no Postgres access.
 
-**CiPublish key hygiene (required):** that API key can publish daemon bundles, register runtime images (auto-activated as the spawn target), and read the Fly PAT for registry push. Store it only in GitHub **protected** environments/secrets on `main`, rotate `CiPublish__ApiKey` and `Fly:ApiToken` together if it leaks, and use `workflow_dispatch` with `force` when you intentionally need to republish a commit that already exists in the catalog.
+**CiPublish key hygiene (required):** that API key can publish daemon bundles and register runtime templates (auto-activated as the fork source). Store it only in GitHub **protected** environments/secrets on `main`, rotate `CiPublish__ApiKey` if it leaks, and use `workflow_dispatch` with `force` when you intentionally need to republish a commit that already exists in the catalog.
 
 **Note:** SignalR uses an in-memory backplane — run **one instance** unless you add Redis.
 
-This deploys the **control plane** only. Projects and agent chat still require a **GitHub App**, Fly.io runtimes, and a published daemon bundle (see [How to set up end-to-end](#how-to-set-up-end-to-end)).
+This deploys the **control plane** only. Projects and agent chat still require a **GitHub App**, Box runtimes, and a published daemon bundle (see [How to set up end-to-end](#how-to-set-up-end-to-end)).
 
 ---
 
 ## Agent runtimes
 
-Projects and agent chat require a **GitHub-backed repo**, Fly.io runtimes running the daemon, and a GitHub App configured in System Settings. The control plane (API + Backoffice) can run locally or on Render; runtimes always run on Fly.
+Projects and agent chat require a **GitHub-backed repo**, Box runtimes running the daemon, and a GitHub App configured in System Settings. The control plane (API + Backoffice) can run locally or on Render; runtimes always run on Box.
 
 **Local dev:** `npm run dev` exposes the API via a Cloudflare quick tunnel and sets `Runtime__PublicApiUrl` automatically.
 
@@ -444,9 +443,9 @@ npm run generate-swagger
 
 Check the API console — local dev uses `Email__Provider=Console`.
 
-**Fly runtime can't reach API**
+**Box runtime can't reach API**
 
-Ensure you're on `npm run dev` (not `dev:plain`). Check the banner **Fly URL**. Respawn runtimes after the tunnel URL changes.
+Ensure you're on `npm run dev` (not `dev:plain`). Check the banner **runtime URL**. Respawn runtimes after the tunnel URL changes.
 
 **`pool_empty` when creating a project**
 

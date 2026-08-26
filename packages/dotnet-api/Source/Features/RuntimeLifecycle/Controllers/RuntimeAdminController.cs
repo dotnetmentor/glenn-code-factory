@@ -2,9 +2,9 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Source.Features.FlyManagement;
+using Source.Features.BoxManagement;
 using Source.Features.RuntimeLifecycle.Drift;
-using Source.Features.RuntimeLifecycle.FlySnapshot;
+using Source.Features.RuntimeLifecycle.BoxSnapshot;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
 using Source.Infrastructure.AuthorizationModels;
@@ -17,7 +17,7 @@ namespace Source.Features.RuntimeLifecycle.Controllers;
 /// (reset a Failed runtime, force-suspend a runaway, force-delete from any state).
 ///
 /// <para><b>Why no MediatR.</b> Same pragmatic reasoning as
-/// <see cref="Source.Features.FlyManagement.Controllers.FlyAdminController"/> and
+/// <see cref="Source.Features.BoxManagement.Controllers.BoxAdminController"/> and
 /// <see cref="Source.Features.RuntimeBootstrap.Controllers.BootstrapRunsController"/>:
 /// every endpoint is a thin passthrough — two reads for the queries, one
 /// <see cref="ProjectRuntime.TransitionTo"/> call + SaveChanges for the operator
@@ -26,7 +26,7 @@ namespace Source.Features.RuntimeLifecycle.Controllers;
 /// changing behaviour.</para>
 ///
 /// <para><b>Authorisation.</b> <see cref="RoleConstants.SuperAdmin"/>, matching every
-/// other admin surface (FlyAdmin, BootstrapRuns, RuntimeImages, SystemSettings). These
+/// other admin surface (BoxAdmin, BootstrapRuns, RuntimeTemplates, SystemSettings). These
 /// endpoints can destroy paid infrastructure — TenantAdmin would be too broad.</para>
 /// </summary>
 [ApiController]
@@ -36,16 +36,16 @@ namespace Source.Features.RuntimeLifecycle.Controllers;
 public class RuntimeAdminController : ControllerBase
 {
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly ILogger<RuntimeAdminController> _logger;
 
     public RuntimeAdminController(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
         ILogger<RuntimeAdminController> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
         _logger = logger;
     }
 
@@ -147,14 +147,14 @@ public class RuntimeAdminController : ControllerBase
 
     /// <summary>
     /// Tier-1 read-only operator monitoring: side-by-side snapshot of every
-    /// <see cref="ProjectRuntime"/>'s DB state vs Fly's live machine state, plus
-    /// any unaccounted-for Fly machines surfaced as orphans. The
+    /// <see cref="ProjectRuntime"/>'s DB state vs Box's live status, plus
+    /// any unaccounted-for boxes surfaced as orphans. The
     /// <c>RuntimeReconcilerJob</c> already nudges fixable drift back into line
     /// every 60 s; this endpoint shows the operator the same diff in real time,
     /// including the cases the reconciler can't auto-fix (illegal transitions,
-    /// orphan Fly machines, stuck transitions).
+    /// orphan boxes, stuck transitions).
     ///
-    /// <para><b>Cost.</b> One DB query and one Fly <c>ListMachines</c> call per
+    /// <para><b>Cost.</b> One DB query and one Box <c>ListBoxes</c> call per
     /// hit. No pagination yet — at our current scale the runtime row count is
     /// in the dozens; once it grows we'll add filters server-side rather than
     /// paginating, since the operator UX wants the full overview in one view.</para>
@@ -184,30 +184,30 @@ public class RuntimeAdminController : ControllerBase
 
             return Ok(snapshot);
         }
-        catch (FlyApiException ex)
+        catch (BoxApiException ex)
         {
-            // Fly itself rejected the list call. Surface as 502 so the operator
+            // Box itself rejected the list call. Surface as 502 so the operator
             // UI can show "upstream unavailable" without it looking like our own
             // service crashed — 500 would imply the latter.
             _logger.LogWarning(
                 ex,
-                "Runtime drift snapshot failed: Fly ListMachines returned {StatusCode} {ErrorCode}",
+                "Runtime drift snapshot failed: Box ListBoxes returned {StatusCode} {ErrorCode}",
                 ex.StatusCode, ex.ErrorCode);
             return StatusCode(StatusCodes.Status502BadGateway, new
             {
-                error = "Upstream Fly API unavailable; drift snapshot could not be generated.",
+                error = "Upstream Box API unavailable; drift snapshot could not be generated.",
                 upstreamStatusCode = ex.StatusCode,
             });
         }
         catch (HttpRequestException ex)
         {
             // Transport-level failure (DNS, timeout, connection reset).
-            // Same intent as the FlyApiException branch — distinguish upstream
+            // Same intent as the BoxApiException branch — distinguish upstream
             // problems from real 500s.
-            _logger.LogWarning(ex, "Runtime drift snapshot failed: transport error reaching Fly API");
+            _logger.LogWarning(ex, "Runtime drift snapshot failed: transport error reaching Box API");
             return StatusCode(StatusCodes.Status502BadGateway, new
             {
-                error = "Upstream Fly API unreachable; drift snapshot could not be generated.",
+                error = "Upstream Box API unreachable; drift snapshot could not be generated.",
             });
         }
     }
@@ -220,7 +220,7 @@ public class RuntimeAdminController : ControllerBase
     /// Operator "reality check" for a single runtime: side-by-side dump of what our DB
     /// thinks the runtime looks like, what Fly's machines API reports, and the last 20
     /// <see cref="Source.Features.FlyManagement.Models.FlyOperation"/> rows targeting
-    /// the runtime. Powers the Fly tab in the project-workspace debug panel.
+    /// the runtime. Powers the Box tab in the project-workspace debug panel.
     ///
     /// <para><b>Why this isn't just <see cref="Drift"/> filtered to one row.</b> Drift
     /// shows the cluster-wide view with rule evaluation. This endpoint goes the other
@@ -230,21 +230,21 @@ public class RuntimeAdminController : ControllerBase
     ///
     /// <para><b>Fly outage handling.</b> Unlike <see cref="Drift"/>, a Fly failure here
     /// does NOT bubble to a 502 — the service catches and nulls
-    /// <see cref="FlySnapshotResponse.FlyView"/>. The DB half + ops timeline is exactly
+    /// <see cref="BoxSnapshotResponse.BoxView"/>. The DB half + ops timeline is exactly
     /// what the operator needs to triage an upstream incident; refusing the whole
     /// response when Fly is the broken thing would defeat the panel's purpose.</para>
     /// </summary>
-    [HttpGet("{runtimeId:guid}/fly-snapshot")]
-    [ProducesResponseType(typeof(FlySnapshotResponse), 200)]
+    [HttpGet("{runtimeId:guid}/box-snapshot")]
+    [ProducesResponseType(typeof(BoxSnapshotResponse), 200)]
     [ProducesResponseType(401)]
     [ProducesResponseType(403)]
     [ProducesResponseType(404)]
-    public async Task<ActionResult<FlySnapshotResponse>> FlySnapshot(
+    public async Task<ActionResult<BoxSnapshotResponse>> BoxSnapshot(
         Guid runtimeId,
-        [FromServices] IRuntimeFlySnapshotService flySnapshotService,
+        [FromServices] IRuntimeBoxSnapshotService boxSnapshotService,
         CancellationToken ct)
     {
-        var snapshot = await flySnapshotService.GetAsync(runtimeId, ct);
+        var snapshot = await boxSnapshotService.GetAsync(runtimeId, ct);
         if (snapshot is null)
         {
             return NotFound();
@@ -472,27 +472,26 @@ public class RuntimeAdminController : ControllerBase
         await _db.SaveChangesAsync(ct);
 
         // When the operator parks a runtime via force-suspend, the DB flip is
-        // half the job — without the matching Fly StopMachine call the machine
+        // half the job — without the matching Box StopBox call the machine
         // keeps burning resources and the runtime sits in Suspending forever
         // (the exact drift the audit caught for ArchiveBranchHandler). Mirror
         // the IdlerJob.SuspendOne / ArchiveBranchHandler pattern: best-effort
         // call, log + swallow on transport error, RuntimeReconcilerJob retries
         // the stuck-Suspending case on its next tick.
-        if (target == RuntimeState.Suspending && !string.IsNullOrEmpty(runtime.FlyMachineId))
+        if (target == RuntimeState.Suspending && !string.IsNullOrEmpty(runtime.BoxId))
         {
             try
             {
-                await _fly.StopMachineAsync(
-                    machineId: runtime.FlyMachineId,
-                    options: null,
+                await _box.StopBoxAsync(
+                    boxId: runtime.BoxId,
                     runtimeId: runtime.Id,
                     ct: ct);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "RuntimeAdmin force-suspend: Fly StopMachine call failed for machine {MachineId} (runtime {RuntimeId}); reconciler will retry.",
-                    runtime.FlyMachineId, runtime.Id);
+                    "RuntimeAdmin force-suspend: Box StopBox call failed for box {BoxId} (runtime {RuntimeId}); reconciler will retry.",
+                    runtime.BoxId, runtime.Id);
             }
         }
 

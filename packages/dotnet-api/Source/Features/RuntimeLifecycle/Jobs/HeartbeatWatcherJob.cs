@@ -17,7 +17,7 @@ namespace Source.Features.RuntimeLifecycle.Jobs;
 /// <para><b>Threshold.</b> 60 seconds — twelve missed 5-second heartbeats plus
 /// a generous buffer for clock skew, request latency, backend restarts, and
 /// transient SignalR reconnects. The previous 15s threshold false-positived
-/// during long heavy turns on small Fly machines (1 shared CPU / 2 GB), 30s
+/// during long heavy turns on small boxs (1 shared CPU / 2 GB), 30s
 /// false-positived during routine backend restarts (the watcher woke against
 /// stale <c>LastHeartbeatAt</c> rows and burned the 3-crash respawn budget for
 /// every active runtime in under a minute). The daemon-side fixes (heartbeat
@@ -98,7 +98,7 @@ public class HeartbeatWatcherJob
     /// <para><b>Why this branch still exists.</b> The heartbeat-cutoff branch
     /// requires <c>LastHeartbeatAt != null</c> — it can't see runtimes whose
     /// daemon died before sending the first beat. The reconciler also can't
-    /// help: it only acts on Fly drift, and the Fly machine here is still
+    /// help: it only acts on Box drift, and the box here is still
     /// reported as <c>started</c>. Without this branch a daemon that dies mid-boot
     /// inside an otherwise-healthy Fly VM leaves the row wedged forever.</para>
     ///

@@ -112,7 +112,7 @@ public sealed class UpdateProjectRuntimeSpecHandler
             if (anyVolumeSizeDrift)
             {
                 volumeSizeNote =
-                    "Disk size on existing branches is unchanged on the live Fly volume until reset from scratch; CPU and RAM will update after restart.";
+                    "Disk size on existing branches is unchanged on the live box disk until reset from scratch; CPU and RAM will update after restart.";
             }
 
             await _db.SaveChangesAsync(cancellationToken);

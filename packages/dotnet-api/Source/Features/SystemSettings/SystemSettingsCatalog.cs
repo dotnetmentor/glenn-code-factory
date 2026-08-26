@@ -6,7 +6,7 @@ namespace Source.Features.SystemSettings;
 /// (display name, description, secret flag) and is the source of truth for the seeder
 /// and the admin UI.
 ///
-/// <para>Categories registered today: <c>GitHub</c> and <c>Fly</c>. Future categories
+/// <para>Categories registered today: <c>GitHub</c> and <c>Box</c>. Future categories
 /// (Email, Storage, etc.) are added here as new <see cref="SystemSettingCategory"/>
 /// entries — the underlying mechanism does not change.</para>
 /// </summary>
@@ -67,46 +67,41 @@ public static class SystemSettingsCatalog
                     IsSecret: false),
             }),
         new SystemSettingCategory(
-            Key: "Fly",
-            DisplayName: "Fly.io",
+            Key: "Box",
+            DisplayName: "Box (ascii.dev)",
             Description:
-                "Configure access to the Fly.io Machines API. Runtime instances (one per " +
-                "user project) are provisioned as Fly machines under a single shared app. " +
-                "Values are cached in memory after the first read.",
+                "Configure access to the Box API (box.ascii.dev). Runtime instances (one per " +
+                "user project branch) are forked from a golden template box on a single Box " +
+                "account. Values are cached in memory after the first read.",
             Settings: new[]
             {
                 new SystemSettingDefinition(
-                    Key: "Fly:ApiToken",
-                    DisplayName: "API Token",
-                    Description: "Fly Personal Access Token (https://fly.io/user/personal_access_tokens)",
+                    Key: "Box:ApiKey",
+                    DisplayName: "API Key",
+                    Description: "Box API key (create with `box api-key create`). Bearer auth for every Box call.",
                     IsSecret: true),
                 new SystemSettingDefinition(
-                    Key: "Fly:OrgSlug",
-                    DisplayName: "Org Slug",
-                    Description: "Fly organization slug, e.g. 'personal'",
+                    Key: "Box:ApiBaseUrl",
+                    DisplayName: "API Base URL",
+                    Description: "Base URL of the Box public API. Default: https://api.ascii.dev/v1",
                     IsSecret: false),
                 new SystemSettingDefinition(
-                    Key: "Fly:AppName",
-                    DisplayName: "App Name",
-                    Description: "Single Fly app namespace for all runtimes (e.g. 'glenn-runtimes')",
+                    Key: "Box:DefaultTtlSeconds",
+                    DisplayName: "Default TTL (Seconds)",
+                    Description: "TTL stamped on every runtime box — the orphan-cost guardrail. A box whose TTL lapses archives itself and billing stops; the BoxTtlExtenderJob re-arms it for every runtime we know about. Default: 21600 (6h). Set 0 to disable (not recommended).",
                     IsSecret: false),
                 new SystemSettingDefinition(
-                    Key: "Fly:DefaultRegion",
-                    DisplayName: "Default Region",
-                    Description: "Default Fly region (e.g. 'arn' for Stockholm). Default: arn",
+                    Key: "Box:DefaultSize",
+                    DisplayName: "Default Size",
+                    Description: "Fallback Box size tier when a project's cpu/mem spec doesn't dictate one: small (2 vCPU/4 GB), default (4/8), large (8/16). Default: small",
                     IsSecret: false),
-                new SystemSettingDefinition(
-                    Key: "Fly:WebhookSecret",
-                    DisplayName: "Webhook Secret",
-                    Description: "HMAC secret configured in Fly dashboard. Used to verify incoming webhook authenticity.",
-                    IsSecret: true),
             }),
         new SystemSettingCategory(
             Key: "Runtime",
             DisplayName: "Runtime",
             Description:
-                "Runtime-side configuration consumed by the provisioner when stamping Fly " +
-                "machine env vars. Changes take effect on the next provisioner tick (≤ 1 minute) " +
+                "Runtime-side configuration consumed by the provisioner when stamping box " +
+                "env vars. Changes take effect on the next provisioner tick (≤ 1 minute) " +
                 "without a process restart.",
             Settings: new[]
             {
@@ -131,7 +126,7 @@ public static class SystemSettingsCatalog
                 new SystemSettingDefinition(
                     Key: "RuntimeLifecycle:IdleThresholdMinutes",
                     DisplayName: "Idle Threshold (Minutes)",
-                    Description: "How many minutes a runtime can stay idle (no active hub connections, no in-flight session) before the IdlerJob suspends it. Default: 30. Lower values aggressively save Fly machine cost; higher values keep tabs warm longer.",
+                    Description: "How many minutes a runtime can stay idle (no active hub connections, no in-flight session) before the IdlerJob suspends it. Default: 30. Lower values aggressively save Box compute cost; higher values keep tabs warm longer.",
                     IsSecret: false),
             }),
         new SystemSettingCategory(

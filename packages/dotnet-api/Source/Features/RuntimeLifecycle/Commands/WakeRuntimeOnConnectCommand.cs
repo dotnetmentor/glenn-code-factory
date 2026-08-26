@@ -1,6 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Source.Features.FlyManagement;
+using Source.Features.BoxManagement;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
 using Source.Shared.CQRS;
@@ -29,10 +29,10 @@ namespace Source.Features.RuntimeLifecycle.Commands;
 ///         <c>reason = "user:agent_hub_connect"</c> and
 ///         <c>triggeredBy = "user"</c>, then ask <see cref="FlyClient"/> to
 ///         start the underlying machine. Save first so the state row exists
-///         before any Fly webhook can race back through the reconciler.</item>
+///         before any reconciler observation can race back through the reconciler.</item>
 /// </list>
 ///
-/// <para><b>FlyMachineId may be null</b> on a fresh runtime that has never been
+/// <para><b>BoxId may be null</b> on a fresh runtime that has never been
 /// allocated a machine — that's a setup-bug case, not a wake case. We log +
 /// return <see cref="WakeRuntimeOnConnectResult.NotApplicable"/> rather than
 /// throwing; the user got "thinking…" instead of an error toast and the
@@ -64,16 +64,16 @@ public class WakeRuntimeOnConnectCommandHandler
     : ICommandHandler<WakeRuntimeOnConnectCommand, Result<WakeRuntimeOnConnectResult>>
 {
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly ILogger<WakeRuntimeOnConnectCommandHandler> _logger;
 
     public WakeRuntimeOnConnectCommandHandler(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
         ILogger<WakeRuntimeOnConnectCommandHandler> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
         _logger = logger;
     }
 
@@ -113,12 +113,12 @@ public class WakeRuntimeOnConnectCommandHandler
                 Reason: "not_suspended"));
         }
 
-        if (string.IsNullOrEmpty(runtime.FlyMachineId))
+        if (string.IsNullOrEmpty(runtime.BoxId))
         {
             // Setup bug — a Suspended runtime with no machine id can't be
             // started. Don't fail the connection; just log and skip.
             _logger.LogWarning(
-                "WakeRuntimeOnConnect: runtime {RuntimeId} for project {ProjectId} is Suspended but has no FlyMachineId; cannot wake.",
+                "WakeRuntimeOnConnect: runtime {RuntimeId} for project {ProjectId} is Suspended but has no BoxId; cannot wake.",
                 runtime.Id, request.ProjectId);
             return Result.Success(new WakeRuntimeOnConnectResult(
                 NotApplicable: true,
@@ -146,14 +146,14 @@ public class WakeRuntimeOnConnectCommandHandler
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        // Fire the Fly call after persistence so a Fly webhook racing back
+        // Fire the Box call after persistence so a reconciler observation racing back
         // through the reconciler observes the Waking row instead of the stale
-        // Suspended one. FlyClient swallows transport errors into FlyOperation
+        // Suspended one. FlyClient swallows transport errors into BoxOperation
         // audit rows — a transient blip won't take the connection down.
         try
         {
-            await _fly.StartMachineAsync(
-                machineId: runtime.FlyMachineId,
+            await _box.ResumeBoxAsync(
+                boxId: runtime.BoxId,
                 runtimeId: runtime.Id,
                 ct: cancellationToken);
         }
@@ -162,8 +162,8 @@ public class WakeRuntimeOnConnectCommandHandler
             // Already logged by FlyClient; we let the connection succeed and
             // leave reconciliation to the next reconciler pass.
             _logger.LogWarning(ex,
-                "WakeRuntimeOnConnect: Fly StartMachine call failed for machine {MachineId} (runtime {RuntimeId}); reconciler will retry.",
-                runtime.FlyMachineId, runtime.Id);
+                "WakeRuntimeOnConnect: Box ResumeBox call failed for box {BoxId} (runtime {RuntimeId}); reconciler will retry.",
+                runtime.BoxId, runtime.Id);
         }
 
         _logger.LogInformation(

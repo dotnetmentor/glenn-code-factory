@@ -45,7 +45,7 @@ public record BootstrapProgressNotification(
 /// Pushed to the <c>project-{projectId}</c> group the moment a wake-on-connect
 /// flow flips a Suspended runtime back toward Online. The
 /// <c>RuntimeStateChanged</c> notification tells the same story but lags by the
-/// Fly machine spin-up + first heartbeat — clients want a "we're waking up,
+/// box spin-up + first heartbeat — clients want a "we're waking up,
 /// hold on" affordance immediately, before the actual state transition lands.
 ///
 /// <para><see cref="RuntimeId"/> is included so a client tracking multiple

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Source.Features.Conversations.Commands;
 using Source.Features.Conversations.Models;
 using Source.Features.Conversations.Services;
-using Source.Features.FlyManagement;
+using Source.Features.BoxManagement;
 using Source.Features.RuntimeBootstrap.Contracts;
 using Source.Features.RuntimeLifecycle.Commands;
 using Source.Features.RuntimeLifecycle.Models;
@@ -767,7 +767,7 @@ public class AgentHub : Hub<IAgentClient>, IAgentHub
 
         // A project can own multiple ProjectRuntime rows after CopyBranch (one
         // per branch). Filtering by ProjectId alone would route the resolution
-        // to an arbitrary sibling runtime — the WRONG Fly machine — and the
+        // to an arbitrary sibling runtime — the WRONG box — and the
         // daemon waiter on the right branch would time out while the wrong
         // daemon receives an unmatched ToolUseId.
         //

@@ -9,7 +9,7 @@ namespace Source.Features.Cloudflare.Extensions;
 /// <c>https://api.cloudflare.com/client/v4/</c>, and the
 /// <see cref="ICloudflareOptionsAccessor"/> that reads credentials from
 /// <see cref="Source.Features.SystemSettings.Services.ISystemSettingsService"/>.
-/// Mirrors <see cref="Source.Features.FlyManagement.Extensions.FlyManagementExtensions"/>.
+/// Mirrors <see cref="Source.Features.BoxManagement.Extensions.BoxManagementExtensions"/>.
 ///
 /// <para>No resilience pipeline at this phase. The Cloudflare API is called
 /// during admin-triggered batch creates only (not in a runtime hot path), so

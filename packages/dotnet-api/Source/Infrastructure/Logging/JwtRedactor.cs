@@ -5,7 +5,7 @@ namespace Source.Infrastructure.Logging;
 /// <summary>
 /// Last-line-of-defence scrubber for JWT-shaped substrings in arbitrary text.
 ///
-/// Even with disciplined logging, a JWT can sneak in (verbose Fly request bodies,
+/// Even with disciplined logging, a JWT can sneak in (verbose Box request bodies,
 /// exception serialisations, payload strings that happen to embed a token). This
 /// redactor is invoked from <see cref="RedactingLoggerProvider"/> to rewrite any
 /// formatted log message before it reaches a sink.

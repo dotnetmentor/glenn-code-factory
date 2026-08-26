@@ -5,7 +5,7 @@ namespace Source.Features.Cloudflare.Configuration;
 /// Values are sourced from
 /// <see cref="Source.Features.SystemSettings.Services.ISystemSettingsService"/>
 /// (DB-backed, cached) — never from <c>appsettings.json</c>. Mirrors
-/// <see cref="Source.Features.FlyManagement.Configuration.FlyOptions"/> exactly
+/// <see cref="Source.Features.BoxManagement.Configuration.BoxOptions"/> exactly
 /// so every cloud-credential surface has the same shape.
 /// </summary>
 public class CloudflareOptions

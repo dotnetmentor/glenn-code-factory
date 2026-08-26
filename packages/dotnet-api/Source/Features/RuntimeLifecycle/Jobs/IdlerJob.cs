@@ -2,7 +2,7 @@ using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Source.Features.Conversations.Models;
-using Source.Features.FlyManagement;
+using Source.Features.BoxManagement;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Features.SystemSettings.Services;
 using Source.Infrastructure;
@@ -13,8 +13,8 @@ namespace Source.Features.RuntimeLifecycle.Jobs;
 /// <summary>
 /// Recurring Hangfire job that detects <see cref="RuntimeState.Online"/> runtimes
 /// nobody has interacted with for a while and transitions them to
-/// <see cref="RuntimeState.Suspending"/>, then asks Fly to stop the underlying
-/// machine. The user-driven inverse — a fresh tab waking the machine back up —
+/// <see cref="RuntimeState.Suspending"/>, then asks Box to stop (archive) the underlying
+/// box. The user-driven inverse — a fresh tab waking the machine back up —
 /// lives in <see cref="SignalR.Hubs.AgentHub.OnConnectedAsync"/> via
 /// <see cref="Commands.WakeRuntimeOnConnectCommand"/>. Together they form the
 /// idle/wake half of the runtime-lifecycle spec.
@@ -62,20 +62,20 @@ public class IdlerJob
     public const string IdleThresholdSettingKey = "RuntimeLifecycle:IdleThresholdMinutes";
 
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly ISystemSettingsService _settings;
     private readonly IClock _clock;
     private readonly ILogger<IdlerJob> _logger;
 
     public IdlerJob(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
         ISystemSettingsService settings,
         IClock clock,
         ILogger<IdlerJob> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
         _settings = settings;
         _clock = clock;
         _logger = logger;
@@ -263,30 +263,30 @@ public class IdlerJob
             return;
         }
 
-        // Best-effort Fly call. FlyClient writes its own FlyOperation audit row
+        // Best-effort Box call. BoxClient writes its own BoxOperation audit row
         // and surfaces transport errors as exceptions; we swallow + log so a
-        // single Fly blip doesn't abort the whole iteration.
-        if (!string.IsNullOrEmpty(runtime.FlyMachineId))
+        // single Box blip doesn't abort the whole iteration. Stop archives the
+        // box with a fresh snapshot — billing pauses, disk survives.
+        if (!string.IsNullOrEmpty(runtime.BoxId))
         {
             try
             {
-                await _fly.StopMachineAsync(
-                    machineId: runtime.FlyMachineId,
-                    options: null,
+                await _box.StopBoxAsync(
+                    boxId: runtime.BoxId,
                     runtimeId: runtime.Id,
                     ct: ct);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "IdlerJob Fly StopMachine call failed for machine {MachineId} (runtime {RuntimeId}); reconciler will retry.",
-                    runtime.FlyMachineId, runtime.Id);
+                    "IdlerJob Box StopBox call failed for box {BoxId} (runtime {RuntimeId}); reconciler will retry.",
+                    runtime.BoxId, runtime.Id);
             }
         }
         else
         {
             _logger.LogWarning(
-                "IdlerJob: runtime {RuntimeId} has no FlyMachineId; transitioned to Suspending but no Fly call issued.",
+                "IdlerJob: runtime {RuntimeId} has no BoxId; transitioned to Suspending but no Box call issued.",
                 runtime.Id);
         }
     }

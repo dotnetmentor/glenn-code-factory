@@ -2,7 +2,7 @@ namespace Source.Features.RuntimeLifecycle.Models;
 
 /// <summary>
 /// Paged response shape for <c>GET /api/admin/runtimes</c>. Mirrors
-/// <see cref="Source.Features.FlyManagement.Models.FlyOperationsResponse"/> and
+/// <see cref="Source.Features.BoxManagement.Models.BoxOperationsResponse"/> and
 /// <see cref="Source.Features.RuntimeBootstrap.Models.BootstrapRunsResponse"/> exactly so
 /// the operator-facing list views share one rendering pattern.
 ///

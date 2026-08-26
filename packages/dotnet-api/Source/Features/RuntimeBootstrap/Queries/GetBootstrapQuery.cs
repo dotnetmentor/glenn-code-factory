@@ -163,7 +163,7 @@ public class GetBootstrapQueryHandler
             Success = true,
             ErrorReason = null,
             DaemonVersion = null,
-            ImageDigest = runtime.ImageDigest,
+            ImageDigest = runtime.TemplateBoxId,
             BootstrapVersion = BootstrapPayloadVersions.Latest,
         });
         await _db.SaveChangesAsync(cancellationToken);
@@ -284,7 +284,7 @@ public class GetBootstrapQueryHandler
     /// so adding it later doesn't require a payload-version bump.
     ///
     /// <para>URLs are composed from <c>Runtime:PublicApiUrl</c> (live-editable
-    /// SystemSetting) — daemons live on Fly machines and can't dial
+    /// SystemSetting) — daemons live on boxs and can't dial
     /// <c>localhost:5338</c>, which is what Cloudflare forwards in the upstream
     /// Host header. If the setting is missing/unparseable we emit
     /// <c>about:blank/...</c> so the daemon fails loudly rather than silently

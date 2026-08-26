@@ -4,10 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Source.Features.Cloudflare.Commands;
 using Source.Features.GitHub.Services;
 using Source.Features.Projects.Models;
-using Source.Features.RuntimeImages.Models;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Features.RuntimeLifecycle.Models;
-using Source.Features.FlyManagement.Configuration;
+using Source.Features.BoxManagement.Configuration;
 using Source.Infrastructure;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
@@ -17,13 +17,13 @@ namespace Source.Features.Projects.Commands.AttachGitBranch;
 /// <summary>
 /// Handles <see cref="AttachGitBranchCommand"/> — see the command summary for the
 /// "slow-path branch attach" contract. The new <see cref="ProjectRuntime"/> is left in
-/// <see cref="RuntimeState.Pending"/> with no <see cref="ProjectRuntime.FlyVolumeId"/>;
+/// <see cref="RuntimeState.Pending"/> with no <see cref="ProjectRuntime.box disk"/>;
 /// the recurring <c>RuntimeProvisionerJob</c> creates a fresh volume and the daemon
 /// bootstrap clones the git branch into it. Same hand-off shape as
 /// <c>CreateProjectHandler</c>.
 ///
 /// <para><b>Differences vs CopyBranchHandler.</b> No GitHub ref is created (the source
-/// ref already exists by construction) and no Fly volume is forked (there's no source
+/// ref already exists by construction) and no box disk is forked (there's no source
 /// volume to fork from — we clone fresh from git). The validation order, transaction
 /// shape and pool-claim flow all mirror Copy Branch / Create Project so the three entry
 /// points behave identically from the frontend's perspective.</para>
@@ -54,7 +54,7 @@ public sealed class AttachGitBranchHandler
 
     private readonly ApplicationDbContext _db;
     private readonly IGithubApiClient _github;
-    private readonly IFlyOptionsAccessor _flyOptions;
+    private readonly IBoxOptionsAccessor _boxOptions;
     private readonly IMediator _mediator;
     private readonly IBackgroundJobClient _backgroundJobs;
     private readonly ILogger<AttachGitBranchHandler> _logger;
@@ -62,14 +62,14 @@ public sealed class AttachGitBranchHandler
     public AttachGitBranchHandler(
         ApplicationDbContext db,
         IGithubApiClient github,
-        IFlyOptionsAccessor flyOptions,
+        IBoxOptionsAccessor boxOptions,
         IMediator mediator,
         IBackgroundJobClient backgroundJobs,
         ILogger<AttachGitBranchHandler> logger)
     {
         _db = db;
         _github = github;
-        _flyOptions = flyOptions;
+        _boxOptions = boxOptions;
         _mediator = mediator;
         _backgroundJobs = backgroundJobs;
         _logger = logger;
@@ -131,24 +131,21 @@ public sealed class AttachGitBranchHandler
         }
 
         // -------- 3. Pre-flight: runtime provisioning preconditions --------
-        // Fail fast if no Active runtime image or Fly settings are misconfigured —
+        // Fail fast if no Active runtime template or Box settings are misconfigured —
         // same belt-and-braces guards as CreateProjectHandler so a misconfigured
         // platform can never leave us with a Pending runtime that never advances.
-        var hasActiveImage = await _db.RuntimeImages
-            .AnyAsync(i => i.Status == RuntimeImageStatus.Active, cancellationToken);
-        if (!hasActiveImage)
+        var hasActiveTemplate = await _db.RuntimeTemplates
+            .AnyAsync(t => t.Status == RuntimeTemplateStatus.Active, cancellationToken);
+        if (!hasActiveTemplate)
         {
             return Result.Failure<AttachGitBranchResult>(
-                "No active runtime image is registered. Ask an admin to activate one in Super Admin → Runtime Images.");
+                "No active runtime template is registered. Build one with scripts/build-box-template.sh and activate it in Super Admin → Runtime Templates.");
         }
 
-        var fly = _flyOptions.Current;
-        if (string.IsNullOrWhiteSpace(fly.ApiToken) ||
-            string.IsNullOrWhiteSpace(fly.OrgSlug) ||
-            string.IsNullOrWhiteSpace(fly.AppName))
+        if (string.IsNullOrWhiteSpace(_boxOptions.Current.ApiKey))
         {
             return Result.Failure<AttachGitBranchResult>(
-                "Fly settings are incomplete. Configure them in Super Admin → System Settings.");
+                "Box settings are incomplete. Configure Box:ApiKey in Super Admin → System Settings.");
         }
 
         // -------- 4. Reject duplicate system branch BEFORE touching GitHub --------
@@ -216,7 +213,7 @@ public sealed class AttachGitBranchHandler
         }
 
         // -------- 6. Build new branch + Pending runtime --------
-        // FlyVolumeId is intentionally null — the provisioner job will create a
+        // box disk is intentionally null — the provisioner job will create a
         // fresh volume and the daemon's bootstrap will clone the git branch into
         // it on first start. Same shape as the CreateProject onboarding path.
         var newBranch = new ProjectBranch

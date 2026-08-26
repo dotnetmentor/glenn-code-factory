@@ -6,7 +6,7 @@
 // (`for await (const event of stream)`) shares the event loop with our
 // `setInterval`-based heartbeat (HeartbeatModule). During a heavy "scan the
 // repo" turn the SDK emits large frames faster than we can JSON.stringify +
-// SignalR-invoke them; on a 1-shared-CPU / 2-GB-RAM Fly machine that pushes
+// SignalR-invoke them; on a small runtime box that pushes
 // the event loop into 10–20 second starvation windows. Two things happen:
 //
 //   1. The heartbeat `setInterval` callback can't fire (timers are queued
@@ -25,13 +25,13 @@
 // watchdog notices, signals the main thread once, and force-kills the
 // process so the entrypoint.sh `while true; do node dist/main.js; done`
 // loop respawns us in milliseconds. We prefer a fast self-respawn over the
-// master noticing silence and Fly-destroying the machine (slower, costlier).
+// master noticing silence and rebooting the box (slower, costlier).
 //
 // === Threshold ===
 //
 // 50 s. Comfortably under the 60 s HeartbeatWatcher threshold (~10 s gap)
 // so we self-respawn via entrypoint.sh before the master flags us as
-// Crashed and Fly-destroys the machine. Above the SDK's natural quiet
+// Crashed and reboots the box. Above the SDK's natural quiet
 // windows (large file scans peak around 10–15 s) so we don't false-positive.
 // Above the typical GC pause budget (sub-second) so a stop-the-world
 // doesn't kill us either.

@@ -6,7 +6,7 @@
  * toggles, this is the larger, calmer "top of the panel" tab bar from the
  * prototype's {@code DrawerTabs}: a hairline-divided row where the active tab
  * carries a 2px accent underline and brighter, heavier text. Use it for the
- * panel-level Logs / Services / Timeline / Sysstats / Spec / Fly switch.
+ * panel-level Logs / Services / Timeline / Sysstats / Spec / Box switch.
  *
  * <pre>
  *   &lt;UnderlineTabs

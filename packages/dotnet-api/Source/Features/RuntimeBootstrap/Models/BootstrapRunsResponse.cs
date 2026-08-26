@@ -8,7 +8,7 @@ namespace Source.Features.RuntimeBootstrap.Models;
 /// <see cref="Total"/> is the unpaged row count so the UI can render a "x of N"
 /// counter without a follow-up COUNT round trip.</para>
 ///
-/// <para>Mirrors <see cref="Source.Features.FlyManagement.Models.FlyOperationsResponse"/>
+/// <para>Mirrors <see cref="Source.Features.BoxManagement.Models.BoxOperationsResponse"/>
 /// deliberately — both surfaces page over thin audit tables and the UI shares the same
 /// list/detail pattern.</para>
 /// </summary>

@@ -270,6 +270,142 @@ export const getApiAdminBootstrapRunsIdResponse = zod.object({
 })
 
 
+export const getApiAdminBoxBoxesResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string().nullish(),
+  "status": zod.string(),
+  "size": zod.string().nullish(),
+  "region": zod.string().nullish(),
+  "ttlSeconds": zod.number().nullish(),
+  "createdAt": zod.iso.datetime({}).nullish(),
+  "linkedRuntimeId": zod.uuid().nullish(),
+  "linkedProjectId": zod.uuid().nullish(),
+  "linkedBranchId": zod.uuid().nullish(),
+  "linkedProjectName": zod.string().nullish(),
+  "linkedBranchName": zod.string().nullish(),
+  "isTemplate": zod.boolean(),
+  "isOrphan": zod.boolean()
+})
+export const getApiAdminBoxBoxesResponse = zod.array(getApiAdminBoxBoxesResponseItem)
+
+
+export const getApiAdminBoxBoxesIdParams = zod.object({
+  "id": zod.string()
+})
+
+export const getApiAdminBoxBoxesIdResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string().nullish(),
+  "status": zod.string(),
+  "size": zod.string().nullish(),
+  "region": zod.string().nullish(),
+  "ttlSeconds": zod.number().nullish(),
+  "createdAt": zod.iso.datetime({}).nullish()
+})
+
+
+export const deleteApiAdminBoxBoxesIdParams = zod.object({
+  "id": zod.string()
+})
+
+
+export const postApiAdminBoxBoxesIdResumeParams = zod.object({
+  "id": zod.string()
+})
+
+
+export const postApiAdminBoxBoxesIdStopParams = zod.object({
+  "id": zod.string()
+})
+
+
+export const postApiAdminBoxBoxesBulkDeleteBody = zod.object({
+  "ids": zod.array(zod.string())
+})
+
+export const postApiAdminBoxBoxesBulkDeleteResponse = zod.object({
+  "requested": zod.number(),
+  "succeeded": zod.number(),
+  "failed": zod.array(zod.object({
+  "id": zod.string(),
+  "error": zod.string()
+}))
+})
+
+
+export const getApiAdminBoxSnapshotsResponseItem = zod.object({
+  "id": zod.string(),
+  "boxId": zod.string().nullish(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.iso.datetime({}).nullish(),
+  "linkedRuntimeId": zod.uuid().nullish(),
+  "isOrphan": zod.boolean()
+})
+export const getApiAdminBoxSnapshotsResponse = zod.array(getApiAdminBoxSnapshotsResponseItem)
+
+
+export const deleteApiAdminBoxSnapshotsIdParams = zod.object({
+  "id": zod.string()
+})
+
+
+export const postApiAdminBoxSnapshotsBulkDeleteBody = zod.object({
+  "ids": zod.array(zod.string())
+})
+
+export const postApiAdminBoxSnapshotsBulkDeleteResponse = zod.object({
+  "requested": zod.number(),
+  "succeeded": zod.number(),
+  "failed": zod.array(zod.object({
+  "id": zod.string(),
+  "error": zod.string()
+}))
+})
+
+
+export const postApiAdminBoxTestConnectionResponse = zod.object({
+  "apiKeySet": zod.boolean(),
+  "pingSucceeded": zod.boolean(),
+  "pingError": zod.string().nullish(),
+  "isValid": zod.boolean(),
+  "message": zod.string()
+})
+
+
+export const getApiAdminBoxOperationsQueryPageDefault = 1;export const getApiAdminBoxOperationsQueryPageSizeDefault = 50;
+
+export const getApiAdminBoxOperationsQueryParams = zod.object({
+  "status": zod.string().optional(),
+  "since": zod.iso.datetime({}).optional(),
+  "runtimeId": zod.uuid().optional(),
+  "page": zod.number().default(getApiAdminBoxOperationsQueryPageDefault),
+  "pageSize": zod.number().default(getApiAdminBoxOperationsQueryPageSizeDefault)
+})
+
+export const getApiAdminBoxOperationsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "runtimeId": zod.uuid().nullish(),
+  "operation": zod.string(),
+  "requestKey": zod.string().nullish(),
+  "requestPayload": zod.string(),
+  "responsePayload": zod.string().nullish(),
+  "httpStatusCode": zod.number().nullish(),
+  "status": zod.enum(['Pending', 'Succeeded', 'Failed']),
+  "errorCode": zod.string().nullish(),
+  "latencyMs": zod.number().nullish(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({})
+})),
+  "total": zod.number(),
+  "page": zod.number(),
+  "pageSize": zod.number()
+})
+
+
 export const getApiProjectsProjectIdBranchesBranchIdEnvParams = zod.object({
   "projectId": zod.uuid(),
   "branchId": zod.uuid()
@@ -380,13 +516,6 @@ export const getApiCiPublishStatusResponse = zod.object({
   "runtimeActiveGitSha": zod.string().nullish(),
   "daemonPublishedForRequestedSha": zod.boolean(),
   "runtimePublishedForRequestedSha": zod.boolean()
-})
-
-
-export const getApiCiRegistryCredentialsResponse = zod.object({
-  "registryHost": zod.string(),
-  "username": zod.string(),
-  "password": zod.string()
 })
 
 
@@ -1443,213 +1572,6 @@ export const postApiFilesUploadResponse = zod.object({
   "fileUrl": zod.string(),
   "fileName": zod.string(),
   "fileSize": zod.number()
-})
-
-
-export const postApiWebhooksFlyResponse = zod.object({
-  "status": zod.string(),
-  "eventType": zod.string()
-})
-
-
-export const getApiAdminFlyMachinesResponseItem = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "state": zod.string(),
-  "region": zod.string(),
-  "instanceId": zod.string().nullish(),
-  "privateIp": zod.string().nullish(),
-  "createdAt": zod.iso.datetime({}),
-  "linkedRuntimeId": zod.uuid().nullish(),
-  "linkedProjectId": zod.uuid().nullish(),
-  "linkedBranchId": zod.uuid().nullish(),
-  "linkedProjectName": zod.string().nullish(),
-  "linkedBranchName": zod.string().nullish(),
-  "isOrphan": zod.boolean()
-})
-export const getApiAdminFlyMachinesResponse = zod.array(getApiAdminFlyMachinesResponseItem)
-
-
-export const getApiAdminFlyMachinesIdParams = zod.object({
-  "id": zod.string()
-})
-
-export const getApiAdminFlyMachinesIdResponse = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "state": zod.string(),
-  "region": zod.string(),
-  "instanceId": zod.string().nullish(),
-  "privateIp": zod.string().nullish(),
-  "createdAt": zod.iso.datetime({})
-})
-
-
-export const deleteApiAdminFlyMachinesIdParams = zod.object({
-  "id": zod.string()
-})
-
-export const deleteApiAdminFlyMachinesIdQueryParams = zod.object({
-  "force": zod.boolean().optional()
-})
-
-
-export const postApiAdminFlyMachinesIdStartParams = zod.object({
-  "id": zod.string()
-})
-
-
-export const postApiAdminFlyMachinesIdStopParams = zod.object({
-  "id": zod.string()
-})
-
-export const postApiAdminFlyMachinesIdStopBody = zod.object({
-  "signal": zod.string().nullish(),
-  "timeout": zod.number().nullish()
-})
-
-
-export const postApiAdminFlyMachinesIdSuspendParams = zod.object({
-  "id": zod.string()
-})
-
-
-export const postApiAdminFlyMachinesBulkDestroyBody = zod.object({
-  "ids": zod.array(zod.string()),
-  "force": zod.boolean()
-})
-
-export const postApiAdminFlyMachinesBulkDestroyResponse = zod.object({
-  "requested": zod.number(),
-  "succeeded": zod.number(),
-  "failed": zod.array(zod.object({
-  "id": zod.string(),
-  "error": zod.string()
-}))
-})
-
-
-export const getApiAdminFlyVolumesResponseItem = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "region": zod.string(),
-  "sizeGb": zod.number(),
-  "state": zod.string(),
-  "attachedMachineId": zod.string().nullish(),
-  "encrypted": zod.boolean(),
-  "createdAt": zod.iso.datetime({}),
-  "linkedRuntimeId": zod.uuid().nullish(),
-  "linkedProjectId": zod.uuid().nullish(),
-  "linkedBranchId": zod.uuid().nullish(),
-  "linkedProjectName": zod.string().nullish(),
-  "linkedBranchName": zod.string().nullish(),
-  "isOrphan": zod.boolean()
-})
-export const getApiAdminFlyVolumesResponse = zod.array(getApiAdminFlyVolumesResponseItem)
-
-
-export const deleteApiAdminFlyVolumesIdParams = zod.object({
-  "id": zod.string()
-})
-
-
-export const postApiAdminFlyVolumesBulkDestroyBody = zod.object({
-  "ids": zod.array(zod.string()),
-  "force": zod.boolean()
-})
-
-export const postApiAdminFlyVolumesBulkDestroyResponse = zod.object({
-  "requested": zod.number(),
-  "succeeded": zod.number(),
-  "failed": zod.array(zod.object({
-  "id": zod.string(),
-  "error": zod.string()
-}))
-})
-
-
-export const postApiAdminFlyVolumesIdExtendParams = zod.object({
-  "id": zod.string()
-})
-
-export const postApiAdminFlyVolumesIdExtendBody = zod.object({
-  "sizeGb": zod.number()
-})
-
-export const postApiAdminFlyVolumesIdExtendResponse = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "region": zod.string(),
-  "sizeGb": zod.number(),
-  "state": zod.string(),
-  "attachedMachineId": zod.string().nullish(),
-  "encrypted": zod.boolean(),
-  "createdAt": zod.iso.datetime({})
-})
-
-
-export const getApiAdminFlyAppResponse = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "orgSlug": zod.string(),
-  "status": zod.string(),
-  "createdAt": zod.iso.datetime({})
-})
-
-
-export const postApiAdminFlyAppEnsureResponse = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "orgSlug": zod.string(),
-  "status": zod.string(),
-  "createdAt": zod.iso.datetime({})
-})
-
-
-export const postApiAdminFlyTestConnectionResponse = zod.object({
-  "apiTokenSet": zod.boolean(),
-  "appNameSet": zod.boolean(),
-  "orgSlugSet": zod.boolean(),
-  "pingSucceeded": zod.boolean(),
-  "pingError": zod.string().nullish(),
-  "appExists": zod.boolean(),
-  "appName": zod.string().nullish(),
-  "isValid": zod.boolean(),
-  "message": zod.string()
-})
-
-
-export const getApiAdminFlyOperationsQueryPageDefault = 1;export const getApiAdminFlyOperationsQueryPageSizeDefault = 50;
-
-export const getApiAdminFlyOperationsQueryParams = zod.object({
-  "status": zod.string().optional(),
-  "since": zod.iso.datetime({}).optional(),
-  "runtimeId": zod.uuid().optional(),
-  "page": zod.number().default(getApiAdminFlyOperationsQueryPageDefault),
-  "pageSize": zod.number().default(getApiAdminFlyOperationsQueryPageSizeDefault)
-})
-
-export const getApiAdminFlyOperationsResponse = zod.object({
-  "items": zod.array(zod.object({
-  "domainEvents": zod.array(zod.object({
-  "occurredAt": zod.iso.datetime({})
-})),
-  "id": zod.uuid(),
-  "runtimeId": zod.uuid().nullish(),
-  "operation": zod.string(),
-  "requestKey": zod.string().nullish(),
-  "requestPayload": zod.string(),
-  "responsePayload": zod.string().nullish(),
-  "httpStatusCode": zod.number().nullish(),
-  "status": zod.enum(['Pending', 'Succeeded', 'Failed']),
-  "errorCode": zod.string().nullish(),
-  "latencyMs": zod.number().nullish(),
-  "createdAt": zod.iso.datetime({}),
-  "updatedAt": zod.iso.datetime({})
-})),
-  "total": zod.number(),
-  "page": zod.number(),
-  "pageSize": zod.number()
 })
 
 
@@ -4379,9 +4301,8 @@ export const getApiAdminRuntimesResponse = zod.object({
   "tenantId": zod.uuid().nullish(),
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
-  "flyMachineId": zod.string().nullish(),
-  "flyVolumeId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "volumeSizeGb": zod.number(),
   "cpuKind": zod.string(),
@@ -5667,9 +5588,8 @@ export const getApiAdminRuntimesIdResponse = zod.object({
   "tenantId": zod.uuid().nullish(),
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
-  "flyMachineId": zod.string().nullish(),
-  "flyVolumeId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "volumeSizeGb": zod.number(),
   "cpuKind": zod.string(),
@@ -5716,8 +5636,8 @@ export const getApiAdminRuntimesDriftResponse = zod.object({
   "branchId": zod.uuid().nullish(),
   "branchName": zod.string().nullish(),
   "dbState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
-  "flyState": zod.string().nullish(),
-  "flyMachineId": zod.string().nullish(),
+  "boxStatus": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
   "region": zod.string().nullish(),
   "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
   "secondsSinceHeartbeat": zod.number().nullish(),
@@ -5732,29 +5652,29 @@ export const getApiAdminRuntimesDriftResponse = zod.object({
 })
 
 
-export const getApiAdminRuntimesRuntimeIdFlySnapshotParams = zod.object({
+export const getApiAdminRuntimesRuntimeIdBoxSnapshotParams = zod.object({
   "runtimeId": zod.uuid()
 })
 
-export const getApiAdminRuntimesRuntimeIdFlySnapshotResponse = zod.object({
+export const getApiAdminRuntimesRuntimeIdBoxSnapshotResponse = zod.object({
   "ourView": zod.object({
   "runtimeId": zod.uuid(),
   "projectId": zod.uuid(),
   "state": zod.string(),
   "region": zod.string(),
-  "flyMachineId": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
   "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
   "stateChangedAt": zod.iso.datetime({}),
   "createdAt": zod.iso.datetime({})
 }),
-  "flyView": zod.object({
+  "boxView": zod.object({
   "id": zod.string(),
-  "name": zod.string(),
-  "state": zod.string(),
-  "region": zod.string(),
-  "instanceId": zod.string().nullish(),
-  "privateIp": zod.string().nullish(),
-  "createdAt": zod.iso.datetime({})
+  "name": zod.string().nullish(),
+  "status": zod.string(),
+  "size": zod.string().nullish(),
+  "region": zod.string().nullish(),
+  "ttlSeconds": zod.number().nullish(),
+  "createdAt": zod.iso.datetime({}).nullish()
 }),
   "recentOperations": zod.array(zod.object({
   "id": zod.uuid(),
@@ -7011,9 +6931,8 @@ export const postApiAdminRuntimesIdResetResponse = zod.object({
   "tenantId": zod.uuid().nullish(),
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
-  "flyMachineId": zod.string().nullish(),
-  "flyVolumeId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "volumeSizeGb": zod.number(),
   "cpuKind": zod.string(),
@@ -8283,9 +8202,8 @@ export const postApiAdminRuntimesIdForceSuspendResponse = zod.object({
   "tenantId": zod.uuid().nullish(),
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
-  "flyMachineId": zod.string().nullish(),
-  "flyVolumeId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "volumeSizeGb": zod.number(),
   "cpuKind": zod.string(),
@@ -9555,9 +9473,8 @@ export const postApiAdminRuntimesIdForceStopResponse = zod.object({
   "tenantId": zod.uuid().nullish(),
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
-  "flyMachineId": zod.string().nullish(),
-  "flyVolumeId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "volumeSizeGb": zod.number(),
   "cpuKind": zod.string(),
@@ -10827,9 +10744,8 @@ export const postApiAdminRuntimesIdForceDeleteResponse = zod.object({
   "tenantId": zod.uuid().nullish(),
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
-  "flyMachineId": zod.string().nullish(),
-  "flyVolumeId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "volumeSizeGb": zod.number(),
   "cpuKind": zod.string(),
@@ -10914,172 +10830,6 @@ export const getApiRuntimesRuntimeIdHealthSnapshotsResponseItem = zod.object({
   "activeSessionId": zod.uuid().nullish()
 })
 export const getApiRuntimesRuntimeIdHealthSnapshotsResponse = zod.array(getApiRuntimesRuntimeIdHealthSnapshotsResponseItem)
-
-
-export const postApiAdminRuntimeImagesBody = zod.object({
-  "tag": zod.string(),
-  "digest": zod.string(),
-  "registry": zod.string(),
-  "gitSha": zod.string(),
-  "builtAt": zod.iso.datetime({}),
-  "sizeMb": zod.number(),
-  "notes": zod.string().nullish()
-})
-
-
-export const getApiAdminRuntimeImagesQueryPageDefault = 1;export const getApiAdminRuntimeImagesQueryPageSizeDefault = 50;
-
-export const getApiAdminRuntimeImagesQueryParams = zod.object({
-  "status": zod.string().optional(),
-  "page": zod.number().default(getApiAdminRuntimeImagesQueryPageDefault),
-  "pageSize": zod.number().default(getApiAdminRuntimeImagesQueryPageSizeDefault)
-})
-
-export const getApiAdminRuntimeImagesResponse = zod.object({
-  "items": zod.array(zod.object({
-  "domainEvents": zod.array(zod.object({
-  "occurredAt": zod.iso.datetime({})
-})),
-  "id": zod.uuid(),
-  "tag": zod.string(),
-  "digest": zod.string(),
-  "registry": zod.string(),
-  "gitSha": zod.string(),
-  "builtAt": zod.iso.datetime({}),
-  "sizeMb": zod.number(),
-  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
-  "notes": zod.string().nullish(),
-  "createdAt": zod.iso.datetime({}),
-  "updatedAt": zod.iso.datetime({})
-})),
-  "total": zod.number(),
-  "page": zod.number(),
-  "pageSize": zod.number()
-})
-
-
-export const getApiAdminRuntimeImagesIdParams = zod.object({
-  "id": zod.uuid()
-})
-
-export const getApiAdminRuntimeImagesIdResponse = zod.object({
-  "domainEvents": zod.array(zod.object({
-  "occurredAt": zod.iso.datetime({})
-})),
-  "id": zod.uuid(),
-  "tag": zod.string(),
-  "digest": zod.string(),
-  "registry": zod.string(),
-  "gitSha": zod.string(),
-  "builtAt": zod.iso.datetime({}),
-  "sizeMb": zod.number(),
-  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
-  "notes": zod.string().nullish(),
-  "createdAt": zod.iso.datetime({}),
-  "updatedAt": zod.iso.datetime({})
-})
-
-
-export const getApiAdminRuntimeImagesLatestActiveResponse = zod.object({
-  "domainEvents": zod.array(zod.object({
-  "occurredAt": zod.iso.datetime({})
-})),
-  "id": zod.uuid(),
-  "tag": zod.string(),
-  "digest": zod.string(),
-  "registry": zod.string(),
-  "gitSha": zod.string(),
-  "builtAt": zod.iso.datetime({}),
-  "sizeMb": zod.number(),
-  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
-  "notes": zod.string().nullish(),
-  "createdAt": zod.iso.datetime({}),
-  "updatedAt": zod.iso.datetime({})
-})
-
-
-export const getApiAdminRuntimeImagesRegistryTagsQueryParams = zod.object({
-  "imageName": zod.string().optional()
-})
-
-export const getApiAdminRuntimeImagesRegistryTagsResponseItem = zod.object({
-  "tag": zod.string(),
-  "digest": zod.string(),
-  "sizeBytes": zod.number().nullish(),
-  "pushedAt": zod.iso.datetime({}).nullish(),
-  "gitSha": zod.string().nullish()
-})
-export const getApiAdminRuntimeImagesRegistryTagsResponse = zod.array(getApiAdminRuntimeImagesRegistryTagsResponseItem)
-
-
-export const patchApiAdminRuntimeImagesIdStatusParams = zod.object({
-  "id": zod.uuid()
-})
-
-export const patchApiAdminRuntimeImagesIdStatusBody = zod.object({
-  "status": zod.enum(['Active', 'Deprecated', 'Yanked'])
-})
-
-export const patchApiAdminRuntimeImagesIdStatusResponse = zod.object({
-  "domainEvents": zod.array(zod.object({
-  "occurredAt": zod.iso.datetime({})
-})),
-  "id": zod.uuid(),
-  "tag": zod.string(),
-  "digest": zod.string(),
-  "registry": zod.string(),
-  "gitSha": zod.string(),
-  "builtAt": zod.iso.datetime({}),
-  "sizeMb": zod.number(),
-  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
-  "notes": zod.string().nullish(),
-  "createdAt": zod.iso.datetime({}),
-  "updatedAt": zod.iso.datetime({})
-})
-
-
-export const postApiAdminRuntimeImagesIdDeprecateParams = zod.object({
-  "id": zod.uuid()
-})
-
-export const postApiAdminRuntimeImagesIdDeprecateResponse = zod.object({
-  "domainEvents": zod.array(zod.object({
-  "occurredAt": zod.iso.datetime({})
-})),
-  "id": zod.uuid(),
-  "tag": zod.string(),
-  "digest": zod.string(),
-  "registry": zod.string(),
-  "gitSha": zod.string(),
-  "builtAt": zod.iso.datetime({}),
-  "sizeMb": zod.number(),
-  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
-  "notes": zod.string().nullish(),
-  "createdAt": zod.iso.datetime({}),
-  "updatedAt": zod.iso.datetime({})
-})
-
-
-export const postApiAdminRuntimeImagesIdYankParams = zod.object({
-  "id": zod.uuid()
-})
-
-export const postApiAdminRuntimeImagesIdYankResponse = zod.object({
-  "domainEvents": zod.array(zod.object({
-  "occurredAt": zod.iso.datetime({})
-})),
-  "id": zod.uuid(),
-  "tag": zod.string(),
-  "digest": zod.string(),
-  "registry": zod.string(),
-  "gitSha": zod.string(),
-  "builtAt": zod.iso.datetime({}),
-  "sizeMb": zod.number(),
-  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
-  "notes": zod.string().nullish(),
-  "createdAt": zod.iso.datetime({}),
-  "updatedAt": zod.iso.datetime({})
-})
 
 
 export const getApiAdminRuntimePresetsResponseItem = zod.object({
@@ -11475,8 +11225,8 @@ export const postApiProjectsProjectIdBranchesBranchIdRuntimeRestartResponse = zo
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
   "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
-  "flyMachineId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "recentTransitions": zod.array(zod.object({
   "fromState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
@@ -11513,8 +11263,8 @@ export const postApiProjectsProjectIdBranchesBranchIdRuntimeSuspendResponse = zo
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
   "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
-  "flyMachineId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "recentTransitions": zod.array(zod.object({
   "fromState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
@@ -11551,8 +11301,8 @@ export const postApiProjectsProjectIdBranchesBranchIdRuntimeForceStopResponse = 
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
   "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
-  "flyMachineId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "recentTransitions": zod.array(zod.object({
   "fromState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
@@ -11589,8 +11339,8 @@ export const postApiProjectsProjectIdBranchesBranchIdRuntimeResetFromScratchResp
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
   "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
-  "flyMachineId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "recentTransitions": zod.array(zod.object({
   "fromState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
@@ -11627,8 +11377,8 @@ export const getApiProjectsProjectIdBranchesBranchIdRuntimeStatusResponse = zod.
   "state": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
   "stateChangedAt": zod.iso.datetime({}),
   "lastHeartbeatAt": zod.iso.datetime({}).nullish(),
-  "flyMachineId": zod.string().nullish(),
-  "imageDigest": zod.string().nullish(),
+  "boxId": zod.string().nullish(),
+  "templateBoxId": zod.string().nullish(),
   "region": zod.string(),
   "recentTransitions": zod.array(zod.object({
   "fromState": zod.enum(['Pending', 'Booting', 'Bootstrapping', 'Online', 'Suspending', 'Suspended', 'Waking', 'Crashed', 'Failed', 'Deleting', 'Deleted']),
@@ -11669,6 +11419,116 @@ export const getApiRuntimesRuntimeIdActiveSessionResponse = zod.object({
 
 export const postApiRuntimesRuntimeIdHeartbeatTickParams = zod.object({
   "runtimeId": zod.uuid()
+})
+
+
+export const postApiAdminRuntimeTemplatesBody = zod.object({
+  "boxId": zod.string(),
+  "label": zod.string(),
+  "gitSha": zod.string(),
+  "builtAt": zod.iso.datetime({}),
+  "notes": zod.string().nullish()
+})
+
+
+export const getApiAdminRuntimeTemplatesQueryPageDefault = 1;export const getApiAdminRuntimeTemplatesQueryPageSizeDefault = 50;
+
+export const getApiAdminRuntimeTemplatesQueryParams = zod.object({
+  "status": zod.string().optional(),
+  "page": zod.number().default(getApiAdminRuntimeTemplatesQueryPageDefault),
+  "pageSize": zod.number().default(getApiAdminRuntimeTemplatesQueryPageSizeDefault)
+})
+
+export const getApiAdminRuntimeTemplatesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "boxId": zod.string(),
+  "label": zod.string(),
+  "gitSha": zod.string(),
+  "builtAt": zod.iso.datetime({}),
+  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({})
+})),
+  "total": zod.number(),
+  "page": zod.number(),
+  "pageSize": zod.number()
+})
+
+
+export const getApiAdminRuntimeTemplatesIdParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const getApiAdminRuntimeTemplatesIdResponse = zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "boxId": zod.string(),
+  "label": zod.string(),
+  "gitSha": zod.string(),
+  "builtAt": zod.iso.datetime({}),
+  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({})
+})
+
+
+export const getApiAdminRuntimeTemplatesLatestActiveResponse = zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "boxId": zod.string(),
+  "label": zod.string(),
+  "gitSha": zod.string(),
+  "builtAt": zod.iso.datetime({}),
+  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({})
+})
+
+
+export const getApiAdminRuntimeTemplatesBoxesResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string().nullish(),
+  "status": zod.string(),
+  "size": zod.string().nullish(),
+  "region": zod.string().nullish(),
+  "createdAt": zod.iso.datetime({}).nullish(),
+  "alreadyRegistered": zod.boolean()
+})
+export const getApiAdminRuntimeTemplatesBoxesResponse = zod.array(getApiAdminRuntimeTemplatesBoxesResponseItem)
+
+
+export const patchApiAdminRuntimeTemplatesIdStatusParams = zod.object({
+  "id": zod.uuid()
+})
+
+export const patchApiAdminRuntimeTemplatesIdStatusBody = zod.object({
+  "status": zod.enum(['Active', 'Deprecated', 'Yanked'])
+})
+
+export const patchApiAdminRuntimeTemplatesIdStatusResponse = zod.object({
+  "domainEvents": zod.array(zod.object({
+  "occurredAt": zod.iso.datetime({})
+})),
+  "id": zod.uuid(),
+  "boxId": zod.string(),
+  "label": zod.string(),
+  "gitSha": zod.string(),
+  "builtAt": zod.iso.datetime({}),
+  "status": zod.enum(['Active', 'Deprecated', 'Yanked']),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.iso.datetime({}),
+  "updatedAt": zod.iso.datetime({})
 })
 
 

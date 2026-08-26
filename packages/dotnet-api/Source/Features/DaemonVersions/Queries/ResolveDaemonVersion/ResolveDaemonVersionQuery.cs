@@ -12,7 +12,7 @@ namespace Source.Features.DaemonVersions.Queries.ResolveDaemonVersion;
 ///         must be on a public endpoint;</item>
 ///   <item><c>RuntimeProvisionerJob</c> when stamping <c>DAEMON_VERSION</c> +
 ///         <c>DAEMON_BUNDLE_URL</c> + <c>DAEMON_BUNDLE_SHA256</c> on a new
-///         Fly machine's env.</item>
+///         box's env.</item>
 /// </list>
 /// Failure ("no version published yet") maps to a 404 in the controller.
 /// </summary>

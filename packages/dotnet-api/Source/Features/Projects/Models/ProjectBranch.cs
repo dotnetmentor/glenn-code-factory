@@ -122,9 +122,9 @@ public class ProjectBranch : Entity, IAuditable
     /// <c>Project.MarkCreated()</c>. Idempotency is not enforced here; the
     /// caller (<c>CopyBranchHandler</c>) only invokes once per orchestration.
     /// </summary>
-    public void RaiseBranchCopied(Guid sourceBranchId, Guid newRuntimeId, string forkedVolumeId)
+    public void RaiseBranchCopied(Guid sourceBranchId, Guid newRuntimeId, string forkedBoxId)
     {
-        RaiseDomainEvent(new BranchCopied(Id, sourceBranchId, newRuntimeId, forkedVolumeId));
+        RaiseDomainEvent(new BranchCopied(Id, sourceBranchId, newRuntimeId, forkedBoxId));
     }
 
     /// <summary>

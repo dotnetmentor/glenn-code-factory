@@ -71,12 +71,12 @@ public record BranchCopied(
     Guid NewBranchId,
     Guid SourceBranchId,
     Guid NewRuntimeId,
-    string ForkedVolumeId,
+    string ForkedBoxId,
     DateTime OccurredAt
 ) : IEntityDomainEvent
 {
-    public BranchCopied(Guid newBranchId, Guid sourceBranchId, Guid newRuntimeId, string forkedVolumeId)
-        : this(newBranchId, sourceBranchId, newRuntimeId, forkedVolumeId, DateTime.UtcNow) { }
+    public BranchCopied(Guid newBranchId, Guid sourceBranchId, Guid newRuntimeId, string forkedBoxId)
+        : this(newBranchId, sourceBranchId, newRuntimeId, forkedBoxId, DateTime.UtcNow) { }
 
     string IEntityDomainEvent.EntityId => NewBranchId.ToString();
     string IEntityDomainEvent.EntityType => "ProjectBranch";

@@ -5,7 +5,7 @@ using Source.Shared.Results;
 namespace Source.Features.RuntimeLifecycle.Commands.ResetRuntimeFromScratch;
 
 /// <summary>
-/// Wipes Fly machine + volume references and reprovisions from a clean disk.
+/// Wipes box + volume references and reprovisions from a clean disk.
 /// Powers <c>POST /api/projects/{projectId}/branches/{branchId}/runtime/reset-from-scratch</c>.
 /// </summary>
 public sealed record ResetRuntimeFromScratchCommand(

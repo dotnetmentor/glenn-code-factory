@@ -1,6 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Source.Features.FlyManagement;
+using Source.Features.BoxManagement;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Infrastructure;
 using Source.Shared.CQRS;
@@ -21,16 +21,16 @@ public sealed class SuspendRuntimeHandler
     public const string ConflictPrefix = "conflict:";
 
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
     private readonly ILogger<SuspendRuntimeHandler> _logger;
 
     public SuspendRuntimeHandler(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
         ILogger<SuspendRuntimeHandler> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
         _logger = logger;
     }
 
@@ -71,21 +71,20 @@ public sealed class SuspendRuntimeHandler
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        if (!string.IsNullOrEmpty(runtime.FlyMachineId))
+        if (!string.IsNullOrEmpty(runtime.BoxId))
         {
             try
             {
-                await _fly.StopMachineAsync(
-                    machineId: runtime.FlyMachineId,
-                    options: null,
+                await _box.StopBoxAsync(
+                    boxId: runtime.BoxId,
                     runtimeId: runtime.Id,
                     ct: cancellationToken);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "SuspendRuntime: Fly StopMachine call failed for machine {MachineId} (runtime {RuntimeId}); reconciler will retry.",
-                    runtime.FlyMachineId, runtime.Id);
+                    "SuspendRuntime: Box StopBox call failed for box {BoxId} (runtime {RuntimeId}); reconciler will retry.",
+                    runtime.BoxId, runtime.Id);
             }
         }
 
@@ -121,8 +120,8 @@ public sealed class SuspendRuntimeHandler
             runtime.State,
             runtime.StateChangedAt,
             runtime.LastHeartbeatAt,
-            runtime.FlyMachineId,
-            runtime.ImageDigest,
+            runtime.BoxId,
+            runtime.TemplateBoxId,
             runtime.Region,
             recent));
     }

@@ -22,7 +22,7 @@ namespace Source.Features.RuntimeLifecycle.Commands;
 ///         rather than an illegal-transition error.</item>
 ///   <item>State == <see cref="RuntimeState.Waking"/> → walk through
 ///         Bootstrapping first. The Waking → Bootstrapping edge is normally
-///         driven by <c>RuntimeFlyDriftPoller</c> observing the Fly machine in
+///         driven by <c>RuntimeFlyDriftPoller</c> observing the box in
 ///         <c>started</c>, but that poll runs on a ~15s interval. After the
 ///         <c>BackgroundRepoFetcher</c> change (commit 94f97cd) the daemon's
 ///         RuntimeReady can arrive in ~3s — well ahead of the poll — and was
@@ -105,7 +105,7 @@ public class RuntimeReadyCommandHandler : ICommandHandler<RuntimeReadyCommand, R
         // Waking → walk through Bootstrapping first. The daemon's RuntimeReady
         // call IS the authoritative "bootstrapping is done" signal — the
         // Waking → Bootstrapping edge is normally driven by RuntimeFlyDriftPoller
-        // observing the Fly machine in `started`, but that poll runs on a ~15s
+        // observing the box in `started`, but that poll runs on a ~15s
         // interval. After the BackgroundRepoFetcher change (commit 94f97cd) the
         // daemon's RuntimeReady can arrive in ~3s, well ahead of the poll, and
         // was being rejected — forcing 5 retries plus a fresh second bootstrap

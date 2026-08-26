@@ -145,7 +145,7 @@ public class SubmitUrgentPromptCommandHandler
         // Resolve the runtime via the conversation's BRANCH — same lookup the
         // ITurnDispatcher does. A project can own multiple ProjectRuntime rows
         // after CopyBranch (one per branch); filtering by project alone would
-        // hand the urgent prompt to the wrong Fly machine. The conversation's
+        // hand the urgent prompt to the wrong box. The conversation's
         // BranchId is the authoritative scope.
         var runtime = await _db.ProjectRuntimes
             .FirstOrDefaultAsync(r => r.BranchId == conversation.BranchId, cancellationToken);

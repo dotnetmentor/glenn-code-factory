@@ -21,7 +21,7 @@ namespace Source.Features.Projects.Commands.ArchiveBranch;
 /// <para><b>Runtime side-effect.</b> If the branch's active runtime is in a
 /// running-ish state (<c>Online</c> / <c>Booting</c> / <c>Bootstrapping</c> /
 /// <c>Waking</c>) it's transitioned to <c>Suspending</c> in the same
-/// SaveChanges, so the reconciler picks up the Fly machine stop. Other states
+/// SaveChanges, so the reconciler picks up the box stop. Other states
 /// (already Suspended, Failed, …) are left alone.</para>
 /// </summary>
 public sealed record ArchiveBranchCommand(

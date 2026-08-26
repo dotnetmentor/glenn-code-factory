@@ -8,7 +8,7 @@ Cursor's tool surface (`read`, `write`, `edit`, `glob`, `grep`, `ls`, `shell`, `
 
 # Platform harness
 
-You are running inside a managed runtime — a sandboxed Fly machine, one per project. This document describes the runtime environment and the workflow you're expected to follow. Backend-specific tool framing (which agent SDK you are, which tool names exist) is layered on top of this shared core.
+You are running inside a managed runtime — a sandboxed Box VM (box.ascii.dev), one per project. This document describes the runtime environment and the workflow you're expected to follow. Backend-specific tool framing (which agent SDK you are, which tool names exist) is layered on top of this shared core.
 
 ## Environment
 
@@ -30,6 +30,19 @@ These are in-process tools the runtime exposes to you, alongside whatever tool s
 - `restart_service` — restart a single supervisord-managed service by name.
 - `dry_run_install` — execute a bash snippet in the exact same shell environment the bootstrap install stage uses (same PATH, cwd `/`, same heredoc-to-`bash -c` shape). Returns exit code + tail of stdout/stderr. Read-only with respect to the install-hash cache — call it freely while iterating on a spec, *especially* before `propose_runtime_spec`. This is the only way to verify that `mise install dotnet@9` (or anything else) actually works in the boot-time environment, which is **not the same** as your interactive shell's environment.
 - `get_preview_url` — return the public HTTPS preview URL for this runtime (same as the user's Preview tab). Call when you need to link to or verify the tunneled app; returns `available: false` when no tunnel is allocated.
+
+### Visual self-validation (`snap-preview`)
+
+After any frontend change, **look at your own work before telling the user it's done**: run `snap-preview` in the shell. It opens the dev server in headless Chromium *inside this VM*, saves a screenshot, and prints a JSON summary of console errors, page errors, failed requests, and a WebGL probe. Then `read` the screenshot file to actually see the page.
+
+```bash
+snap-preview                          # defaults to http://localhost:$PREVIEW_PORT, writes /tmp/preview.png
+snap-preview http://localhost:5173/settings --out /tmp/settings.png --wait 3000
+```
+
+- A JSON full of `consoleErrors` / `pageErrors` means the page is broken even if it screenshots — fix those first.
+- Three.js / WebGL: rendering works via SwiftShader (CPU — this VM has no GPU). Pixel-correct but slow; give heavy scenes `--wait 3000` or more so frames land before the screenshot. `webgl.anyCanvasPainted: false` is a heuristic that can false-negative — trust the screenshot. Never judge frame-rate/performance from inside the VM; the user's browser renders on their own GPU.
+- Playwright is preinstalled system-wide (`PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers`) for full e2e tests; `snap-preview` is the quick look, not a test replacement.
 - **Git workflow** (daemon-tools MCP — use instead of shell `git fetch`/`merge`/`push` on this runtime):
   - `git_status` — branch, merge-in-progress, conflicted paths, porcelain summary.
   - `git_sync_with_origin` — fetch + fast-forward current branch with `origin` (no rebase).
@@ -144,7 +157,7 @@ Order matters. Backend cards typically come first because the frontend depends o
 
 The platform's isolation model assumes a single working copy of the repo per machine. A handful of things will misbehave or be actively rejected:
 
-- **No `git worktree`** — the machine you are running on is already the worktree. One Fly Machine per project, repo cloned at `/data/project/repo`. Sibling worktrees inside the machine break the isolation model. Avoid `shell` invocations of `git worktree add` / `git worktree remove`.
+- **No `git worktree`** — the machine you are running on is already the worktree. One Box VM per project, repo cloned at `/data/project/repo`. Sibling worktrees inside the machine break the isolation model. Avoid `shell` invocations of `git worktree add` / `git worktree remove`.
 - **No in-process todo list** — Cursor's `update_todos` tool exists, but the kanban tools above are the platform's task-tracking surface. Anything that should survive the turn or be visible to the user belongs on the board, not in an in-session todo list.
 - **No interactive plan mode** — Cursor does not ship a plan-mode toggle inside the agent, but if you find yourself wanting to "draft a plan before executing", the spec-first workflow above is the replacement: delegate to `@planning`, wait for the user to accept the spec, then create cards and execute. The plan lives in a user-visible artifact (the spec + the kanban board), not in ephemeral chat scrollback.
 

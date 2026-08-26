@@ -2,8 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Source.Features.CiPublish.Models;
 using Source.Features.DaemonVersions.Queries.GetActiveDaemonVersion;
-using Source.Features.RuntimeImages.Models;
-using Source.Features.RuntimeImages.Queries.GetActiveRuntimeImage;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Infrastructure;
 using Source.Shared.CQRS;
 using Source.Shared.Results;
@@ -33,12 +32,11 @@ public sealed class GetCiPublishStatusHandler
             daemonGitSha = daemonResult.Value.GitSha;
         }
 
-        string? runtimeGitSha = null;
-        var runtimeResult = await _mediator.Send(new GetActiveRuntimeImageQuery(), cancellationToken);
-        if (runtimeResult.IsSuccess && runtimeResult.Value is not null)
-        {
-            runtimeGitSha = runtimeResult.Value.GitSha;
-        }
+        var runtimeGitSha = await _db.RuntimeTemplates
+            .Where(t => t.Status == RuntimeTemplateStatus.Active)
+            .OrderByDescending(t => t.BuiltAt)
+            .Select(t => t.GitSha)
+            .FirstOrDefaultAsync(cancellationToken);
 
         var requestedSha = string.IsNullOrWhiteSpace(request.GitSha) ? null : request.GitSha.Trim();
 
@@ -83,12 +81,12 @@ public sealed class GetCiPublishStatusHandler
         }
 
         var normalized = gitSha.Trim().ToLowerInvariant();
-        return await _db.RuntimeImages
+        return await _db.RuntimeTemplates
             .AsNoTracking()
             .AnyAsync(
                 i => i.GitSha != null
                      && i.GitSha.ToLower() == normalized
-                     && i.Status != RuntimeImageStatus.Yanked,
+                     && i.Status != RuntimeTemplateStatus.Yanked,
                 cancellationToken);
     }
 }

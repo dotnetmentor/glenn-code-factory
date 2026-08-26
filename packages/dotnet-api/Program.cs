@@ -3,9 +3,8 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Source.Features.CiPublish.Extensions;
 using Source.Features.Cloudflare.Extensions;
-using Source.Features.FlyManagement.Extensions;
+using Source.Features.BoxManagement.Extensions;
 using Source.Features.GitHub.Extensions;
-using Source.Features.RuntimeImages.Extensions;
 using Source.Features.RuntimeTokens.Bootstrap;
 using Source.Features.RuntimeTokens.Services;
 using Source.Features.SignalR.Hubs;
@@ -101,9 +100,8 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddWorkspaceAuthorization();
 builder.Services.AddWorkspacesFeature();
 builder.Services.AddGithubFeature(builder.Configuration);
-builder.Services.AddFlyManagement();
+builder.Services.AddBoxManagement();
 builder.Services.AddCloudflareFeature();
-builder.Services.AddRuntimeImagesFeature();
 builder.Services.AddSystemSettingsFeature(builder.Configuration, builder.Environment);
 builder.Services.AddSingleton<IRuntimeTokenSigningKeyService, RuntimeTokenSigningKeyService>();
 // Singleton: caches the master key after the first read; per-project DEKs are
@@ -186,7 +184,7 @@ builder.Services.AddScoped<
     Source.Features.RuntimeLifecycle.Configuration.RuntimeOptionsAccessor>();
 
 // Scoped: snapshot service powering GET /api/admin/runtimes/drift. Touches the
-// scoped DbContext + FlyClient and is pure-function on the read path, so scoped
+// scoped DbContext + BoxClient and is pure-function on the read path, so scoped
 // lifetime matches the surrounding request-bound dependencies exactly.
 builder.Services.AddScoped<
     Source.Features.RuntimeLifecycle.Drift.IRuntimeDriftQueryService,
@@ -194,10 +192,10 @@ builder.Services.AddScoped<
 
 // Scoped: per-runtime snapshot service powering
 // GET /api/admin/runtimes/{runtimeId}/fly-snapshot. Same lifetime reasoning as the
-// drift query service above — scoped DbContext + FlyClient, request-bound read path.
+// drift query service above — scoped DbContext + BoxClient, request-bound read path.
 builder.Services.AddScoped<
-    Source.Features.RuntimeLifecycle.FlySnapshot.IRuntimeFlySnapshotService,
-    Source.Features.RuntimeLifecycle.FlySnapshot.RuntimeFlySnapshotService>();
+    Source.Features.RuntimeLifecycle.BoxSnapshot.IRuntimeBoxSnapshotService,
+    Source.Features.RuntimeLifecycle.BoxSnapshot.RuntimeBoxSnapshotService>();
 
 // Scoped: shared wake-window resolver consumed by every handler in
 // Source/Features/RuntimeWakeObservability/. Touches only the scoped

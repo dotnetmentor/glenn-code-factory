@@ -2,18 +2,17 @@ using System.Text.Json;
 using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Source.Features.Cloudflare.Models;
+using Source.Features.BoxManagement;
+using Source.Features.BoxManagement.Configuration;
+using Source.Features.BoxManagement.Models;
 using Source.Features.Cloudflare.Services;
 using Source.Features.DaemonVersions.Queries.ResolveDaemonVersion;
-using Source.Features.FlyManagement;
-using Source.Features.FlyManagement.Models;
-using Source.Features.Projects.Models;
 using Source.Features.RuntimeEvents.Commands;
 using Source.Features.RuntimeEvents.Models;
-using Source.Features.RuntimeImages.Models;
 using Source.Features.RuntimeLifecycle.Configuration;
 using Source.Features.RuntimeLifecycle.Models;
 using Source.Features.RuntimeLifecycle.Provisioning;
+using Source.Features.RuntimeTemplates.Models;
 using Source.Features.RuntimeTokens.Services;
 using Source.Features.SystemSettings.Services;
 using Source.Infrastructure;
@@ -21,26 +20,27 @@ using Source.Infrastructure;
 namespace Source.Features.RuntimeLifecycle.Jobs;
 
 /// <summary>
-/// Delayed Hangfire job that performs the actual destroy + create flow for a
-/// crashed runtime. Scheduled by <c>ScheduleRespawnHandler</c> with a
-/// retries-aware backoff; this class does not decide <i>whether</i> to respawn
-/// — only how.
+/// Delayed Hangfire job that performs the actual recovery flow for a crashed
+/// runtime. Scheduled by <c>ScheduleRespawnHandler</c> with a retries-aware
+/// backoff; this class does not decide <i>whether</i> to respawn — only how.
 ///
-/// <para><b>Concurrency.</b> <see cref="DisableConcurrentExecutionAttribute"/>
-/// keyed on the underlying job identity prevents two workers running the same
-/// scheduled job at once. The 120-second timeout covers a Fly destroy + create
-/// round trip with comfortable headroom.</para>
+/// <para><b>Box-native respawn.</b> The old Fly flow destroyed the dead machine
+/// and created a replacement on the surviving volume. On Box the box's disk IS
+/// the persistence, so the equivalent is a clean VM reboot of the SAME box:
+/// stop it if it's still up (wedged VM → fresh snapshot), resume it, then
+/// refresh the env file with a freshly-minted runtime JWT and bounce the
+/// daemon. Only when the box has vanished entirely do we fork a fresh one from
+/// the active template — accepting that the previous disk state is gone.</para>
 ///
 /// <para><b>Idempotency.</b> A pre-flight state check (<c>State == Crashed</c>)
-/// makes the job safe to re-run: if the state already moved on (manual reset,
-/// operator delete, an earlier successful respawn) we no-op. The destroy path
-/// tolerates Fly's 404 ("already gone") because a redelivery of the schedule
-/// could find the previous machine torn down already.</para>
+/// makes the job safe to re-run; stop/resume tolerate "already stopped/running"
+/// shapes and 404 means "box gone → fork fresh".</para>
 /// </summary>
 public class RespawnRuntimeJob
 {
     private readonly ApplicationDbContext _db;
-    private readonly FlyClient _fly;
+    private readonly BoxClient _box;
+    private readonly IBoxOptionsAccessor _boxOptions;
     private readonly IRuntimeOptionsAccessor _runtimeOptions;
     private readonly IRuntimeTokenService _runtimeTokenService;
     private readonly IMediator _mediator;
@@ -50,7 +50,8 @@ public class RespawnRuntimeJob
 
     public RespawnRuntimeJob(
         ApplicationDbContext db,
-        FlyClient fly,
+        BoxClient box,
+        IBoxOptionsAccessor boxOptions,
         IRuntimeOptionsAccessor runtimeOptions,
         IRuntimeTokenService runtimeTokenService,
         IMediator mediator,
@@ -59,7 +60,8 @@ public class RespawnRuntimeJob
         ILogger<RespawnRuntimeJob> logger)
     {
         _db = db;
-        _fly = fly;
+        _box = box;
+        _boxOptions = boxOptions;
         _runtimeOptions = runtimeOptions;
         _runtimeTokenService = runtimeTokenService;
         _mediator = mediator;
@@ -69,11 +71,10 @@ public class RespawnRuntimeJob
     }
 
     /// <summary>
-    /// Hangfire entry point. Re-validates the pre-conditions (runtime exists
-    /// and is still <see cref="RuntimeState.Crashed"/>), tears down the old
-    /// Fly machine on a best-effort basis, creates a replacement on the same
-    /// volume, bumps <see cref="ProjectRuntime.RespawnRetries"/>, and walks
-    /// the runtime back to <see cref="RuntimeState.Booting"/>.
+    /// Hangfire entry point. Re-validates the pre-conditions (runtime exists and is
+    /// still <see cref="RuntimeState.Crashed"/>), reboots or re-forks the box, bumps
+    /// <see cref="ProjectRuntime.RespawnRetries"/>, and walks the runtime back to
+    /// <see cref="RuntimeState.Booting"/>.
     /// </summary>
     [DisableConcurrentExecution(timeoutInSeconds: 120)]
     public async Task Run(Guid runtimeId, CancellationToken ct = default)
@@ -99,20 +100,8 @@ public class RespawnRuntimeJob
             return;
         }
 
-        if (string.IsNullOrEmpty(runtime.ImageDigest))
-        {
-            // We can't boot a machine without the OCI image digest the runtime
-            // was originally provisioned from. Throw so Hangfire records a
-            // failure — fixing this requires operator intervention (likely a
-            // manual reset back to Pending so the provisioner can pick it up).
-            throw new InvalidOperationException(
-                $"Runtime {runtimeId} has no ImageDigest, cannot respawn");
-        }
-
-        // Pre-flight: Runtime.PublicApiUrl must be configured. Without it the
-        // daemon would have no MAIN_API_URL to dial back at, and the new
-        // machine would spin without ever talking to us. Mark the runtime
-        // Failed with a structured reason so the operator can fix the config.
+        // Pre-flight: Runtime.PublicApiUrl must be configured — the daemon has no
+        // MAIN_API_URL to dial back at otherwise.
         var publicApiUrl = _runtimeOptions.Current.PublicApiUrl;
         if (string.IsNullOrWhiteSpace(publicApiUrl))
         {
@@ -124,7 +113,7 @@ public class RespawnRuntimeJob
                 RuntimeState.Failed,
                 "provisioner:no_public_api_url",
                 "respawn-job",
-                "Runtime:PublicApiUrl is not configured in appsettings. Daemons would have no MAIN_API_URL to dial back at.");
+                "Runtime:PublicApiUrl is not configured. Daemons would have no MAIN_API_URL to dial back at.");
 
             if (failResult.IsSuccess)
             {
@@ -133,19 +122,10 @@ public class RespawnRuntimeJob
             return;
         }
 
-        var oldMachineId = runtime.FlyMachineId;
-
         // ---- 0.5. Emit the RuntimeRespawnTriggered observability event ----
-        //
-        // Audit item A11 / card task 7: the super-admin drawer needs a stable
-        // marker each time we attempt a respawn so the operator can correlate
-        // "machine N got swapped at HH:MM" with the timeline. We attribute the
-        // attempt number BEFORE incrementing the column (so retry #1 emits 1,
-        // not 0); the "last failure" context is the most recent transition
-        // INTO Crashed for this runtime — its Reason/Metadata strings are the
-        // structured error code + human message ScheduleRespawnHandler stored
-        // on its way in here. Heartbeat lag is observability colour: how stale
-        // the last reading was when we triggered the respawn.
+        // Stable marker so the super-admin drawer can correlate "box got rebooted
+        // at HH:MM" with the timeline. Attempt number attributed BEFORE the
+        // increment (retry #1 emits 1, not 0).
         var lastFailure = await _db.RuntimeStateEvents
             .AsNoTracking()
             .Where(e => e.RuntimeId == runtimeId && e.ToState == RuntimeState.Crashed)
@@ -165,77 +145,7 @@ public class RespawnRuntimeJob
             secondsSinceLastHeartbeat: secondsSinceLastHeartbeat,
             ct: ct);
 
-        // ---- 1. Best-effort destroy of the old machine ----
-        //
-        // We pass force: true because by the time we're respawning, the runtime
-        // is already in Crashed state and we explicitly want to scrap whatever
-        // VM is associated with it. Without force, Fly returns
-        //   412 Precondition Failed
-        // for any machine that is currently `started` (i.e. has not been
-        // gracefully stopped first), which is the common case here — a
-        // bootstrap loop or a runaway daemon keeps the machine "running" from
-        // Fly's perspective even though the runtime is broken. Hangfire would
-        // then retry the destroy forever, and the respawn never gets to step 2.
-        if (!string.IsNullOrEmpty(oldMachineId))
-        {
-            try
-            {
-                await _fly.DestroyMachineAsync(oldMachineId, force: true, runtimeId: runtimeId, ct: ct);
-                _logger.LogInformation(
-                    "Respawn: force-destroyed old machine {MachineId} for runtime {RuntimeId}",
-                    oldMachineId, runtimeId);
-            }
-            catch (FlyApiException ex) when (ex.StatusCode == 404)
-            {
-                // Already gone — Fly cleaned it up, or a redelivered schedule
-                // ran us twice. Either way we proceed with the create.
-                _logger.LogInformation(
-                    "Respawn: old machine {MachineId} already gone (404), continuing",
-                    oldMachineId);
-            }
-            // Other Fly exceptions propagate — Hangfire will retry the job.
-        }
-
-        // ---- 2. Resolve the image to boot from ----
-        //
-        // <see cref="ProjectRuntime.ImageDigest"/> is stored as just
-        // `sha256:<hex>` — a bare digest, no registry or repository. Passing
-        // that as the Fly machine image triggers
-        //   400 Bad Request — manifest unknown
-        // because Fly resolves bare names against `docker-hub-mirror.fly.io/
-        // library/`. Mirror the provisioner: re-resolve the currently active
-        // <see cref="RuntimeImage"/> and use its
-        // `{Registry}:{Tag}` form. (We deliberately do not pin to the
-        // runtime's original image — respawning is a "use the current platform
-        // image" operation; if an operator just promoted a new image to
-        // Active, respawned VMs should land on it.)
-        var image = await _db.RuntimeImages
-            .Where(i => i.Status == RuntimeImageStatus.Active)
-            .OrderByDescending(i => i.BuiltAt)
-            .FirstOrDefaultAsync(ct);
-
-        if (image is null)
-        {
-            _logger.LogError(
-                "Respawn: no Active RuntimeImage — cannot respawn runtime {RuntimeId}", runtimeId);
-            var failResult = runtime.TransitionTo(
-                RuntimeState.Failed,
-                "respawn:no_active_image",
-                "respawn-job",
-                "No active runtime image is registered. Ask an admin to activate one in Super Admin → Runtime Images.");
-            if (failResult.IsSuccess)
-            {
-                await _db.SaveChangesAsync(ct);
-            }
-            return;
-        }
-
-        // ---- 2.5. Resolve the daemon bundle for cold-boot fetch ----
-        //
-        // Same shape as the provisioner: the runtime image only ships the
-        // bootstrap script, which uses these three env vars to download +
-        // verify the daemon tarball before exec'ing it. Without them the new
-        // VM would come up running supervisord but with no daemon to start.
+        // ---- 1. Resolve the daemon bundle (existence gate + env stamps) ----
         var daemonResolveResult = await _mediator.Send(
             new ResolveDaemonVersionQuery("stable"), ct);
         if (daemonResolveResult.IsFailure)
@@ -243,35 +153,16 @@ public class RespawnRuntimeJob
             _logger.LogWarning(
                 "Respawn: no active daemon version for channel 'stable' — leaving runtime {RuntimeId} Crashed (will retry next Hangfire attempt): {Error}",
                 runtimeId, daemonResolveResult.Error);
-            // Throw so Hangfire retries — this is recoverable as soon as
-            // an operator publishes a bundle.
+            // Throw so Hangfire retries — recoverable as soon as a bundle is published.
             throw new InvalidOperationException(
                 $"No active daemon version: {daemonResolveResult.Error}");
         }
         var daemon = daemonResolveResult.Value;
 
-        // ---- 2.7. Subdomain + preview-port lookup ----
-        //
-        // Mirrors RuntimeProvisionerJob §1.6. Branches assigned through Phase
-        // 3+ paths (CreateProject / CopyBranch / ForkBranchFromGit /
-        // AttachGitBranch) have a SubdomainAssignment bound to them; legacy
-        // pre-Phase-3 branches don't, and we skip the tunnel env trio for
-        // those (daemon never starts cloudflared, runtime still boots).
-        var subdomain = await _db.SubdomainAssignments
-            .Where(s => s.AssignedBranchId == runtime.BranchId
-                        && s.Status == SubdomainStatus.Assigned)
-            .FirstOrDefaultAsync(ct);
-
-        var previewPort = await _db.Projects
-            .Where(p => p.Id == runtime.ProjectId)
-            .Select(p => (int?)p.PreviewPort)
-            .FirstOrDefaultAsync(ct) ?? Project.DefaultPreviewPort;
-
-        // ---- 2.6. Mint a fresh runtime JWT ----
-        //
-        // The original JWT is bound to the old machine's lifetime — daemons
-        // re-mint on cold-boot, so the respawned VM needs its own. Same
-        // audit-before-issuance contract as the provisioner.
+        // ---- 2. Mint a fresh runtime JWT ----
+        // The original JWT is bound to the previous boot; daemons re-read env on
+        // restart, so the rebooted VM gets its own. Same audit-before-issuance
+        // contract as the provisioner.
         var mintResult = await _runtimeTokenService.MintAsync(new MintTokenRequest(
             RuntimeId: runtime.Id,
             ProjectId: runtime.ProjectId,
@@ -295,118 +186,129 @@ public class RespawnRuntimeJob
             }
             return;
         }
-        var minted = mintResult.Value;
 
-        // ---- 3. Build env + create the replacement machine on the same volume ----
-        //
-        // The env block is intentionally a 1:1 mirror of RuntimeProvisionerJob's
-        // — same keys, same comments, same semantics. The whole point of this
-        // change is that "respawn" and "first provision" must produce equivalent
-        // machines, so the env shapes have to converge.
-        var env = new Dictionary<string, string>
+        // ---- 3. Shared env contract (identical to the provisioner's) ----
+        var env = await BoxRuntimeProvisioning.BuildRuntimeEnvAsync(
+            _db, _cipher, _cloudflare, publicApiUrl,
+            runtime, daemon, mintResult.Value.Token, _logger, ct);
+
+        // ---- 4. Reboot the existing box, or fork fresh when it's gone ----
+        var oldBoxId = runtime.BoxId;
+        BoxVm? existing = null;
+        if (!string.IsNullOrEmpty(runtime.BoxId))
         {
-            ["RUNTIME_ID"] = runtime.Id.ToString(),
-            ["GLENN_RUNTIME_TOKEN"] = minted.Token,
-            ["MAIN_API_URL"] = publicApiUrl,
-            ["DAEMON_VERSION"] = daemon.Version,
-            ["DAEMON_BUNDLE_URL"] = daemon.DownloadUrl,
-            ["DAEMON_BUNDLE_SHA256"] = daemon.Sha256,
-        };
+            try
+            {
+                existing = await _box.GetBoxAsync(runtime.BoxId, ct);
+            }
+            catch (BoxApiException ex) when (ex.StatusCode == 404)
+            {
+                _logger.LogWarning(
+                    "Respawn: box {BoxId} for runtime {RuntimeId} no longer exists — forking a fresh one from the template (previous disk state is lost).",
+                    runtime.BoxId, runtimeId);
+                runtime.BoxId = null;
+            }
+        }
 
-        if (subdomain is not null)
+        if (existing is not null)
         {
-            env["TUNNEL_TOKEN"] = _cipher.Decrypt(subdomain.TunnelToken);
-            env["PREVIEW_PORT"] = previewPort.ToString();
-            env["PREVIEW_HOSTNAME"] = subdomain.Hostname;
-
-            // Defensive Cloudflare ingress reconciliation on every respawn.
-            // Same belt-and-braces logic as the provisioner: claim-time PUT
-            // (AssignSubdomainToBranch) covers the happy path, this is the
-            // catch-up for rows assigned pre-fix or rows that drifted because
-            // the user changed PreviewPort while the runtime was crashed and
-            // UpdateProjectPreviewPort's fan-out skipped them. Idempotent on
-            // Cloudflare's side; one PUT per respawn.
-            if (previewPort != Project.DefaultPreviewPort)
+            // A crashed runtime's box may be up-but-wedged (daemon dead, VM sick)
+            // or already archived. Stop-if-up gives us the Box-destroy equivalent:
+            // a clean VM boot from a fresh snapshot — with the disk intact.
+            if (BoxStatus.IsUp(existing.Status) || BoxStatus.IsError(existing.Status))
             {
                 try
                 {
-                    await _cloudflare.AddPublicHostnameAsync(
-                        subdomain.TunnelId,
-                        subdomain.Hostname,
-                        previewPort,
-                        ct);
-                    _logger.LogInformation(
-                        "Respawn: reconciled tunnel {TunnelId} ingress to localhost:{PreviewPort} for runtime {RuntimeId}",
-                        subdomain.TunnelId, previewPort, runtimeId);
+                    await _box.StopBoxAsync(
+                        existing.Id,
+                        runtimeId: runtimeId,
+                        idempotencyKey: $"respawn-stop:{runtimeId:D}:{runtime.RespawnRetries}",
+                        ct: ct);
                 }
-                catch (Exception ex)
+                catch (BoxApiException ex) when (ex.IsRetriableStartup)
                 {
-                    // Best-effort. Don't fail the respawn — the machine will
-                    // boot and the daemon will heartbeat; UpdateProjectPreviewPort
-                    // or the next respawn will reconcile.
-                    _logger.LogWarning(
-                        ex,
-                        "Respawn: Cloudflare ingress PUT failed for tunnel {TunnelId} (runtime {RuntimeId}, port {PreviewPort}). Proceeding with boot; tunnel may briefly route to placeholder port.",
-                        subdomain.TunnelId, runtimeId, previewPort);
+                    // Mid-transition — let Hangfire's retry take the next swing.
+                    throw;
                 }
+            }
+
+            await _box.ResumeBoxAsync(
+                existing.Id,
+                runtimeId: runtimeId,
+                idempotencyKey: $"respawn-resume:{runtimeId:D}:{runtime.RespawnRetries}",
+                ct: ct);
+
+            // Re-arm the TTL guardrail on the freshly-resumed box.
+            try
+            {
+                await _box.SetTtlAsync(existing.Id, _boxOptions.Current.DefaultTtlSeconds, runtimeId, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Respawn: TTL re-arm failed for box {BoxId} (runtime {RuntimeId}); BoxTtlExtenderJob will catch up.",
+                    existing.Id, runtimeId);
             }
         }
         else
         {
-            _logger.LogInformation(
-                "Respawn: runtime {RuntimeId} (branch {BranchId}) has no assigned subdomain — skipping preview-tunnel env vars (legacy or pre-Phase-3 branch).",
-                runtimeId, runtime.BranchId);
+            // Box gone → fork fresh from the active template, same as first provision.
+            var template = await _db.RuntimeTemplates
+                .Where(t => t.Status == RuntimeTemplateStatus.Active)
+                .OrderByDescending(t => t.BuiltAt)
+                .FirstOrDefaultAsync(ct);
+
+            if (template is null)
+            {
+                _logger.LogError(
+                    "Respawn: no Active RuntimeTemplate — cannot re-fork runtime {RuntimeId}", runtimeId);
+                var failResult = runtime.TransitionTo(
+                    RuntimeState.Failed,
+                    "respawn:no_active_template",
+                    "respawn-job",
+                    "No active runtime template is registered. Build one with scripts/build-box-template.sh and activate it in Super Admin → Runtime Templates.");
+                if (failResult.IsSuccess)
+                {
+                    await _db.SaveChangesAsync(ct);
+                }
+                return;
+            }
+
+            var forkReq = new ForkBoxRequest(
+                Name: BoxRuntimeProvisioning.BuildBoxName(runtime.Id),
+                Size: BoxSizeMapper.FromSpec(runtime.Cpus, runtime.MemoryMb),
+                Env: env,
+                NoEnv: true,
+                TtlSeconds: _boxOptions.Current.DefaultTtlSeconds);
+
+            var forked = await BoxRuntimeProvisioning.ForkOrAdoptAsync(
+                _box, _db, runtime, template.BoxId, forkReq, ct);
+
+            runtime.BoxId = forked.Id;
+            runtime.TemplateBoxId = template.BoxId;
         }
 
-        var machineReq = new CreateMachineRequest(
-            Name: RuntimeFlyProvisioning.BuildMachineName(runtime.Id),
-            Region: runtime.Region,
-            Config: new MachineConfig(
-                Image: $"{image.Registry}:{image.Tag}",
-                Env: env,
-                // Respawn boots the *same* runtime row on a new machine; reuse
-                // the spec snapshot from when the runtime was first created so
-                // a respawn never accidentally drifts to a different size. If
-                // the user wants new specs, they edit the project and the next
-                // ProjectRuntime row (new branch / new project) picks them up.
-                Guest: new MachineGuest(
-                    CpuKind: runtime.CpuKind,
-                    Cpus: runtime.Cpus,
-                    MemoryMb: runtime.MemoryMb,
-                    PersistRootfs: "always"),
-                Mounts: !string.IsNullOrEmpty(runtime.FlyVolumeId)
-                    ? new List<MachineMount> { new(Volume: runtime.FlyVolumeId, Path: "/data") }
-                    : new List<MachineMount>()));
-
-        var newMachine = await RuntimeFlyProvisioning.CreateOrAdoptMachineAsync(
-            _fly, _db, runtime, machineReq, ct);
-
-        // ---- 4. Persist the new machine id, refresh image digest, bump retries, transition ----
-        runtime.FlyMachineId = newMachine.Id;
-        // Keep the runtime row's recorded image digest in sync with what we
-        // actually booted — otherwise a future respawn that DOES try to use
-        // `runtime.ImageDigest` (or any operator dashboard) would lie about
-        // the running image. Mirrors the provisioner's bookkeeping.
-        runtime.ImageDigest = $"{image.Registry}:{image.Tag}";
+        // ---- 5. Bump retries + transition Crashed → Booting ----
         runtime.RespawnRetries += 1;
 
         var metadata = JsonSerializer.Serialize(new
         {
-            oldMachineId,
-            newMachineId = newMachine.Id,
+            oldBoxId,
+            newBoxId = runtime.BoxId,
+            rebooted = existing is not null,
             retries = runtime.RespawnRetries,
         });
 
         var transition = runtime.TransitionTo(
             RuntimeState.Booting,
-            "respawn:created",
+            "respawn:rebooted",
             "respawn-job",
             metadata);
 
         if (transition.IsFailure)
         {
-            // Persist FlyMachineId so a redelivered job can resume instead of
-            // colliding on the deterministic machine name.
+            // Persist the box id so a redelivered job can resume instead of
+            // colliding on the deterministic box name.
             await _db.SaveChangesAsync(ct);
             _logger.LogError(
                 "Respawn: TransitionTo Booting failed for runtime {RuntimeId}: {Error}",
@@ -416,17 +318,46 @@ public class RespawnRuntimeJob
 
         await _db.SaveChangesAsync(ct);
 
+        // ---- 6. Env refresh on the rebooted box (fresh JWT) ----
+        // Only the reboot path needs this — a fresh fork got the env at fork time.
+        // Best-effort within the job window: if the box isn't up in time the daemon
+        // boots with the old env; an expired token then surfaces as a failed
+        // SignalR connect and the watcher schedules the next respawn.
+        if (existing is not null)
+        {
+            try
+            {
+                var up = await BoxRuntimeProvisioning.WaitForBoxUpAsync(
+                    _box, existing.Id, BoxRuntimeProvisioning.DefaultUpTimeout, ct);
+
+                if (up is not null && BoxStatus.IsUp(up.Status))
+                {
+                    await BoxRuntimeProvisioning.RefreshEnvAndRestartDaemonAsync(
+                        _box, existing.Id, env, runtimeId, ct);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Respawn: box {BoxId} (runtime {RuntimeId}) did not come up within the env-refresh window (last status: {Status}).",
+                        existing.Id, runtimeId, up?.Status ?? "unknown");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Respawn: env refresh failed for box {BoxId} (runtime {RuntimeId}); daemon boots with previous env.",
+                    existing.Id, runtimeId);
+            }
+        }
+
         _logger.LogInformation(
-            "Respawn: runtime {RuntimeId} now Booting on machine {MachineId} (retry #{Retries})",
-            runtimeId, newMachine.Id, runtime.RespawnRetries);
+            "Respawn: runtime {RuntimeId} now Booting on box {BoxId} (retry #{Retries}, rebooted={Rebooted})",
+            runtimeId, runtime.BoxId, runtime.RespawnRetries, existing is not null);
     }
 
     /// <summary>
-    /// Best-effort RuntimeRespawnTriggered emit. Logs and swallows on failure
-    /// — same observability-not-load-bearing principle as
-    /// <see cref="RecordRuntimeEventCommandHandler"/>: a respawn attempt must
-    /// not be aborted because the event store choked. The drawer falls back
-    /// to RuntimeStateEvent rows ("Crashed → Booting") if this event is missing.
+    /// Best-effort RuntimeRespawnTriggered emit. Logs and swallows on failure —
+    /// observability must never abort a respawn.
     /// </summary>
     private async Task EmitRespawnTriggeredAsync(
         Guid runtimeId,

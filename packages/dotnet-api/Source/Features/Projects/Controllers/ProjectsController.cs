@@ -663,7 +663,7 @@ public class ProjectsController : BaseApiController
     /// <summary>
     /// Fork an existing branch's runtime into a brand-new branch on the same
     /// project. The new branch points at the source branch's tip commit on
-    /// GitHub and boots from a Fly volume that was forked block-for-block from
+    /// GitHub and boots from a box disk that was forked block-for-block from
     /// the source — so local Postgres, the checked-out repo, Redis state and
     /// every toolchain cache come along for the ride. The source stays Online
     /// throughout (zero downtime).
@@ -1076,7 +1076,7 @@ public class ProjectsController : BaseApiController
     /// <summary>
     /// "Continue working on this git branch" — links an existing git branch on the
     /// project's repo as a new system <see cref="ProjectBranch"/> + <see cref="ProjectRuntime"/>.
-    /// No new git ref is pushed; the runtime boots from a fresh Fly volume that the
+    /// No new git ref is pushed; the runtime boots from a fresh box disk that the
     /// daemon clones the git branch into on first start. Slow path counterpart to
     /// <see cref="CopyBranch"/> — used when only a git branch exists.
     ///

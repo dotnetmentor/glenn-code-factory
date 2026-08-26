@@ -72,9 +72,9 @@ When shipping daemon or runtime infrastructure changes, read these skills — do
 | Skill | Use when |
 |-------|----------|
 | `.claude/skills/daemon-deploy/SKILL.md` | Anything under `packages/daemon/` changed, or RuntimeHub / SignalR contract changed → rebuild & republish daemon bundle via `./scripts/publish-daemon.sh` |
-| `.claude/skills/runtime-deployment/SKILL.md` | Shipping a new runtime base image (`Dockerfile.runtime-base`), provisioning runtimes, or diagnosing stuck `Bootstrapping` / `Online` states |
-| `.claude/skills/runtime-debug/SKILL.md` | SSH into a Fly Machine, read daemon logs, hot-swap bundle, recover from FATAL |
-| `.claude/skills/runtime-environment/SKILL.md` | Full runtime architecture map (daemon, supervisord, Fly volume, SignalR hub, persistence) |
+| `.claude/skills/runtime-deployment/SKILL.md` | Shipping a new golden template box (`scripts/build-box-template.sh`), provisioning runtimes, or diagnosing stuck `Bootstrapping` / `Online` states |
+| `.claude/skills/runtime-debug/SKILL.md` | Reach into a Box VM (commands API / box ssh), read daemon logs, hot-swap bundle, recover from FATAL |
+| `.claude/skills/runtime-environment/SKILL.md` | Full runtime architecture map (daemon, supervisord, Box VM, SignalR hub, TTL guardrail, persistence) |
 | `.claude/skills/self-healing-runtime/SKILL.md` | Degraded Online boot, SpecHealth, "Let agent fix it" repair loop |
 
 ---
@@ -117,9 +117,9 @@ When the user needs specific functionality, use these skills from `.claude/skill
 | **Code Review** | `code-review` | Find real issues: manual types, missing hooks, untyped controllers |
 | **MUI / theme** | `instrument-mui` | Instrument Mono design system, workspace tokens |
 | **Daemon publish** | `daemon-deploy` | SignalR contract changed → `./scripts/publish-daemon.sh` + `./scripts/generate-signalr.sh` |
-| **Runtime deploy** | `runtime-deployment` | Base image, Fly provisioning, smoke tests |
+| **Runtime deploy** | `runtime-deployment` | Golden template box, fork provisioning, smoke tests |
 | **Runtime debug** | `runtime-debug` | SSH, logs, hot-swap, OOM/FATAL recovery |
-| **Runtime architecture** | `runtime-environment` | Fly machine, bootstrap, spec, SignalR, persist_rootfs |
+| **Runtime architecture** | `runtime-environment` | Box VM, bootstrap, spec, SignalR, TTL guardrail |
 | **Self-healing specs** | `self-healing-runtime` | Degraded Online, repair loop, auto-apply consent |
 
 **Secrets:** Never commit real credentials. `appsettings.json` and `.env.example` use empty placeholders; supply values via environment variables (`Section__Key` in `.env` or your host's env config). See `.env.example` for the full list.

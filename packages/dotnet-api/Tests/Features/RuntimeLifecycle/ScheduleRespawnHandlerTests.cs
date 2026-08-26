@@ -78,7 +78,7 @@ public class ScheduleRespawnHandlerTests : IDisposable
     private async Task<ProjectRuntime> SeedRuntimeAsync(
         RuntimeState state = RuntimeState.Crashed,
         int respawnRetries = 0,
-        string? flyMachineId = "mach_test")
+        string? boxId = "box_test")
     {
         var runtime = new ProjectRuntime
         {
@@ -87,9 +87,8 @@ public class ScheduleRespawnHandlerTests : IDisposable
             VolumeSizeGb = 1,
             State = state,
             RespawnRetries = respawnRetries,
-            FlyMachineId = flyMachineId,
-            FlyVolumeId = "vol_test",
-            ImageDigest = "sha256:" + new string('a', 64),
+            BoxId = boxId,
+            TemplateBoxId = "box_template_test",
         };
         _db.ProjectRuntimes.Add(runtime);
         await _db.SaveChangesAsync();

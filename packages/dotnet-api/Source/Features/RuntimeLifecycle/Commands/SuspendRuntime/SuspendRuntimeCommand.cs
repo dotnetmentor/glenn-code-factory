@@ -7,7 +7,7 @@ namespace Source.Features.RuntimeLifecycle.Commands.SuspendRuntime;
 /// <summary>
 /// User-triggered suspend for an <see cref="RuntimeState.Online"/> runtime on a
 /// branch. Walks the most-recent (non-deleted) runtime to
-/// <see cref="RuntimeState.Suspending"/> and best-effort stops the Fly machine;
+/// <see cref="RuntimeState.Suspending"/> and best-effort stops the box;
 /// the webhook / reconciler closes <c>Suspending → Suspended</c>.
 ///
 /// <para>Powers <c>POST /api/projects/{projectId}/branches/{branchId}/runtime/suspend</c>.

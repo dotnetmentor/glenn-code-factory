@@ -60,14 +60,14 @@ export function ExportPanel({ backup }: Props) {
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Capture the entire environment — users, workspaces, projects, secrets,
-            specifications, kanban boards, and the GitHub/Fly/runtime credentials — as
+            specifications, kanban boards, and the GitHub/Box/runtime credentials — as
             a single JSON blob. Download it or copy it, then store it somewhere safe.
           </Typography>
         </Box>
 
         <Alert severity="warning">
           <AlertTitle>This blob contains secrets in clear text</AlertTitle>
-          The export decrypts every secret (GitHub App private key, Fly API token,
+          The export decrypts every secret (GitHub App private key, Box API key,
           runtime signing keys, project secrets, Cursor keys) so the restored
           environment authenticates with no manual steps. Treat the file as highly
           sensitive — store it in a password manager such as 1Password and never

@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
  * panel body while the chrome strip (segmented switcher, close button)
  * stays put — preventing any layout shift between views.
  *
- * <p>{@code 'fly'} and {@code 'spec'} are superadmin-only views; the
+ * <p>{@code 'box'} and {@code 'spec'} are superadmin-only views; the
  * segmented switcher filters them out for non-superadmins and the saved-view
  * restore below falls back to {@code 'logs'} when the persisted view is one
  * of those but the user has lost the role.</p>
@@ -16,7 +16,7 @@ export type RuntimeDebugPanelView =
   | 'timeline'
   | 'sysstats'
   | 'spec'
-  | 'fly'
+  | 'box'
 
 /** localStorage key for the user's last-chosen view. */
 const VIEW_STORAGE_KEY = 'workspace.runtimeDebugPanel.view'
@@ -27,7 +27,7 @@ const VALID_VIEWS: ReadonlyArray<RuntimeDebugPanelView> = [
   'timeline',
   'sysstats',
   'spec',
-  'fly',
+  'box',
 ]
 
 function isValidView(value: string | null): value is RuntimeDebugPanelView {
