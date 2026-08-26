@@ -392,7 +392,10 @@ public class BoxClient
             RuntimeId = runtimeId,
             Operation = operation,
             RequestKey = requestKey,
-            RequestPayload = string.IsNullOrWhiteSpace(requestPayloadJson) ? "{}" : requestPayloadJson,
+            // Secrets never reach the audit column: fork/create/resume env values
+            // and command-embedded tokens are masked (keys survive for debugging).
+            // The admin Runtime Monitor drawer renders this verbatim.
+            RequestPayload = BoxAuditRedactor.Redact(requestPayloadJson),
             Status = BoxOperationStatus.Pending,
         };
         _db.BoxOperations.Add(op);
