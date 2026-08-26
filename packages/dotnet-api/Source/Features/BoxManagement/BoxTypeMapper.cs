@@ -2,7 +2,8 @@ namespace Source.Features.BoxManagement;
 
 /// <summary>
 /// Maps a runtime's requested hardware spec (the provider-neutral cpu/mem columns
-/// snapshotted on <c>ProjectRuntime</c>) onto Box's fixed size tiers:
+/// snapshotted on <c>ProjectRuntime</c>) onto Box's fixed machine types (the
+/// <c>type</c> field on create/fork/resume bodies):
 ///
 /// <list type="bullet">
 ///   <item><c>small</c> — 2 vCPU / 4 GB (0.5× rate)</item>
@@ -14,7 +15,7 @@ namespace Source.Features.BoxManagement;
 /// for (the 2 GiB OOM class of bug taught us that lesson). Even the smallest tier
 /// (2 vCPU / 4 GB) comfortably clears the old 1 vCPU / 2 GB Fly default.
 /// </summary>
-public static class BoxSizeMapper
+public static class BoxTypeMapper
 {
     public const string Small = "small";
     public const string Default = "default";

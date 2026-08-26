@@ -21,7 +21,7 @@ public class BoxOptions
     /// Base URL of the Box public API. Kept configurable so an API-host move never
     /// needs a redeploy. Trailing slash optional.
     /// </summary>
-    public string ApiBaseUrl { get; set; } = "https://api.ascii.dev/v1";
+    public string ApiBaseUrl { get; set; } = "https://ascii.dev/api/box/v1";
 
     /// <summary>
     /// TTL stamped on every box we create or fork, in seconds. The TTL is the
@@ -33,9 +33,10 @@ public class BoxOptions
     public int DefaultTtlSeconds { get; set; } = 21_600;
 
     /// <summary>
-    /// Default Box size tier for new runtimes when the requested cpu/mem spec
-    /// doesn't dictate one: <c>small</c> (2 vCPU / 4 GB), <c>default</c>
-    /// (4 vCPU / 8 GB) or <c>large</c> (8 vCPU / 16 GB).
+    /// Default Box machine type (tier) for new runtimes when the requested
+    /// cpu/mem spec doesn't dictate one: <c>small</c> (2 vCPU / 4 GB),
+    /// <c>default</c> (4 vCPU / 8 GB) or <c>large</c> (8 vCPU / 16 GB).
+    /// (The wire field on create/fork/resume bodies is <c>type</c>.)
     /// </summary>
-    public string DefaultSize { get; set; } = "small";
+    public string DefaultType { get; set; } = "small";
 }

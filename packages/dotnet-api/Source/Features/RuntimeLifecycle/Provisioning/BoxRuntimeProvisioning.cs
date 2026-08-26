@@ -50,7 +50,8 @@ public static class BoxRuntimeProvisioning
         var code = ex.ErrorCode ?? string.Empty;
 
         if (code.Contains("daily_limit", StringComparison.OrdinalIgnoreCase)
-            || code.Contains("rate_limited", StringComparison.OrdinalIgnoreCase))
+            || code.Contains("rate_limited", StringComparison.OrdinalIgnoreCase)
+            || code.Contains("start_limit_reached", StringComparison.OrdinalIgnoreCase))
         {
             return
                 "Box's machine-start budget is exhausted for now (starts are capped per hour and per day account-wide). "
@@ -67,18 +68,25 @@ public static class BoxRuntimeProvisioning
 
     /// <summary>
     /// True for failures that should leave the runtime Pending for the next sweep
-    /// instead of marking it Failed: start-budget exhaustion, rate limiting, and
+    /// instead of marking it Failed: start-budget exhaustion, rate limiting
+    /// (<c>rate_limited</c> / <c>start_limit_reached</c> on 429), and
     /// the box-still-starting 409s.
     /// </summary>
     public static bool IsTransient(BoxApiException ex) =>
         ex.IsRetriableStartup
-        || ex.StatusCode == 429
+        || ex.IsRateLimited
         || (ex.ErrorCode?.Contains("limit", StringComparison.OrdinalIgnoreCase) ?? false);
 
     /// <summary>
-    /// Fork the template into a runtime box, or adopt an existing box with the same
-    /// deterministic name when a prior attempt forked it but crashed before persisting
-    /// state. Mirrors the old create-or-adopt machine pattern.
+    /// Fork the template into a runtime box, or adopt an existing box already
+    /// carrying this runtime's deterministic name — the leftovers of a prior
+    /// attempt that forked + named the box but crashed before persisting state.
+    ///
+    /// <para>The fork body has no <c>name</c> field (per the contract), so
+    /// adoption can't ride a name-conflict 409 any more: instead we list + match
+    /// on <c>box.name</c> BEFORE forking, and PATCH the deterministic name onto
+    /// the fresh fork right after it's created so the next crashed attempt can
+    /// adopt it the same way.</para>
     /// </summary>
     public static async Task<BoxVm> ForkOrAdoptAsync(
         BoxClient box,
@@ -86,28 +94,42 @@ public static class BoxRuntimeProvisioning
         ProjectRuntime runtime,
         string templateBoxId,
         ForkBoxRequest request,
+        string boxName,
+        ILogger logger,
         CancellationToken ct)
     {
+        var adopted = await TryAdoptBoxByNameAsync(box, db, runtime, boxName, ct);
+        if (adopted is not null)
+        {
+            logger.LogInformation(
+                "BoxRuntimeProvisioning: adopted existing box {BoxId} named {BoxName} for runtime {RuntimeId} (crashed prior attempt)",
+                adopted.Id, boxName, runtime.Id);
+            return adopted;
+        }
+
         var idempotencyKey = $"fork-box:{runtime.Id:D}";
+        var forked = await box.ForkBoxAsync(
+            templateBoxId,
+            request,
+            idempotencyKey: idempotencyKey,
+            runtimeId: runtime.Id,
+            ct: ct);
+
+        // Stamp the deterministic name so a crashed provisioner can re-adopt this
+        // fork on its next attempt. Best-effort: an unnamed box is still fully
+        // functional and the TTL guardrail catches true orphans.
         try
         {
-            return await box.ForkBoxAsync(
-                templateBoxId,
-                request,
-                idempotencyKey: idempotencyKey,
-                runtimeId: runtime.Id,
-                ct: ct);
+            await box.SetNameAsync(forked.Id, boxName, runtime.Id, ct);
         }
-        catch (BoxApiException ex) when (IsNameAlreadyExists(ex))
+        catch (Exception ex)
         {
-            var adopted = await TryAdoptBoxByNameAsync(box, db, runtime, request.Name, ct);
-            if (adopted is not null)
-            {
-                return adopted;
-            }
-
-            throw;
+            logger.LogWarning(ex,
+                "BoxRuntimeProvisioning: could not PATCH name {BoxName} onto box {BoxId} (runtime {RuntimeId}); adopt-by-name won't find it if this attempt crashes.",
+                boxName, forked.Id, runtime.Id);
         }
+
+        return forked;
     }
 
     /// <summary>
@@ -143,7 +165,7 @@ public static class BoxRuntimeProvisioning
     }
 
     /// <summary>
-    /// Poll until the box reports an up status (<c>ready</c>/<c>idle</c>/<c>running</c>)
+    /// Poll until the box reports an up state (<c>ready</c>/<c>idle</c>/<c>running</c>)
     /// or the timeout lapses. Box has no server-side long-poll wait endpoint, so this
     /// is a plain 2-second poll loop. Returns the last observed box (up or not) so the
     /// caller can decide how hard to fail; returns null only if even GetBox kept failing.
@@ -162,7 +184,7 @@ public static class BoxRuntimeProvisioning
             try
             {
                 last = await box.GetBoxAsync(boxId, ct);
-                if (BoxStatus.IsUp(last.Status) || BoxStatus.IsError(last.Status))
+                if (BoxStates.IsUp(last.State) || BoxStates.IsError(last.State))
                 {
                     return last;
                 }
@@ -205,7 +227,9 @@ public static class BoxRuntimeProvisioning
             + "\nGLENN_ENV_EOF\n"
             + $"chmod 600 {RuntimeEnvFilePath} && systemctl restart {DaemonServiceName}";
 
-        await box.RunCommandAsync(boxId, command, runtimeId, ct);
+        // Explicit timeout: the contract default is 30s; a systemctl restart on a
+        // just-resumed box can exceed that, so give the refresh a 120s budget.
+        await box.RunCommandAsync(boxId, command, runtimeId, timeoutSeconds: 120, ct: ct);
     }
 
     /// <summary>
@@ -290,8 +314,4 @@ public static class BoxRuntimeProvisioning
 
         return env;
     }
-
-    private static bool IsNameAlreadyExists(BoxApiException ex) =>
-        ex.ErrorCode?.Contains("already_exists", StringComparison.OrdinalIgnoreCase) == true
-        || (ex.StatusCode == 409 && (ex.Body?.Contains("name", StringComparison.OrdinalIgnoreCase) ?? false));
 }
