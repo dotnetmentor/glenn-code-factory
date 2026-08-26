@@ -272,11 +272,11 @@ public class BoxClientTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // 5. Command endpoint: SINGULAR path + contract request/response fields
+    // 5. Command endpoint: PLURAL path + contract request/response fields
     // ------------------------------------------------------------------
 
     [Fact]
-    public async Task RunCommandAsync_UsesSingularCommandPathAndContractShapes()
+    public async Task RunCommandAsync_UsesPluralCommandsPathAndContractShapes()
     {
         var handler = new ScriptedHandler();
         handler.Enqueue(HttpStatusCode.OK,
@@ -290,8 +290,8 @@ public class BoxClientTests : IDisposable
         result.TimedOut.Should().BeFalse();
 
         var request = handler.Requests.Single();
-        request.Url.Should().Be("https://ascii.dev/api/box/v1/boxes/box_cmd/command",
-            "the contract's command endpoint is SINGULAR — /command, not /commands");
+        request.Url.Should().Be("https://ascii.dev/api/box/v1/boxes/box_cmd/commands",
+            "the contract's command endpoint is PLURAL — /commands (the singular /command 404s on the live API)");
         request.Body.Should().Contain("\"command\":\"echo hi\"");
         request.Body.Should().Contain("\"timeoutSeconds\":120",
             "long-running commands must carry an explicit timeout (contract default is 30s)");
@@ -386,4 +386,5 @@ public class BoxClientTests : IDisposable
 
         authCapture.LastAuthHeader.Should().Be($"Bearer {ApiKey}");
     }
+
 }

@@ -24,7 +24,7 @@ Box rt-<runtime-id>              (full Ubuntu VM, systemd)
   ├─ env: per-fork env + /etc/glenn/runtime.env (refresh channel)
   └─ logs: /var/log/supervisor/agent.{out,err}.log
         ▲
-        │ POST /boxes/{id}/command   (daemon-independent side channel)
+        │ POST /boxes/{id}/commands  (daemon-independent side channel)
         │ box ssh <id>               (interactive, via the box CLI)
      you + agent-debug
 ```
@@ -76,7 +76,7 @@ for env refresh — it works whenever the box is up, daemon dead or alive):
 
 ```bash
 BOX_API_BASE_URL=${BOX_API_BASE_URL:-https://ascii.dev/api/box/v1}
-run() { curl -fsS -X POST "$BOX_API_BASE_URL/boxes/$BOX_ID/command" \
+run() { curl -fsS -X POST "$BOX_API_BASE_URL/boxes/$BOX_ID/commands" \
   -H "Authorization: Bearer $BOX_API_KEY" -H 'Content-Type: application/json' \
   -d "$(python3 -c 'import json,sys;print(json.dumps({"command":sys.argv[1],"timeoutSeconds":120}))' "$1")"; }
 

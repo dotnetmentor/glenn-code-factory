@@ -370,8 +370,8 @@ public class RespawnRuntimeJobTests : IDisposable
         handler.Requests[3].Method.Should().Be(HttpMethod.Patch);
         handler.Requests[3].Url.Should().EndWith("/boxes/box_wedged");
         handler.Requests[5].Method.Should().Be(HttpMethod.Post);
-        handler.Requests[5].Url.Should().EndWith("/boxes/box_wedged/command",
-            "the env refresh delivers the freshly-minted JWT and bounces the daemon (singular /command per the contract)");
+        handler.Requests[5].Url.Should().EndWith("/boxes/box_wedged/commands",
+            "the env refresh delivers the freshly-minted JWT and bounces the daemon (plural /commands per the contract)");
         handler.Requests[5].Body.Should().Contain("GLENN_RUNTIME_TOKEN");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
