@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # Wrapper for snap-preview.cjs — the agent's in-box visual self-validation tool.
-# CommonJS + NODE_PATH so require('playwright') resolves the template's global
-# npm install (ESM would ignore NODE_PATH; don't convert).
-export NODE_PATH="${NODE_PATH:-$(npm root -g 2>/dev/null)}"
+# CommonJS + NODE_PATH so require('playwright') resolves the template's pinned
+# /opt/snap-preview install (ESM would ignore NODE_PATH; don't convert).
+# NOT `npm root -g`: the Box stock image carries a second node in /usr/local/bin,
+# making the global root PATH-dependent and unreliable.
+export NODE_PATH="${NODE_PATH:-/opt/snap-preview/node_modules}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/playwright-browsers}"
+# Box VMs run a desktop, so ambient DISPLAY=:0 (+ another user's XAUTHORITY)
+# leaks into command sessions. Headless Chromium then tries GL against X it
+# can't auth to and WebGL context creation fails SILENTLY instead of falling
+# back to SwiftShader. This tool is headless by definition — never touch X.
+unset DISPLAY XAUTHORITY
 exec node /usr/local/bin/snap-preview.cjs "$@"

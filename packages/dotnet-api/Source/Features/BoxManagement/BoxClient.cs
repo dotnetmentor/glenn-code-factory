@@ -262,7 +262,8 @@ public class BoxClient
 
     /// <summary>
     /// Run an arbitrary shell command inside a running box
-    /// (<c>POST /boxes/{id}/command</c> — SINGULAR per the contract).
+    /// (<c>POST /boxes/{id}/commands</c> — PLURAL per the contract; the singular
+    /// path 404s since the contract's detached-command revision).
     /// Daemon-independent side channel for admin/debug and the repair loop. Fails with
     /// a retriable <c>box_starting</c> / <c>machine_not_running</c> code (see
     /// <see cref="BoxApiException.IsRetriableStartup"/>) while the box is coming up.
@@ -279,7 +280,7 @@ public class BoxClient
     {
         var payloadJson = JsonSerializer.Serialize(
             new RunBoxCommandRequest(command, Cwd: cwd, TimeoutSeconds: timeoutSeconds), JsonOptions);
-        var request = BuildRequest(HttpMethod.Post, $"boxes/{Uri.EscapeDataString(boxId)}/command", payloadJson);
+        var request = BuildRequest(HttpMethod.Post, $"boxes/{Uri.EscapeDataString(boxId)}/commands", payloadJson);
         var body = await SendRawAsync("RunBoxCommand", request, runtimeId, requestKey: null, payloadJson, ct);
         return DeserializeSingle<RunBoxCommandResponse>(body, "result");
     }
@@ -391,7 +392,10 @@ public class BoxClient
             RuntimeId = runtimeId,
             Operation = operation,
             RequestKey = requestKey,
-            RequestPayload = string.IsNullOrWhiteSpace(requestPayloadJson) ? "{}" : requestPayloadJson,
+            // Secrets never reach the audit column: fork/create/resume env values
+            // and command-embedded tokens are masked (keys survive for debugging).
+            // The admin Runtime Monitor drawer renders this verbatim.
+            RequestPayload = BoxAuditRedactor.Redact(requestPayloadJson),
             Status = BoxOperationStatus.Pending,
         };
         _db.BoxOperations.Add(op);

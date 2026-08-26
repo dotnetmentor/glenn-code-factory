@@ -114,6 +114,29 @@ public class HeartbeatWatcherJob
     /// </summary>
     private const int BootstrapSilenceTimeoutMinutes = 10;
 
+    /// <summary>
+    /// How long a runtime may sit in <see cref="RuntimeState.Crashed"/> with no
+    /// forward state transition before this watcher re-enqueues its respawn.
+    ///
+    /// <para><b>Why this branch exists (the dead-end this fixes, 2026-08-26).</b>
+    /// <c>ScheduleRespawnHandler</c> schedules <c>RespawnRuntimeJob</c> with a
+    /// ≤5-minute backoff when a runtime crashes — but that delayed job lives
+    /// only in Hangfire storage. If it is lost (backend redeploy, dead-lettered
+    /// failure), the row stays Crashed FOREVER: the reconciler explicitly
+    /// no-ops Crashed, the other two branches here only scan pre-crash states,
+    /// and a still-live daemon's heartbeats keep updating the row without ever
+    /// moving its state (its <c>RuntimeReady</c> is refused while Crashed).
+    /// Nothing reschedules — observed live as a healthy daemon retrying
+    /// <c>RuntimeReady</c> against a permanently-Crashed row.</para>
+    ///
+    /// <para><b>Why 10 minutes.</b> Comfortably beyond the respawn backoff
+    /// ceiling (5 min), so a legitimately-scheduled respawn always gets to run
+    /// first; short enough that a lost respawn recovers within one coffee
+    /// break. Measured from the last <c>RuntimeStateEvents</c> row — NOT the
+    /// runtime row's <c>UpdatedAt</c>, which heartbeats keep fresh.</para>
+    /// </summary>
+    private const int CrashedRescueTimeoutMinutes = 10;
+
     /// <summary>How many times the inner loop fires per Hangfire invocation.</summary>
     private const int LoopIterations = 12;
 
@@ -122,15 +145,29 @@ public class HeartbeatWatcherJob
 
     private readonly ApplicationDbContext _db;
     private readonly IClock _clock;
+    private readonly IBackgroundJobClient _backgroundJobs;
     private readonly ILogger<HeartbeatWatcherJob> _logger;
+
+    /// <summary>
+    /// Runtimes already rescue-enqueued during THIS job invocation. ScanOnce
+    /// fires 12 times per invocation; without this a stuck-Crashed row would
+    /// enqueue 12 duplicate respawns per minute. Duplicates are harmless
+    /// (RespawnRuntimeJob no-ops unless the row is still Crashed) — this just
+    /// keeps the queue clean. A fresh invocation (new job instance) may enqueue
+    /// again, which is exactly the wanted once-per-minute persistence while the
+    /// row stays stuck.
+    /// </summary>
+    private readonly HashSet<Guid> _rescuedThisRun = new();
 
     public HeartbeatWatcherJob(
         ApplicationDbContext db,
         IClock clock,
+        IBackgroundJobClient backgroundJobs,
         ILogger<HeartbeatWatcherJob> logger)
     {
         _db = db;
         _clock = clock;
+        _backgroundJobs = backgroundJobs;
         _logger = logger;
     }
 
@@ -210,7 +247,8 @@ public class HeartbeatWatcherJob
     /// Single scan pass. Public so tests can target it directly without the
     /// 55-second sleep budget the loop carries.
     ///
-    /// <para>Two branches feed a single <c>SaveChangesAsync</c> at the end:</para>
+    /// <para>Three branches; the first two feed a single <c>SaveChangesAsync</c>
+    /// at the end, the third only enqueues Hangfire jobs:</para>
     /// <list type="number">
     ///   <item><b>Heartbeat-cutoff</b> — runtimes in Online / Bootstrapping /
     ///         Waking whose <c>LastHeartbeatAt</c> is older than the
@@ -227,6 +265,10 @@ public class HeartbeatWatcherJob
     ///         Measuring silence (not total time-in-state) keeps a healthy
     ///         but quiet boot — e.g. a ~5-minute <c>dotnet restore</c> — from
     ///         being Crashed mid-build.</item>
+    ///   <item><b>Crashed-orphan rescue</b> — runtimes stuck in Crashed for
+    ///         longer than <see cref="CrashedRescueTimeoutMinutes"/> past their
+    ///         last state transition get their <c>RespawnRuntimeJob</c>
+    ///         re-enqueued (the originally-scheduled one was lost).</item>
     /// </list>
     /// </summary>
     public async Task ScanOnce(CancellationToken ct = default)
@@ -342,6 +384,43 @@ public class HeartbeatWatcherJob
                     "Heartbeat watcher could not transition stuck mid-boot runtime {RuntimeId} from {State} to Crashed: {Error}",
                     runtime.Id, runtime.State, result.Error);
             }
+        }
+
+        // ---- Branch 3: Crashed-orphan rescue (the scheduled respawn was lost) ----
+        // See CrashedRescueTimeoutMinutes for the full story. Cheap: the Crashed
+        // set is normally empty or tiny, and the per-runtime event lookup is an
+        // indexed MAX. Enqueue (not Schedule) — the backoff already elapsed.
+        var rescueCutoff = nowUtc.AddMinutes(-CrashedRescueTimeoutMinutes);
+        var crashedIds = await _db.ProjectRuntimes
+            .Where(r => r.State == RuntimeState.Crashed)
+            .Select(r => r.Id)
+            .ToListAsync(ct);
+
+        foreach (var crashedId in crashedIds)
+        {
+            if (_rescuedThisRun.Contains(crashedId))
+            {
+                continue;
+            }
+
+            var lastTransitionAt = await _db.RuntimeStateEvents
+                .Where(e => e.RuntimeId == crashedId)
+                .MaxAsync(e => (DateTime?)e.CreatedAt, ct);
+
+            // No transition audit at all is unexpected — treat it as stale and
+            // rescue (worst case RespawnRuntimeJob no-ops on a non-Crashed row).
+            if (lastTransitionAt is not null && lastTransitionAt >= rescueCutoff)
+            {
+                continue;
+            }
+
+            _rescuedThisRun.Add(crashedId);
+            _backgroundJobs.Enqueue<RespawnRuntimeJob>(
+                j => j.Run(crashedId, CancellationToken.None));
+
+            _logger.LogWarning(
+                "HeartbeatWatcher: runtime {RuntimeId} has sat in Crashed since {LastTransitionAt:O} with no respawn landing — re-enqueued RespawnRuntimeJob (lost scheduled job?)",
+                crashedId, lastTransitionAt);
         }
 
         if (flagged == 0 && bootstrapTimedOut == 0)

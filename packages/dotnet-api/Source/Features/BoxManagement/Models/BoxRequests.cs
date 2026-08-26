@@ -83,7 +83,7 @@ public record ResumeBoxRequest(
 public record StopBoxRequest(bool? Force = null);
 
 /// <summary>
-/// Body for <c>POST /boxes/{id}/command</c> (SINGULAR) — run an arbitrary shell
+/// Body for <c>POST /boxes/{id}/commands</c> (PLURAL) — run an arbitrary shell
 /// command inside the box. Used by admin/debug surfaces and the repair loop's
 /// daemon-independent side channel; NOT used on the normal boot path (the
 /// daemon drives everything once it's up). <c>TimeoutSeconds</c> is 1–600
@@ -96,7 +96,7 @@ public record RunBoxCommandRequest(
     bool? Detached = null);
 
 /// <summary>
-/// Response of <c>POST /boxes/{id}/command</c> per the OpenAPI contract:
+/// Response of <c>POST /boxes/{id}/commands</c> per the OpenAPI contract:
 /// <c>{ exitCode, stdout, stderr, timedOut, stdoutTruncated, stderrTruncated,
 /// startedAt, finishedAt }</c>.
 /// </summary>

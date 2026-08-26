@@ -569,8 +569,8 @@ public class RuntimeProvisionerJobTests : IDisposable
         handler.Requests[2].Url.Should().EndWith("/boxes/box_existing");
         handler.Requests[2].Body.Should().Contain("\"ttlSeconds\":21600");
         handler.Requests[4].Method.Should().Be(HttpMethod.Post);
-        handler.Requests[4].Url.Should().EndWith("/boxes/box_existing/command",
-            "the env refresh rides the (singular) command side channel so the daemon boots with a fresh JWT");
+        handler.Requests[4].Url.Should().EndWith("/boxes/box_existing/commands",
+            "the env refresh rides the (plural) commands side channel so the daemon boots with a fresh JWT");
         handler.Requests[4].Body.Should().Contain("RUNTIME_ID");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);

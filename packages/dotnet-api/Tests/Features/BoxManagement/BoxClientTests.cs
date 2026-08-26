@@ -272,11 +272,11 @@ public class BoxClientTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // 5. Command endpoint: SINGULAR path + contract request/response fields
+    // 5. Command endpoint: PLURAL path + contract request/response fields
     // ------------------------------------------------------------------
 
     [Fact]
-    public async Task RunCommandAsync_UsesSingularCommandPathAndContractShapes()
+    public async Task RunCommandAsync_UsesPluralCommandsPathAndContractShapes()
     {
         var handler = new ScriptedHandler();
         handler.Enqueue(HttpStatusCode.OK,
@@ -290,8 +290,8 @@ public class BoxClientTests : IDisposable
         result.TimedOut.Should().BeFalse();
 
         var request = handler.Requests.Single();
-        request.Url.Should().Be("https://ascii.dev/api/box/v1/boxes/box_cmd/command",
-            "the contract's command endpoint is SINGULAR — /command, not /commands");
+        request.Url.Should().Be("https://ascii.dev/api/box/v1/boxes/box_cmd/commands",
+            "the contract's command endpoint is PLURAL — /commands (the singular /command 404s on the live API)");
         request.Body.Should().Contain("\"command\":\"echo hi\"");
         request.Body.Should().Contain("\"timeoutSeconds\":120",
             "long-running commands must carry an explicit timeout (contract default is 30s)");
@@ -385,5 +385,76 @@ public class BoxClientTests : IDisposable
         await client.GetBoxAsync("box_auth");
 
         authCapture.LastAuthHeader.Should().Be($"Bearer {ApiKey}");
+    }
+
+    // ------------------------------------------------------------------
+    // Audit redaction: secrets never reach BoxOperations.RequestPayload
+    // (the admin Runtime Monitor drawer renders it verbatim)
+    // ------------------------------------------------------------------
+
+    private const string FakeJwt =
+        "eyJhbGciOiJIUzI1NiJ9.eyJydF9ydW50aW1lIjoiciJ9.c2lnbmF0dXJlLXNlZ21lbnQ";
+
+    [Fact]
+    public async Task ForkBoxAsync_MasksEnvValuesInAuditRequestPayload()
+    {
+        var handler = new ScriptedHandler();
+        handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson("box_redact_1"));
+        var client = CreateClient(handler);
+
+        await client.ForkBoxAsync(
+            "box_template_1",
+            new ForkBoxRequest(
+                Type: "small",
+                Env: new Dictionary<string, string>
+                {
+                    ["RUNTIME_ID"] = "runtime-guid-here",
+                    ["GLENN_RUNTIME_TOKEN"] = FakeJwt,
+                    ["TUNNEL_TOKEN"] = "tunnel-secret-value",
+                },
+                NoEnv: true));
+
+        // The WIRE body carries the real values...
+        handler.Requests.Single().Body.Should().Contain(FakeJwt);
+
+        // ...but the audit row masks every env value, keeping the keys.
+        var op = await _db.BoxOperations.AsNoTracking()
+            .SingleAsync(o => o.Operation == "ForkBox");
+        op.RequestPayload.Should().Contain("\"GLENN_RUNTIME_TOKEN\":\"***\"");
+        op.RequestPayload.Should().Contain("\"TUNNEL_TOKEN\":\"***\"");
+        op.RequestPayload.Should().Contain("\"RUNTIME_ID\":\"***\"",
+            "all env values are masked — keys are the debugging signal, values are not");
+        op.RequestPayload.Should().NotContain(FakeJwt);
+        op.RequestPayload.Should().NotContain("tunnel-secret-value");
+    }
+
+    [Fact]
+    public async Task RunCommandAsync_MasksTokenAssignmentsInsideCommandString()
+    {
+        var handler = new ScriptedHandler();
+        handler.Enqueue(HttpStatusCode.OK,
+            """{"exitCode":0,"stdout":"","stderr":"","timedOut":false}""");
+        var client = CreateClient(handler);
+
+        // Mirrors BoxRuntimeProvisioning.RefreshEnvAndRestartDaemonAsync: the
+        // env file body (JWT included) rides inside the shell command string.
+        var command =
+            "mkdir -p /etc/glenn && cat > /etc/glenn/runtime.env <<'GLENN_ENV_EOF'\n"
+            + $"RUNTIME_ID='runtime-guid-here'\nGLENN_RUNTIME_TOKEN='{FakeJwt}'\nTUNNEL_TOKEN='tunnel-secret-value'\n"
+            + "GLENN_ENV_EOF\nsystemctl restart glenn-daemon";
+
+        await client.RunCommandAsync("box_redact_2", command, timeoutSeconds: 120);
+
+        handler.Requests.Single().Body.Should().Contain("tunnel-secret-value",
+            "the wire body must carry the real values");
+
+        var op = await _db.BoxOperations.AsNoTracking()
+            .SingleAsync(o => o.Operation == "RunBoxCommand");
+        op.RequestPayload.Should().Contain("GLENN_RUNTIME_TOKEN='***'");
+        op.RequestPayload.Should().Contain("TUNNEL_TOKEN='***'");
+        op.RequestPayload.Should().NotContain(FakeJwt);
+        op.RequestPayload.Should().NotContain("tunnel-secret-value");
+        op.RequestPayload.Should().Contain("RUNTIME_ID='runtime-guid-here'",
+            "non-secret assignments in commands stay readable for debugging");
     }
 }

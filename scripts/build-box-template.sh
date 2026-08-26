@@ -39,7 +39,7 @@
 #   CI_PUBLISH_KEY     publish API key for POST /api/admin/runtime-templates
 #   KEEP_RUNNING=1     skip the final stop (debugging the provision interactively)
 #
-# NOTE (first-run verification): the exact Box wire shapes (create body, /command
+# NOTE (first-run verification): the exact Box wire shapes (create body, /commands
 # endpoint response, stop semantics) are pinned by scripts/box-smoke-test.sh — run
 # that FIRST on a fresh account and fix any drift here before trusting this script.
 # =====================================================================================
@@ -71,7 +71,7 @@ api() { # api METHOD PATH [JSON_BODY]
 }
 
 # Run a shell command inside the box, failing loudly on non-zero exit.
-# Uses the contract's SINGULAR /command endpoint with an explicit timeoutSeconds
+# Uses the contract's PLURAL /commands endpoint with an explicit timeoutSeconds
 # (default here 600 — the apt/npm provisioning steps need the contract maximum;
 # the API default of 30s would kill them mid-flight).
 box_exec() { # box_exec BOX_ID DESCRIPTION COMMAND [TIMEOUT_SECONDS]
@@ -79,8 +79,24 @@ box_exec() { # box_exec BOX_ID DESCRIPTION COMMAND [TIMEOUT_SECONDS]
     echo "  → $desc"
     local payload result exit_code
     payload=$(python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1], "timeoutSeconds": int(sys.argv[2])}))' "$cmd" "$timeout_s")
-    result=$(api POST "/boxes/$box_id/command" "$payload")
-    exit_code=$(echo "$result" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("exitCode", 0) if d.get("exitCode") is not None else 0)' 2>/dev/null || echo 0)
+    result=$(api POST "/boxes/$box_id/commands" "$payload")
+    # An API error envelope ({"ok":false,...}) carries NO exitCode — it must fail
+    # the build, never default to success. (The 2026-08 empty-template incident:
+    # every step 404'd against a renamed endpoint and this parser treated the
+    # error envelopes as exit 0, registering a stock-image template as Active.)
+    exit_code=$(echo "$result" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("UNPARSEABLE_RESPONSE"); sys.exit(0)
+if d.get("ok") is False:
+    print("API_ERROR:" + str(d.get("code") or "unknown"))
+elif "exitCode" not in d:
+    print("NO_EXIT_CODE_IN_RESPONSE")
+else:
+    print(d["exitCode"] if d["exitCode"] is not None else "NULL_EXIT_CODE")
+' 2>/dev/null || echo "PARSER_FAILED")
     if [[ "$exit_code" != "0" ]]; then
         echo "❌ step failed (exit $exit_code): $desc"
         echo "$result" | head -c 4000
@@ -99,7 +115,9 @@ box_exec() { # box_exec BOX_ID DESCRIPTION COMMAND [TIMEOUT_SECONDS]
 box_put_file() { # box_put_file BOX_ID LOCAL_PATH REMOTE_PATH MODE
     local box_id="$1" local_path="$2" remote_path="$3" mode="$4"
     local b64
-    b64=$(base64 -w0 "$local_path")
+    # python3, not `base64 -w0 FILE`: macOS/BSD base64 takes no positional file
+    # argument, so the GNU form breaks local (non-CI) template builds.
+    b64=$(python3 -c 'import base64,sys;sys.stdout.write(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$local_path")
     box_exec "$box_id" "install $(basename "$local_path") → $remote_path" \
         "sudo mkdir -p $(dirname "$remote_path") && echo '$b64' | base64 -d | sudo tee $remote_path >/dev/null && sudo chmod $mode $remote_path"
 }
@@ -173,10 +191,16 @@ box_exec "$BOX_ID" "mise $MISE_VERSION" \
 box_exec "$BOX_ID" "agent user (uid 1001) + sudoers + docker group" \
     "id -u agent >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/bash --uid 1001 agent; sudo mkdir -p /data /opt/agent /var/log/supervisor /etc/supervisor/conf.d /etc/glenn && sudo chown -R agent:agent /data /opt/agent /var/log/supervisor /etc/supervisor/conf.d && echo 'agent ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/agent >/dev/null && sudo chmod 0440 /etc/sudoers.d/agent && sudo visudo -c -f /etc/sudoers.d/agent && (getent group docker >/dev/null 2>&1 || sudo groupadd docker) && sudo usermod -aG docker agent"
 
-box_exec "$BOX_ID" "Playwright + Chromium (system-wide)" \
-    "sudo mkdir -p /opt/playwright-browsers && sudo chown -R agent:agent /opt/playwright-browsers && sudo npm install -g playwright@latest && sudo PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers npx playwright install --with-deps chromium && sudo npm cache clean --force && echo 'PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers' | sudo tee -a /etc/environment >/dev/null"
+# Playwright lives in a FIXED local install (/opt/snap-preview/node_modules),
+# not `npm -g`: the Box stock image ships its own node under /usr/local/bin, so
+# root's `npm install -g` (sudo secure_path → /usr/bin/npm → /usr/lib) and the
+# wrapper's `npm root -g` (PATH-dependent) can resolve DIFFERENT global roots —
+# require('playwright') then misses. A pinned path is ambiguity-free.
+box_exec "$BOX_ID" "Playwright + Chromium (pinned /opt/snap-preview install)" \
+    "sudo mkdir -p /opt/playwright-browsers /opt/snap-preview && sudo chown -R agent:agent /opt/playwright-browsers && cd /opt/snap-preview && sudo npm install playwright@latest && sudo PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers /opt/snap-preview/node_modules/.bin/playwright install --with-deps chromium && sudo npm cache clean --force && echo 'PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers' | sudo tee -a /etc/environment >/dev/null"
 
 echo "📄 Installing platform scripts + supervisord config ..."
+box_put_file "$BOX_ID" "$REPO_ROOT/docker/glenn-env-sync.sh"      /usr/local/bin/glenn-env-sync      755
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/bootstrap-daemon.sh"    /usr/local/bin/bootstrap-daemon.sh 755
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/entrypoint.sh"          /usr/local/bin/entrypoint.sh       755
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/agent-debug.sh"         /usr/local/bin/agent-debug         755
@@ -187,12 +211,17 @@ box_put_file "$BOX_ID" "$REPO_ROOT/docker/supervisord.base.conf"  /etc/superviso
 echo "⚙️  Installing the glenn-daemon systemd unit ..."
 # The unit is the load-bearing piece: enabled systemd services survive Box's
 # stop/resume/fork, so a forked runtime box boots supervisord + the daemon with no
-# outside help. Env layering, first match wins per key (systemd reads top-down):
+# outside help. Env layering — systemd reads EnvironmentFile= top-down and LATER
+# files override earlier ones per key:
+#   /etc/environment        — legacy fallback (Box does NOT write per-fork env
+#                             here — smoke-test item 10 pins that; harmless if empty)
+#   /etc/glenn/box-env.env  — fork/resume-time identity, materialized from Box's
+#                             /run/ascii-secrets/env.sh by the glenn-env-sync
+#                             ExecStartPre shim (runs as root via the `+` prefix)
 #   /etc/glenn/runtime.env  — the platform's refresh channel (provisioner/respawn
 #                             write it via the commands API; fresh JWTs land here)
-#   /etc/environment        — Box-injected account/per-fork env (spike-verified
-#                             delivery channel; harmless if empty)
-# Both files are optional (`-` prefix) so a template box with neither still boots.
+#                             — deliberately LAST so it wins on conflicts.
+# All files are optional (`-` prefix) so a template box with none still boots.
 UNIT_B64=$(base64 -w0 <<'UNIT'
 [Unit]
 Description=Glenn runtime (supervisord + agent daemon)
@@ -202,7 +231,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=agent
+ExecStartPre=+/usr/local/bin/glenn-env-sync
 EnvironmentFile=-/etc/environment
+EnvironmentFile=-/etc/glenn/box-env.env
 EnvironmentFile=-/etc/glenn/runtime.env
 Environment=NODE_ENV=production
 Environment=MISE_DATA_DIR=/data/mise
@@ -254,8 +285,11 @@ echo "✅ template box archived: $BOX_ID (label: $LABEL)"
 if [[ -n "${REGISTER_URL:-}" && -n "${CI_PUBLISH_KEY:-}" ]]; then
     echo "📮 Registering template with the platform ..."
     BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # CiPublishAuthenticationHandler validates the X-Ci-Publish-Key header —
+    # NOT Authorization: Bearer (that path expects a real JWT and 401s on a raw
+    # API key). Same header publish-daemon.sh uses via ci_publish_auth_header.
     curl -fsS -X POST "$REGISTER_URL/api/admin/runtime-templates" \
-        -H "Authorization: Bearer $CI_PUBLISH_KEY" \
+        -H "X-Ci-Publish-Key: $CI_PUBLISH_KEY" \
         -H "Content-Type: application/json" \
         -d "$(python3 -c 'import json,sys; print(json.dumps({"boxId": sys.argv[1], "label": sys.argv[2], "gitSha": sys.argv[3], "builtAt": sys.argv[4], "notes": None}))' "$BOX_ID" "$LABEL" "$GIT_SHA" "$BUILT_AT")" \
         >/dev/null

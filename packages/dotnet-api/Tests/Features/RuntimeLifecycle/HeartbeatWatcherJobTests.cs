@@ -80,8 +80,14 @@ public class HeartbeatWatcherJobTests : IDisposable
     // Helpers
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// The watcher's OWN job client (branch 3's rescue enqueue) — distinct from
+    /// the container-registered mock that satisfies ScheduleRespawnHandler.
+    /// </summary>
+    private readonly Mock<IBackgroundJobClient> _watcherBackgroundJobs = new();
+
     private HeartbeatWatcherJob CreateJob() =>
-        new(_db, _clock, NullLogger<HeartbeatWatcherJob>.Instance);
+        new(_db, _clock, _watcherBackgroundJobs.Object, NullLogger<HeartbeatWatcherJob>.Instance);
 
     /// <summary>
     /// Seed a runtime in the requested state with an explicit
@@ -528,5 +534,84 @@ public class HeartbeatWatcherJobTests : IDisposable
         var attr = method.GetCustomAttributes(typeof(Hangfire.DisableConcurrentExecutionAttribute), inherit: false);
         attr.Should().NotBeEmpty(
             "two Hangfire workers must not race on the same heartbeat-scan minute — the attribute is the lock");
+    }
+
+    // ------------------------------------------------------------------
+    // Branch 3: Crashed-orphan rescue (lost scheduled respawn)
+    // ------------------------------------------------------------------
+
+    /// <summary>Seed the state-event audit row branch 3 dates a crash by.</summary>
+    private async Task SeedCrashEventAsync(Guid runtimeId)
+    {
+        _db.RuntimeStateEvents.Add(new RuntimeStateEvent
+        {
+            RuntimeId = runtimeId,
+            FromState = RuntimeState.Bootstrapping,
+            ToState = RuntimeState.Crashed,
+            Reason = "heartbeat:missed",
+            TriggeredBy = "watcher:heartbeat",
+        });
+        await _db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task ScanOnce_ReenqueuesRespawnForRuntimeStuckInCrashedPastRescueWindow()
+    {
+        // A live daemon keeps heartbeating a Crashed row (its RuntimeReady is
+        // refused) — the heartbeat must NOT shield the row from rescue.
+        var runtime = await SeedRuntimeAsync(RuntimeState.Crashed, lastHeartbeatAt: _clock.UtcNow);
+        await SeedCrashEventAsync(runtime.Id);
+
+        // Past the 10-minute rescue window with no further transition: the
+        // scheduled RespawnRuntimeJob was evidently lost.
+        _clock.Advance(TimeSpan.FromMinutes(11));
+
+        await CreateJob().ScanOnce();
+
+        _watcherBackgroundJobs.Verify(
+            x => x.Create(
+                It.Is<Hangfire.Common.Job>(j => j.Type == typeof(RespawnRuntimeJob)),
+                It.IsAny<Hangfire.States.IState>()),
+            Times.Once,
+            "a runtime stuck in Crashed past the rescue window must get its respawn re-enqueued");
+
+        var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
+        refreshed.State.Should().Be(RuntimeState.Crashed,
+            "the watcher only enqueues the respawn — RespawnRuntimeJob owns the Crashed → Booting transition");
+    }
+
+    [Fact]
+    public async Task ScanOnce_LeavesRecentlyCrashedRuntimeToItsScheduledRespawn()
+    {
+        var runtime = await SeedRuntimeAsync(RuntimeState.Crashed, lastHeartbeatAt: null);
+        await SeedCrashEventAsync(runtime.Id);
+
+        // Inside the window: ScheduleRespawnHandler's backoff (≤5 min) still
+        // owns this crash — the rescue must not double-fire.
+        _clock.Advance(TimeSpan.FromMinutes(3));
+
+        await CreateJob().ScanOnce();
+
+        _watcherBackgroundJobs.Verify(
+            x => x.Create(It.IsAny<Hangfire.Common.Job>(), It.IsAny<Hangfire.States.IState>()),
+            Times.Never,
+            "a freshly-crashed runtime is the scheduled respawn's job, not the rescue's");
+    }
+
+    [Fact]
+    public async Task ScanOnce_RescuesEachStuckRuntimeOnlyOncePerInvocation()
+    {
+        var runtime = await SeedRuntimeAsync(RuntimeState.Crashed, lastHeartbeatAt: null);
+        await SeedCrashEventAsync(runtime.Id);
+        _clock.Advance(TimeSpan.FromMinutes(11));
+
+        var job = CreateJob();
+        await job.ScanOnce();
+        await job.ScanOnce(); // same invocation loops ScanOnce 12× per minute
+
+        _watcherBackgroundJobs.Verify(
+            x => x.Create(It.IsAny<Hangfire.Common.Job>(), It.IsAny<Hangfire.States.IState>()),
+            Times.Once,
+            "the 12×-per-minute inner loop must not enqueue duplicate rescues within one invocation");
     }
 }
