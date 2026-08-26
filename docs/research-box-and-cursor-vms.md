@@ -174,3 +174,22 @@ The Fly bill spiked because cleanup didn't work and orphaned machines kept billi
 - [Cursor Cloud Agent docs](https://cursor.com/docs/cloud-agent) · [Cursor Models & Pricing](https://cursor.com/docs/models-and-pricing) · [Cursor pricing explained (Vantage)](https://www.vantage.sh/blog/cursor-pricing-explained)
 - [Northflank AI sandbox pricing comparison](https://northflank.com/blog/ai-sandbox-pricing) · [Fly.io pricing](https://fly.io/docs/about/pricing/)
 - Internal: `.claude/skills/runtime-environment/SKILL.md`, `.claude/skills/cursor-sdk/references/runtime-choice.md`, `CreateMachineRequest.cs`
+
+---
+
+## Graphics & visual rendering on Box (Chrome, Three.js, WebGL)
+
+*Added 2026-08-26.*
+
+**Key insight first: in the normal product flow, the box never renders WebGL.** The box serves the Three.js app (Vite :5173 → Cloudflare tunnel); rendering happens in the *user's* browser on *their* GPU. Users get native-GPU 60fps regardless of box hardware.
+
+Inside the VM (agent verification, e2e, live debugging):
+
+- **Chrome is pre-installed** (`google-chrome-stable`), with a real X display (`DISPLAY=:0`) and `lux` desktop/browser automation (20 sessions/day/account, 1 concurrent per box).
+- **60fps desktop stream** per box: Moonlight/WebRTC default, noVNC-over-HTTPS fallback; secret-bearing URL via the desktop-URL API. You can watch Chrome run the scene live.
+- **No GPU on any tier** → Chrome uses SwiftShader (ANGLE software rasterizer). WebGL2 is spec-conformant: Three.js renders *correctly* — right pixels, wrong speed. Simple scenes ~20–60fps; heavy scenes (many draw calls, post-processing) single-digit fps. Fine for correctness/screenshots, useless for performance judgments. WebGPU: unreliable without software-Vulkan flags — treat as unsupported.
+- **Headless flags**: modern Chrome needs `--enable-unsafe-swiftshader` (and `--use-angle=swiftshader`) for software WebGL in headless/Playwright. Bake into the golden template's Playwright defaults so agent visual verification of Three.js features works out of the box.
+
+Verdict: ✅ run + functionally debug Three.js in-VM; ✅ users unaffected (client-side rendering); ⚠️ no GPU benchmarking; bonus over Fly: a watchable live desktop per runtime.
+
+Sources: [Box machines docs](https://docs.ascii.dev/box/machines.md) · [Box desktop streaming docs](https://docs.ascii.dev/box/desktop-streaming.md)
