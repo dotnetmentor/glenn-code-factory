@@ -106,8 +106,8 @@ public class BoxAdminController : ControllerBase
             return new BoxAdminRow(
                 Id: b.Id,
                 Name: b.Name,
-                Status: b.Status,
-                Size: b.Size,
+                Status: b.State,
+                Size: b.Type,
                 Region: b.Region,
                 TtlSeconds: b.TtlSeconds,
                 CreatedAt: b.CreatedAt,
@@ -214,9 +214,16 @@ public class BoxAdminController : ControllerBase
     // ----------------------------------------------------------------------
 
     /// <summary>
-    /// List every snapshot on the account, flagged as orphan when its box id maps to
-    /// no live runtime and no registered template. Twin of <see cref="ListBoxes"/> —
-    /// snapshots keep storage alive even after their box is gone.
+    /// List the snapshots of every box on the account, flagged as orphan when the
+    /// owning box maps to no live runtime and no registered template. Twin of
+    /// <see cref="ListBoxes"/>.
+    ///
+    /// <para>Per the OpenAPI contract snapshots are a PER-BOX resource
+    /// (<c>GET /boxes/{boxId}/snapshots</c> — there is no account-level listing),
+    /// so this aggregates over the box list, isolating per-box failures. There is
+    /// also no snapshot-delete endpoint: snapshots go away with their box
+    /// (<c>DELETE /boxes/{id}</c> removes the box AND its snapshots), so the old
+    /// snapshot delete endpoints are gone.</para>
     /// </summary>
     [HttpGet("snapshots")]
     [ProducesResponseType(typeof(List<BoxSnapshotAdminRow>), 200)]
@@ -224,17 +231,13 @@ public class BoxAdminController : ControllerBase
     [ProducesResponseType(403)]
     public async Task<ActionResult<List<BoxSnapshotAdminRow>>> ListSnapshots(CancellationToken ct)
     {
-        var snapshots = await _box.ListSnapshotsAsync(ct);
-        if (snapshots.Count == 0)
+        var boxes = await _box.ListBoxesAsync(ct);
+        if (boxes.Count == 0)
         {
             return Ok(new List<BoxSnapshotAdminRow>());
         }
 
-        var boxIds = snapshots
-            .Where(s => !string.IsNullOrEmpty(s.BoxId))
-            .Select(s => s.BoxId!)
-            .Distinct()
-            .ToList();
+        var boxIds = boxes.Select(b => b.Id).ToList();
 
         var links = await _db.ProjectRuntimes
             .Where(r => r.BoxId != null && boxIds.Contains(r.BoxId))
@@ -247,48 +250,37 @@ public class BoxAdminController : ControllerBase
             .ToListAsync(ct);
         var templateSet = new HashSet<string>(templateBoxIds, StringComparer.Ordinal);
 
-        var rows = snapshots.Select(s =>
+        var rows = new List<BoxSnapshotAdminRow>();
+        foreach (var box in boxes)
         {
-            Guid? runtimeId = s.BoxId is not null && runtimeByBoxId.TryGetValue(s.BoxId, out var rid)
-                ? rid
-                : null;
-            var isTemplateSnapshot = s.BoxId is not null && templateSet.Contains(s.BoxId);
-            return new BoxSnapshotAdminRow(
+            List<BoxSnapshot> snapshots;
+            try
+            {
+                snapshots = await _box.ListSnapshotsAsync(box.Id, ct);
+            }
+            catch (BoxApiException ex)
+            {
+                // One sick box must not blank the whole cleanup page.
+                _logger.LogWarning(ex,
+                    "Box admin: listing snapshots for box {BoxId} failed ({Code}); skipping",
+                    box.Id, ex.ErrorCode);
+                continue;
+            }
+
+            Guid? runtimeId = runtimeByBoxId.TryGetValue(box.Id, out var rid) ? rid : null;
+            var isTemplateBox = templateSet.Contains(box.Id);
+
+            rows.AddRange(snapshots.Select(s => new BoxSnapshotAdminRow(
                 Id: s.Id,
-                BoxId: s.BoxId,
+                BoxId: box.Id,
                 SizeBytes: s.SizeBytes,
                 CreatedAt: s.CreatedAt,
                 LinkedRuntimeId: runtimeId,
-                IsOrphan: runtimeId is null && !isTemplateSnapshot);
-        }).ToList();
+                IsOrphan: runtimeId is null && !isTemplateBox)));
+        }
 
         return Ok(rows);
     }
-
-    /// <summary>Permanently delete a snapshot. Irreversible.</summary>
-    [HttpDelete("snapshots/{id}")]
-    [ProducesResponseType(204)]
-    [ProducesResponseType(401)]
-    [ProducesResponseType(403)]
-    public async Task<ActionResult> DeleteSnapshot(string id, CancellationToken ct)
-    {
-        await _box.DeleteSnapshotAsync(id, ct: ct);
-        return NoContent();
-    }
-
-    /// <summary>Delete many snapshots in one request. Same contract as <see cref="BulkDeleteBoxes"/>.</summary>
-    [HttpPost("snapshots/bulk-delete")]
-    [ProducesResponseType(typeof(BulkDeleteResponse), 200)]
-    [ProducesResponseType(400)]
-    [ProducesResponseType(401)]
-    [ProducesResponseType(403)]
-    public Task<ActionResult<BulkDeleteResponse>> BulkDeleteSnapshots(
-        [FromBody] BulkDeleteRequest body,
-        CancellationToken ct)
-        => BulkDeleteAsync(
-            body,
-            deleteOne: (box, id, token) => box.DeleteSnapshotAsync(id, ct: token),
-            ct);
 
     // ----------------------------------------------------------------------
     // Connection probe

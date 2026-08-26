@@ -165,7 +165,7 @@ public class RuntimeReconcilerJob
             // graph forbids Suspending → Online, so we retry the missing side-effect
             // (the actual stop). On success the next pass observes `archived` and
             // closes Suspending → Suspended via the normal mapping.
-            if (runtime.State == RuntimeState.Suspending && BoxStatus.IsUp(boxVm.Status))
+            if (runtime.State == RuntimeState.Suspending && BoxStates.IsUp(boxVm.State))
             {
                 try
                 {
@@ -175,8 +175,8 @@ public class RuntimeReconcilerJob
                         ct: ct);
                     stopRetried++;
                     _logger.LogInformation(
-                        "RuntimeReconcilerJob: retried StopBox for stuck-Suspending runtime {RuntimeId} (box {BoxId} status={Status})",
-                        runtime.Id, runtime.BoxId, boxVm.Status);
+                        "RuntimeReconcilerJob: retried StopBox for stuck-Suspending runtime {RuntimeId} (box {BoxId} state={State})",
+                        runtime.Id, runtime.BoxId, boxVm.State);
                 }
                 catch (Exception ex)
                 {
@@ -187,7 +187,7 @@ public class RuntimeReconcilerJob
                 continue;
             }
 
-            var target = MapDriftTarget(boxVm.Status, runtime.State);
+            var target = MapDriftTarget(boxVm.State, runtime.State);
             if (target is null || target == runtime.State)
             {
                 continue;
@@ -197,12 +197,12 @@ public class RuntimeReconcilerJob
             {
                 illegalSkipped++;
                 _logger.LogWarning(
-                    "RuntimeReconcilerJob: would have transitioned runtime {RuntimeId} {From} -> {To} (box_status={Status}) but state machine rejected",
-                    runtime.Id, runtime.State, target.Value, boxVm.Status);
+                    "RuntimeReconcilerJob: would have transitioned runtime {RuntimeId} {From} -> {To} (box_state={BoxState}) but state machine rejected",
+                    runtime.Id, runtime.State, target.Value, boxVm.State);
                 continue;
             }
 
-            var metadata = $"{{\"boxStatus\":\"{boxVm.Status}\",\"dbState\":\"{runtime.State}\"}}";
+            var metadata = $"{{\"boxState\":\"{boxVm.State}\",\"dbState\":\"{runtime.State}\"}}";
             var transitionResult = runtime.TransitionTo(
                 target.Value,
                 "reconciler:drift",
@@ -235,15 +235,17 @@ public class RuntimeReconcilerJob
     }
 
     /// <summary>
-    /// Pick the runtime state we want, given the box's reported status and the
-    /// runtime's current state. Returns <c>null</c> when the reconciler has no
-    /// opinion (status we don't react to, or DB already matches).
+    /// Pick the runtime state we want, given the box's reported <c>state</c> and
+    /// the runtime's current state. Returns <c>null</c> when the reconciler has no
+    /// opinion (a state we don't react to, or DB already matches).
     ///
-    /// <para>Box states are coarser than Fly's: up (<c>ready</c>/<c>idle</c>/
-    /// <c>running</c>), coming up (<c>provisioning</c>), stopped-with-snapshot
-    /// (<c>archived</c>), broken (<c>error</c>). The daemon's <c>RuntimeReady</c>
-    /// hub call remains the ONLY path to Online — a VM being up says nothing about
-    /// the daemon having bootstrapped.</para>
+    /// <para>Box's state vocabulary (per the OpenAPI contract): up
+    /// (<c>ready</c>/<c>idle</c>/<c>running</c>), transitional
+    /// (<c>init</c>/<c>provisioning</c>/<c>provisioned</c>/<c>cloning</c>/
+    /// <c>archiving</c>), stopped-with-snapshot (<c>archived</c>), broken
+    /// (<c>error</c>). The daemon's <c>RuntimeReady</c> hub call remains the ONLY
+    /// path to Online — a VM being up says nothing about the daemon having
+    /// bootstrapped.</para>
     ///
     /// <para><b>Spec note (Online → Suspended).</b> <c>archived</c> + db:Online
     /// takes the closest legal edge (Suspending); the next tick closes
@@ -253,12 +255,12 @@ public class RuntimeReconcilerJob
     /// The box went down (or errored) before the daemon confirmed — mark Crashed so
     /// <c>ScheduleRespawnHandler</c> kicks in and the respawn reboots the box.</para>
     /// </summary>
-    private static RuntimeState? MapDriftTarget(string boxStatus, RuntimeState currentState)
+    private static RuntimeState? MapDriftTarget(string boxState, RuntimeState currentState)
     {
-        var status = (boxStatus ?? string.Empty).ToLowerInvariant();
-        var up = BoxStatus.IsUp(status);
-        var archived = BoxStatus.IsArchived(status);
-        var error = BoxStatus.IsError(status);
+        var state = (boxState ?? string.Empty).ToLowerInvariant();
+        var up = BoxStates.IsUp(state);
+        var archived = BoxStates.IsArchived(state);
+        var error = BoxStates.IsError(state);
 
         // ----- box is up: the VM exists and runs, daemon confirmation pending -----
         if (up)
@@ -309,7 +311,8 @@ public class RuntimeReconcilerJob
             };
         }
 
-        // provisioning (or unknown future status): no opinion — let it settle.
+        // transitional (init/provisioning/provisioned/cloning/archiving — or an
+        // unknown future state): no opinion — let it settle.
         return null;
     }
 }

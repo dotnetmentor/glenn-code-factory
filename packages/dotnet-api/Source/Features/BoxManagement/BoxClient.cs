@@ -22,11 +22,14 @@ namespace Source.Features.BoxManagement;
 /// is the only abstraction needed for testability — the HTTP transport itself is mocked
 /// at the <see cref="HttpMessageHandler"/> seam.</para>
 ///
-/// <para><b>Wire-shape notes.</b> The Box API speaks camelCase JSON with Bearer
-/// auth. Response envelopes are tolerated in both bare (<c>{...}</c> / <c>[...]</c>)
-/// and wrapped (<c>{"box": ...}</c> / <c>{"boxes": [...]}</c>) forms — see
-/// <see cref="UnwrapElement"/>. Anything still uncertain against the live API is
-/// pinned by <c>scripts/box-smoke-test.sh</c>, which exercises every verb below
+/// <para><b>Wire-shape notes (per the authoritative OpenAPI contract).</b> The
+/// Box API lives at <c>https://ascii.dev/api/box/v1</c> and speaks camelCase JSON
+/// with Bearer auth. Single-box responses arrive wrapped
+/// (<c>{"ok":true,"type":"box.info","box":{...}}</c> /
+/// <c>{"type":"box.created","box":{...}}</c>) and lists as
+/// <c>{"ok":true,"type":"box.list","boxes":[...],"pageInfo":{...}}</c> — see
+/// <see cref="UnwrapElement"/>, which unwraps those and still tolerates bare
+/// shapes cheaply. <c>scripts/box-smoke-test.sh</c> exercises every verb below
 /// against a real account before a deploy is trusted.</para>
 /// </summary>
 public class BoxClient
@@ -173,9 +176,13 @@ public class BoxClient
         string boxId,
         Guid? runtimeId = null,
         string? idempotencyKey = null,
+        bool? force = null,
         CancellationToken ct = default)
     {
-        var request = BuildRequest(HttpMethod.Post, $"boxes/{Uri.EscapeDataString(boxId)}/stop", "{}");
+        var payloadJson = force is null
+            ? "{}"
+            : JsonSerializer.Serialize(new StopBoxRequest(force), JsonOptions);
+        var request = BuildRequest(HttpMethod.Post, $"boxes/{Uri.EscapeDataString(boxId)}/stop", payloadJson);
         return SendVoidAsync("StopBox", request, runtimeId, idempotencyKey, requestPayloadJson: null, ct);
     }
 
@@ -183,15 +190,20 @@ public class BoxClient
     /// Resume an archived box from its snapshot — the platform's wake primitive.
     /// Counts as one machine start against the account-wide start budget
     /// (600/hr, 1,500/day), which is why wake happens per session, never per message.
+    /// The optional <paramref name="body"/> lets the resume apply a new
+    /// <c>type</c> / replacement <c>env</c> / fresh <c>ttlSeconds</c> in the same
+    /// start — used by the reboot and resize paths.
     /// </summary>
     public Task ResumeBoxAsync(
         string boxId,
+        ResumeBoxRequest? body = null,
         Guid? runtimeId = null,
         string? idempotencyKey = null,
         CancellationToken ct = default)
     {
-        var request = BuildRequest(HttpMethod.Post, $"boxes/{Uri.EscapeDataString(boxId)}/resume", "{}");
-        return SendVoidAsync("ResumeBox", request, runtimeId, idempotencyKey, requestPayloadJson: null, ct);
+        var payloadJson = body is null ? "{}" : JsonSerializer.Serialize(body, JsonOptions);
+        var request = BuildRequest(HttpMethod.Post, $"boxes/{Uri.EscapeDataString(boxId)}/resume", payloadJson);
+        return SendVoidAsync("ResumeBox", request, runtimeId, idempotencyKey, body is null ? null : payloadJson, ct);
     }
 
     /// <summary>
@@ -207,9 +219,9 @@ public class BoxClient
         CancellationToken ct = default)
     {
         var request = BuildRequest(HttpMethod.Delete, $"boxes/{Uri.EscapeDataString(boxId)}");
-        // Confirmation guard required by the API for permanent deletion. Header name
-        // pinned by scripts/box-smoke-test.sh against the live API.
-        request.Headers.TryAddWithoutValidation("X-Confirm-Delete", boxId);
+        // Confirmation guard required by the API for permanent deletion — the
+        // contract returns 409 when the header is missing or mismatched.
+        request.Headers.TryAddWithoutValidation("X-Ascii-Confirm-Delete", boxId);
         return SendVoidAsync("DeleteBox", request, runtimeId, requestKey: null, requestPayloadJson: null, ct);
     }
 
@@ -225,50 +237,77 @@ public class BoxClient
         Guid? runtimeId = null,
         CancellationToken ct = default)
     {
-        var payloadJson = JsonSerializer.Serialize(new UpdateBoxRequest(ttlSeconds), JsonOptions);
+        var payloadJson = JsonSerializer.Serialize(new UpdateBoxRequest(TtlSeconds: ttlSeconds), JsonOptions);
         var request = BuildRequest(HttpMethod.Patch, $"boxes/{Uri.EscapeDataString(boxId)}", payloadJson);
         return SendBoxAsync("SetBoxTtl", request, runtimeId, requestKey: null, payloadJson, ct);
     }
 
     /// <summary>
-    /// Run an arbitrary shell command inside a running box (<c>POST /boxes/{id}/commands</c>).
+    /// Name (or rename) a box via <c>PATCH /boxes/{id}</c> — the ONLY way to name
+    /// a box, since the create and fork bodies carry no <c>name</c> field. Name
+    /// must be 1–120 chars. The provisioner PATCHes the deterministic
+    /// <c>rt-{runtimeId:N}</c> name right after every fork so adopt-by-name keeps
+    /// working (list → match on <c>box.name</c>).
+    /// </summary>
+    public Task<BoxVm> SetNameAsync(
+        string boxId,
+        string name,
+        Guid? runtimeId = null,
+        CancellationToken ct = default)
+    {
+        var payloadJson = JsonSerializer.Serialize(new UpdateBoxRequest(Name: name), JsonOptions);
+        var request = BuildRequest(HttpMethod.Patch, $"boxes/{Uri.EscapeDataString(boxId)}", payloadJson);
+        return SendBoxAsync("SetBoxName", request, runtimeId, requestKey: null, payloadJson, ct);
+    }
+
+    /// <summary>
+    /// Run an arbitrary shell command inside a running box
+    /// (<c>POST /boxes/{id}/command</c> — SINGULAR per the contract).
     /// Daemon-independent side channel for admin/debug and the repair loop. Fails with
     /// a retriable <c>box_starting</c> / <c>machine_not_running</c> code (see
     /// <see cref="BoxApiException.IsRetriableStartup"/>) while the box is coming up.
+    /// <paramref name="timeoutSeconds"/> is 1–600 (contract default 30) — pass an
+    /// explicit value for anything that isn't near-instant.
     /// </summary>
     public async Task<RunBoxCommandResponse> RunCommandAsync(
         string boxId,
         string command,
         Guid? runtimeId = null,
+        int? timeoutSeconds = null,
+        string? cwd = null,
         CancellationToken ct = default)
     {
-        var payloadJson = JsonSerializer.Serialize(new RunBoxCommandRequest(command), JsonOptions);
-        var request = BuildRequest(HttpMethod.Post, $"boxes/{Uri.EscapeDataString(boxId)}/commands", payloadJson);
+        var payloadJson = JsonSerializer.Serialize(
+            new RunBoxCommandRequest(command, Cwd: cwd, TimeoutSeconds: timeoutSeconds), JsonOptions);
+        var request = BuildRequest(HttpMethod.Post, $"boxes/{Uri.EscapeDataString(boxId)}/command", payloadJson);
         var body = await SendRawAsync("RunBoxCommand", request, runtimeId, requestKey: null, payloadJson, ct);
         return DeserializeSingle<RunBoxCommandResponse>(body, "result");
     }
 
     // ----------------------------------------------------------------------
-    // Snapshots
+    // Snapshots (per-box — the contract exposes no account-level listing)
     // ----------------------------------------------------------------------
 
-    /// <summary>List every snapshot on the account (admin cleanup surface).</summary>
-    public async Task<List<BoxSnapshot>> ListSnapshotsAsync(CancellationToken ct = default)
+    /// <summary>List the snapshots of one box (<c>GET /boxes/{boxId}/snapshots</c>).</summary>
+    public async Task<List<BoxSnapshot>> ListSnapshotsAsync(string boxId, CancellationToken ct = default)
     {
-        var request = BuildRequest(HttpMethod.Get, "snapshots");
+        var request = BuildRequest(HttpMethod.Get, $"boxes/{Uri.EscapeDataString(boxId)}/snapshots");
         var body = await SendRawAsync("ListSnapshots", request, runtimeId: null, requestKey: null, requestPayloadJson: null, ct);
         return DeserializeList<BoxSnapshot>(body, "snapshots");
     }
 
-    /// <summary>Permanently delete a snapshot. Irreversible; admin cleanup only.</summary>
-    public Task DeleteSnapshotAsync(
-        string snapshotId,
-        Guid? runtimeId = null,
-        CancellationToken ct = default)
+    /// <summary>Fetch a box's most recent snapshot (<c>GET /boxes/{boxId}/snapshots/latest</c>).</summary>
+    public async Task<BoxSnapshot> GetLatestSnapshotAsync(string boxId, CancellationToken ct = default)
     {
-        var request = BuildRequest(HttpMethod.Delete, $"snapshots/{Uri.EscapeDataString(snapshotId)}");
-        return SendVoidAsync("DeleteSnapshot", request, runtimeId, requestKey: null, requestPayloadJson: null, ct);
+        var request = BuildRequest(HttpMethod.Get, $"boxes/{Uri.EscapeDataString(boxId)}/snapshots/latest");
+        var body = await SendRawAsync("GetLatestSnapshot", request, runtimeId: null, requestKey: null, requestPayloadJson: null, ct);
+        return DeserializeSingle<BoxSnapshot>(body, "snapshot");
     }
+
+    // NOTE: the contract exposes NO snapshot-delete endpoint — snapshots are
+    // deleted together with their box (DELETE /boxes/{id} removes the box AND
+    // its snapshots). The old account-level DeleteSnapshotAsync was a guess and
+    // has been removed.
 
     // ----------------------------------------------------------------------
     // Request building
@@ -390,7 +429,7 @@ public class BoxClient
                 return body;
             }
 
-            var errorCode = TryParseBoxErrorCode(body);
+            var (errorCode, requestId) = TryParseBoxError(body);
             op.Status = BoxOperationStatus.Failed;
             op.HttpStatusCode = (int)response.StatusCode;
             op.LatencyMs = latencyMs;
@@ -402,7 +441,8 @@ public class BoxClient
                 (int)response.StatusCode,
                 errorCode,
                 body,
-                $"Box API {operation} failed: {(int)response.StatusCode} {response.ReasonPhrase}");
+                $"Box API {operation} failed: {(int)response.StatusCode} {response.ReasonPhrase}",
+                requestId);
         }
         finally
         {
@@ -587,22 +627,29 @@ public class BoxClient
     }
 
     /// <summary>
-    /// Best-effort error-code extractor for Box's non-2xx bodies. Documented shape is
-    /// <c>{"error": {"code": "...", "message": "..."}}</c> but we also tolerate flat
-    /// <c>{"code": "..."}</c> / <c>{"error": "..."}</c>. Falls back to <c>null</c>
-    /// rather than ever throwing — the caller still gets the raw body via
-    /// <see cref="BoxApiException.Body"/>.
+    /// Best-effort error extractor for Box's non-2xx bodies. The contract's
+    /// ErrorEnvelope is <c>{"ok":false,"type":"box.error","status":int,
+    /// "code":"...","message":"...","error":{code,message,status,details?},
+    /// "requestId":"..."}</c> — the code is taken from the TOP-LEVEL <c>code</c>
+    /// first, then <c>error.code</c>; a flat string <c>error</c> is tolerated as a
+    /// legacy shape. Falls back to <c>null</c> rather than ever throwing — the
+    /// caller still gets the raw body via <see cref="BoxApiException.Body"/>.
     /// </summary>
-    private static string? TryParseBoxErrorCode(string body)
+    private static (string? Code, string? RequestId) TryParseBoxError(string body)
     {
-        if (string.IsNullOrWhiteSpace(body)) return null;
+        if (string.IsNullOrWhiteSpace(body)) return (null, null);
         try
         {
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return (null, null);
 
             string? value = null;
-            if (doc.RootElement.TryGetProperty("error", out var err))
+            if (doc.RootElement.TryGetProperty("code", out var code)
+                && code.ValueKind == JsonValueKind.String)
+            {
+                value = code.GetString();
+            }
+            else if (doc.RootElement.TryGetProperty("error", out var err))
             {
                 if (err.ValueKind == JsonValueKind.String)
                 {
@@ -615,10 +662,12 @@ public class BoxClient
                     value = innerCode.GetString();
                 }
             }
-            else if (doc.RootElement.TryGetProperty("code", out var code)
-                     && code.ValueKind == JsonValueKind.String)
+
+            string? requestId = null;
+            if (doc.RootElement.TryGetProperty("requestId", out var reqId)
+                && reqId.ValueKind == JsonValueKind.String)
             {
-                value = code.GetString();
+                requestId = reqId.GetString();
             }
 
             // BoxOperations.ErrorCode is varchar(100); error strings can be free-form
@@ -627,11 +676,11 @@ public class BoxClient
             {
                 value = value.Substring(0, 100);
             }
-            return value;
+            return (value, requestId);
         }
         catch (JsonException)
         {
-            return null;
+            return (null, null);
         }
     }
 }

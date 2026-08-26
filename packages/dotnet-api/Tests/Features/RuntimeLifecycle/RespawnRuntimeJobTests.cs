@@ -141,7 +141,7 @@ public class RespawnRuntimeJobTests : IDisposable
     private static BoxOptions DefaultBoxOptions() => new()
     {
         ApiKey = "box_test_key",
-        ApiBaseUrl = "https://api.ascii.dev/v1",
+        ApiBaseUrl = "https://ascii.dev/api/box/v1",
         DefaultTtlSeconds = 21_600,
     };
 
@@ -277,13 +277,26 @@ public class RespawnRuntimeJobTests : IDisposable
     }
 
     /// <summary>
-    /// Canned Box resource JSON. Size "small" matches BoxSizeMapper.FromSpec for
-    /// the default seeded spec (2 cpu / 4096 MB).
+    /// Canned bare Box resource JSON. Type "small" matches BoxTypeMapper.FromSpec
+    /// for the default seeded spec (2 cpu / 4096 MB); the lifecycle field on the
+    /// wire is `state`.
     /// </summary>
-    private static string BoxJson(string id, string status = "ready") =>
+    private static string BareBoxJson(string id, string state = "ready") =>
         $$"""
-        {"id":"{{id}}","name":"rt","status":"{{status}}","size":"small","region":"de","ttlSeconds":21600,"createdAt":"2026-05-08T10:00:00Z"}
+        {"id":"{{id}}","name":"rt","state":"{{state}}","type":"small","region":"de","ttlSeconds":21600,"createdAt":"2026-05-08T10:00:00Z"}
         """;
+
+    /// <summary>GET /boxes/{id} + PATCH /boxes/{id} envelope per the contract.</summary>
+    private static string BoxInfoJson(string id, string state = "ready") =>
+        $$"""{"ok":true,"type":"box.info","box":{{BareBoxJson(id, state)}}}""";
+
+    /// <summary>POST /boxes/{id}/fork response envelope per the contract.</summary>
+    private static string BoxCreatedJson(string id, string state = "provisioning") =>
+        $$"""{"type":"box.created","box":{{BareBoxJson(id, state)}},"status":"provisioning","ttlSeconds":21600}""";
+
+    /// <summary>GET /boxes list envelope per the contract (empty — adopt-by-name misses).</summary>
+    private static string BoxListJson() =>
+        """{"ok":true,"type":"box.list","boxes":[],"pageInfo":{"hasNextPage":false}}""";
 
     // ------------------------------------------------------------------
     // Tests
@@ -335,12 +348,12 @@ public class RespawnRuntimeJobTests : IDisposable
             respawnRetries: 0);
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_wedged", status: "running")); // GetBox
-        handler.Enqueue(HttpStatusCode.OK, "{}");                                     // POST stop
-        handler.Enqueue(HttpStatusCode.OK, "{}");                                     // POST resume
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_wedged", status: "running")); // PATCH ttl
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_wedged", status: "ready"));   // GetBox (wait-up, FIRST poll is up)
-        handler.Enqueue(HttpStatusCode.OK, "{}");                                     // POST commands (env refresh)
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_wedged", state: "running")); // GetBox
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                        // POST stop
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                        // POST resume (env+ttl in body)
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_wedged", state: "running")); // PATCH ttl
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_wedged", state: "ready"));   // GetBox (wait-up, FIRST poll is up)
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                        // POST command (env refresh)
 
         var job = CreateJob(handler);
 
@@ -352,11 +365,13 @@ public class RespawnRuntimeJobTests : IDisposable
             "an up-but-wedged box is stopped first so the resume boots from a fresh snapshot");
         handler.Requests[2].Method.Should().Be(HttpMethod.Post);
         handler.Requests[2].Url.Should().EndWith("/boxes/box_wedged/resume");
+        handler.Requests[2].Body.Should().Contain("GLENN_RUNTIME_TOKEN",
+            "the resume body carries the fresh env directly (the contract supports it)");
         handler.Requests[3].Method.Should().Be(HttpMethod.Patch);
         handler.Requests[3].Url.Should().EndWith("/boxes/box_wedged");
         handler.Requests[5].Method.Should().Be(HttpMethod.Post);
-        handler.Requests[5].Url.Should().EndWith("/boxes/box_wedged/commands",
-            "the env refresh delivers the freshly-minted JWT and bounces the daemon");
+        handler.Requests[5].Url.Should().EndWith("/boxes/box_wedged/command",
+            "the env refresh delivers the freshly-minted JWT and bounces the daemon (singular /command per the contract)");
         handler.Requests[5].Body.Should().Contain("GLENN_RUNTIME_TOKEN");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
@@ -392,17 +407,20 @@ public class RespawnRuntimeJobTests : IDisposable
             boxId: "box_vanished");
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.NotFound, "{\"error\":{\"code\":\"not_found\"}}"); // GetBox 404
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_fresh_fork"));                    // POST fork
+        handler.Enqueue(HttpStatusCode.NotFound,
+            """{"ok":false,"type":"box.error","status":404,"code":"not_found","message":"not found","error":{"code":"not_found","message":"not found","status":404},"requestId":"req_404"}"""); // GetBox 404
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson());                     // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson("box_fresh_fork"));  // POST fork
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_fresh_fork"));     // PATCH name
 
         var job = CreateJob(handler);
 
         await job.Run(runtime.Id, CancellationToken.None);
 
-        handler.CallCount.Should().Be(2,
-            "404 on GetBox means box gone — fork fresh from the template, no reboot dance");
-        handler.Requests[1].Method.Should().Be(HttpMethod.Post);
-        handler.Requests[1].Url.Should().EndWith($"/boxes/{TemplateBoxId}/fork",
+        handler.CallCount.Should().Be(4,
+            "404 on GetBox means box gone — adopt-check list, fork fresh from the template, PATCH the name");
+        handler.Requests[2].Method.Should().Be(HttpMethod.Post);
+        handler.Requests[2].Url.Should().EndWith($"/boxes/{TemplateBoxId}/fork",
             "the fresh fork must come from the active golden template");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
@@ -435,7 +453,8 @@ public class RespawnRuntimeJobTests : IDisposable
             boxId: "box_vanished_no_tpl");
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.NotFound, "{\"error\":{\"code\":\"not_found\"}}"); // GetBox 404
+        handler.Enqueue(HttpStatusCode.NotFound,
+            """{"ok":false,"type":"box.error","status":404,"code":"not_found","message":"not found","error":{"code":"not_found","message":"not found","status":404},"requestId":"req_404b"}"""); // GetBox 404
 
         var job = CreateJob(handler);
 

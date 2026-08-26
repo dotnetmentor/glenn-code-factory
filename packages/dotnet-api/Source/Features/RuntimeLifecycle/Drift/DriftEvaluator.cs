@@ -80,9 +80,9 @@ public static class DriftEvaluator
 
         // Anything below needs the Box side present, since the rules compare DB
         // state to box status. BoxVanished above already covered the missing case.
-        var status = boxVm?.Status;
-        var up = status is not null && BoxStatus.IsUp(status);
-        var archived = status is not null && BoxStatus.IsArchived(status);
+        var status = boxVm?.State;
+        var up = status is not null && BoxStates.IsUp(status);
+        var archived = status is not null && BoxStates.IsArchived(status);
 
         // Rule 3: StateMismatch_OnlineButArchived — Online runtime whose box has
         // been archived (self-archived at TTL, stopped out-of-band, ...). The
@@ -169,7 +169,7 @@ public static class DriftEvaluator
             BranchId = null,
             BranchName = null,
             DbState = null,
-            BoxStatus = boxVm.Status,
+            BoxStatus = boxVm.State,
             BoxId = boxVm.Id,
             Region = boxVm.Region,
             LastHeartbeatAt = null,

@@ -103,7 +103,7 @@ public sealed class RuntimeDriftQueryService : IRuntimeDriftQueryService
                 BranchId = runtime.BranchId,
                 BranchName = runtime.Branch?.Name,
                 DbState = runtime.State,
-                BoxStatus = boxVm?.Status,
+                BoxStatus = boxVm?.State,
                 BoxId = runtime.BoxId,
                 // Prefer the Box-reported region when we have it (it's the live
                 // truth); fall back to the DB's snapshot when the box is gone.

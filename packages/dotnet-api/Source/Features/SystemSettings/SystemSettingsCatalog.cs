@@ -83,7 +83,7 @@ public static class SystemSettingsCatalog
                 new SystemSettingDefinition(
                     Key: "Box:ApiBaseUrl",
                     DisplayName: "API Base URL",
-                    Description: "Base URL of the Box public API. Default: https://api.ascii.dev/v1",
+                    Description: "Base URL of the Box public API. Default: https://ascii.dev/api/box/v1",
                     IsSecret: false),
                 new SystemSettingDefinition(
                     Key: "Box:DefaultTtlSeconds",
@@ -91,9 +91,9 @@ public static class SystemSettingsCatalog
                     Description: "TTL stamped on every runtime box — the orphan-cost guardrail. A box whose TTL lapses archives itself and billing stops; the BoxTtlExtenderJob re-arms it for every runtime we know about. Default: 21600 (6h). Set 0 to disable (not recommended).",
                     IsSecret: false),
                 new SystemSettingDefinition(
-                    Key: "Box:DefaultSize",
-                    DisplayName: "Default Size",
-                    Description: "Fallback Box size tier when a project's cpu/mem spec doesn't dictate one: small (2 vCPU/4 GB), default (4/8), large (8/16). Default: small",
+                    Key: "Box:DefaultType",
+                    DisplayName: "Default Type",
+                    Description: "Fallback Box machine type when a project's cpu/mem spec doesn't dictate one: small (2 vCPU/4 GB), default (4/8), large (8/16). Default: small",
                     IsSecret: false),
             }),
         new SystemSettingCategory(

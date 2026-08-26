@@ -209,8 +209,8 @@ public class RuntimeTemplatesController : ControllerBase
             .Select(b => new TemplateCandidateBoxDto(
                 Id: b.Id,
                 Name: b.Name,
-                Status: b.Status,
-                Size: b.Size,
+                Status: b.State,
+                Size: b.Type,
                 Region: b.Region,
                 CreatedAt: b.CreatedAt,
                 AlreadyRegistered: registeredSet.Contains(b.Id)))

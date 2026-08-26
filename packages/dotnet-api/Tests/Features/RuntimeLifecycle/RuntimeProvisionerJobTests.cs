@@ -149,7 +149,7 @@ public class RuntimeProvisionerJobTests : IDisposable
     private static BoxOptions DefaultBoxOptions() => new()
     {
         ApiKey = "box_test_key",
-        ApiBaseUrl = "https://api.ascii.dev/v1",
+        ApiBaseUrl = "https://ascii.dev/api/box/v1",
         DefaultTtlSeconds = 21_600,
     };
 
@@ -299,14 +299,27 @@ public class RuntimeProvisionerJobTests : IDisposable
     }
 
     /// <summary>
-    /// Canned Box resource JSON (camelCase — BoxClient's serialiser settings).
-    /// The default size matches BoxSizeMapper.FromSpec for the seeded runtime spec
+    /// Canned bare Box resource JSON (camelCase — BoxClient's serialiser settings;
+    /// the lifecycle field on the wire is `state`, the tier field is `type`).
+    /// The default type matches BoxTypeMapper.FromSpec for the seeded runtime spec
     /// (2 cpu / 4096 MB → "small") so reboot-path tests don't trip the resize branch.
     /// </summary>
-    private static string BoxJson(string id, string status = "ready", string size = "small") =>
+    private static string BareBoxJson(string id, string state = "ready", string type = "small") =>
         $$"""
-        {"id":"{{id}}","name":"rt","status":"{{status}}","size":"{{size}}","region":"de","ttlSeconds":21600,"createdAt":"2026-05-08T10:00:00Z"}
+        {"id":"{{id}}","name":"rt","state":"{{state}}","type":"{{type}}","region":"de","ttlSeconds":21600,"createdAt":"2026-05-08T10:00:00Z"}
         """;
+
+    /// <summary>GET /boxes/{id} + PATCH /boxes/{id} envelope per the contract.</summary>
+    private static string BoxInfoJson(string id, string state = "ready", string type = "small") =>
+        $$"""{"ok":true,"type":"box.info","box":{{BareBoxJson(id, state, type)}}}""";
+
+    /// <summary>POST /boxes/{id}/fork response envelope per the contract.</summary>
+    private static string BoxCreatedJson(string id, string state = "provisioning", string type = "small") =>
+        $$"""{"type":"box.created","box":{{BareBoxJson(id, state, type)}},"status":"provisioning","ttlSeconds":21600}""";
+
+    /// <summary>GET /boxes list envelope per the contract (empty by default — adopt-by-name misses).</summary>
+    private static string BoxListJson(params string[] bareBoxes) =>
+        $$$"""{"ok":true,"type":"box.list","boxes":[{{{string.Join(",", bareBoxes)}}}],"pageInfo":{"hasNextPage":false}}""";
 
     // ------------------------------------------------------------------
     // Tests
@@ -364,7 +377,7 @@ public class RuntimeProvisionerJobTests : IDisposable
         var job = CreateJob(handler, new BoxOptions
         {
             ApiKey = "", // not configured
-            ApiBaseUrl = "https://api.ascii.dev/v1",
+            ApiBaseUrl = "https://ascii.dev/api/box/v1",
         });
 
         await job.Run(CancellationToken.None);
@@ -389,17 +402,24 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_new_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson());                 // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson("box_new_abc"));  // fork
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_new_abc"));     // PATCH name
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // One upstream Box call: the fork.
-        handler.CallCount.Should().Be(1);
-        var forkRequest = handler.Requests.Single();
+        // Three upstream Box calls: adopt-check list, the fork, and the name PATCH
+        // (the fork body has no name field per the contract).
+        handler.CallCount.Should().Be(3);
+        handler.Requests[0].Method.Should().Be(HttpMethod.Get);
+        handler.Requests[0].Url.Should().Be("https://ascii.dev/api/box/v1/boxes",
+            "adopt-by-name lists boxes and matches on box.name before forking");
+
+        var forkRequest = handler.Requests[1];
         forkRequest.Method.Should().Be(HttpMethod.Post);
-        forkRequest.Url.Should().Be($"https://api.ascii.dev/v1/boxes/{TemplateBoxId}/fork",
+        forkRequest.Url.Should().Be($"https://ascii.dev/api/box/v1/boxes/{TemplateBoxId}/fork",
             "a fresh runtime is a fork of the active golden template");
 
         // Wire shape: camelCase properties, VERBATIM env keys, noEnv isolation, TTL guardrail.
@@ -409,6 +429,17 @@ public class RuntimeProvisionerJobTests : IDisposable
             "runtime forks must never inherit the platform account's own secrets");
         forkRequest.Body.Should().Contain("\"ttlSeconds\":21600",
             "every fork is stamped with the orphan-cost TTL guardrail");
+        forkRequest.Body.Should().Contain("\"type\":\"small\"",
+            "the machine tier field on the wire is `type`");
+        forkRequest.Body.Should().NotContain("\"name\"",
+            "the fork body carries no name — naming happens via PATCH after the fork");
+
+        var nameRequest = handler.Requests[2];
+        nameRequest.Method.Should().Be(HttpMethod.Patch);
+        nameRequest.Url.Should().EndWith("/boxes/box_new_abc");
+        nameRequest.Body.Should().Contain(
+            $"\"name\":\"{Source.Features.RuntimeLifecycle.Provisioning.BoxRuntimeProvisioning.BuildBoxName(runtime.Id)}\"",
+            "the deterministic rt-{id} name is PATCHed so adopt-by-name keeps working");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Booting);
@@ -426,13 +457,12 @@ public class RuntimeProvisionerJobTests : IDisposable
         audit.Reason.Should().Be("provisioner:forked_from_template");
         audit.TriggeredBy.Should().Be("system:provisioner");
 
-        // The BoxOperation audit pipeline recorded the fork.
+        // The BoxOperation audit pipeline recorded the fork + the name PATCH.
         var boxOps = await _db.BoxOperations.AsNoTracking()
             .Where(o => o.RuntimeId == runtime.Id)
             .ToListAsync();
-        boxOps.Should().HaveCount(1);
-        boxOps.Single().Operation.Should().Be("ForkBox");
-        boxOps.Single().Status.Should().Be(BoxOperationStatus.Succeeded);
+        boxOps.Select(o => o.Operation).Should().BeEquivalentTo(new[] { "ForkBox", "SetBoxName" });
+        boxOps.Should().OnlyContain(o => o.Status == BoxOperationStatus.Succeeded);
     }
 
     [Fact]
@@ -443,13 +473,15 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue((HttpStatusCode)429, "{\"error\":{\"code\":\"rate_limited\"}}");
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson()); // adopt-by-name miss
+        handler.Enqueue((HttpStatusCode)429,
+            """{"ok":false,"type":"box.error","status":429,"code":"rate_limited","message":"rate limited","error":{"code":"rate_limited","message":"rate limited","status":429},"requestId":"req_rl"}""");
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        handler.CallCount.Should().Be(1);
+        handler.CallCount.Should().Be(2, "adopt-check list + the rate-limited fork");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Pending,
@@ -468,13 +500,15 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.UnprocessableEntity, "{\"error\":{\"code\":\"invalid_size\"}}");
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson()); // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.UnprocessableEntity,
+            """{"ok":false,"type":"box.error","status":422,"code":"type_too_small","message":"type too small","error":{"code":"type_too_small","message":"type too small","status":422},"requestId":"req_422"}""");
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        handler.CallCount.Should().Be(1);
+        handler.CallCount.Should().Be(2, "adopt-check list + the rejected fork");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
         refreshed.State.Should().Be(RuntimeState.Failed,
@@ -489,7 +523,7 @@ public class RuntimeProvisionerJobTests : IDisposable
         audit.ToState.Should().Be(RuntimeState.Failed);
         audit.Reason.Should().StartWith("provisioner:box_error",
             "the reason carries the structured error code so dashboards can group on it");
-        audit.Reason.Should().Contain("invalid_size");
+        audit.Reason.Should().Contain("type_too_small");
         audit.TriggeredBy.Should().Be("system:provisioner");
 
         // The Box audit row should record the failed call too.
@@ -497,7 +531,7 @@ public class RuntimeProvisionerJobTests : IDisposable
         boxOps.Should().HaveCount(1);
         boxOps.Single().Status.Should().Be(BoxOperationStatus.Failed);
         boxOps.Single().HttpStatusCode.Should().Be(422);
-        boxOps.Single().ErrorCode.Should().Be("invalid_size");
+        boxOps.Single().ErrorCode.Should().Be("type_too_small");
     }
 
     [Fact]
@@ -511,11 +545,11 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_existing", status: "archived")); // GetBox
-        handler.Enqueue(HttpStatusCode.OK, "{}");                                       // POST resume
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_existing", status: "archived"));// PATCH ttl
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_existing", status: "ready"));   // GetBox (wait-up, FIRST poll is up)
-        handler.Enqueue(HttpStatusCode.OK, "{}");                                       // POST commands (env refresh)
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_existing", state: "archived")); // GetBox
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                           // POST resume (env+ttl in body)
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_existing", state: "archived")); // PATCH ttl
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_existing", state: "ready"));    // GetBox (wait-up, FIRST poll is up)
+        handler.Enqueue(HttpStatusCode.OK, "{}");                                           // POST command (env refresh)
 
         var job = CreateJob(handler);
 
@@ -527,12 +561,16 @@ public class RuntimeProvisionerJobTests : IDisposable
         handler.Requests[1].Method.Should().Be(HttpMethod.Post);
         handler.Requests[1].Url.Should().EndWith("/boxes/box_existing/resume",
             "an archived box is resumed in place — its disk is the user's data");
+        handler.Requests[1].Body.Should().Contain("\"RUNTIME_ID\"",
+            "the resume body carries the fresh env directly (the contract supports it)");
+        handler.Requests[1].Body.Should().Contain("\"ttlSeconds\":21600",
+            "the resume body re-arms the TTL guardrail in the same machine start");
         handler.Requests[2].Method.Should().Be(HttpMethod.Patch);
         handler.Requests[2].Url.Should().EndWith("/boxes/box_existing");
         handler.Requests[2].Body.Should().Contain("\"ttlSeconds\":21600");
         handler.Requests[4].Method.Should().Be(HttpMethod.Post);
-        handler.Requests[4].Url.Should().EndWith("/boxes/box_existing/commands",
-            "the env refresh rides the command side channel so the daemon boots with a fresh JWT");
+        handler.Requests[4].Url.Should().EndWith("/boxes/box_existing/command",
+            "the env refresh rides the (singular) command side channel so the daemon boots with a fresh JWT");
         handler.Requests[4].Body.Should().Contain("RUNTIME_ID");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
@@ -554,15 +592,18 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.NotFound, "{\"error\":{\"code\":\"not_found\"}}"); // GetBox 404
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_refork"));                        // fork
+        handler.Enqueue(HttpStatusCode.NotFound,
+            """{"ok":false,"type":"box.error","status":404,"code":"not_found","message":"not found","error":{"code":"not_found","message":"not found","status":404},"requestId":"req_404"}"""); // GetBox 404
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson());                 // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson("box_refork"));  // fork
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_refork"));     // PATCH name
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        handler.CallCount.Should().Be(2);
-        handler.Requests[1].Url.Should().EndWith($"/boxes/{TemplateBoxId}/fork",
+        handler.CallCount.Should().Be(4);
+        handler.Requests[2].Url.Should().EndWith($"/boxes/{TemplateBoxId}/fork",
             "a 404'd box clears BoxId and falls back to a fresh template fork");
 
         var refreshed = await _db.ProjectRuntimes.AsNoTracking().SingleAsync(r => r.Id == runtime.Id);
@@ -610,19 +651,21 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveTemplateAsync();
         await SeedActiveDaemonVersionAsync();
 
-        // Need 10 scripted responses — one fork per runtime.
+        // Need 30 scripted responses — adopt-check list + fork + name PATCH per runtime.
         var handler = new ScriptedHandler();
         for (var i = 0; i < 10; i++)
         {
-            handler.Enqueue(HttpStatusCode.OK, BoxJson($"box_{i}"));
+            handler.Enqueue(HttpStatusCode.OK, BoxListJson());
+            handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson($"box_{i}"));
+            handler.Enqueue(HttpStatusCode.OK, BoxInfoJson($"box_{i}"));
         }
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // 10 Box calls (one fork each) — proves we processed exactly 10.
-        handler.CallCount.Should().Be(10);
+        // 30 Box calls (list + fork + name PATCH each) — proves we processed exactly 10.
+        handler.CallCount.Should().Be(30);
 
         var bootingCount = await _db.ProjectRuntimes.CountAsync(r => r.State == RuntimeState.Booting);
         var pendingCount = await _db.ProjectRuntimes.CountAsync(r => r.State == RuntimeState.Pending);
@@ -651,14 +694,16 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson());               // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson("box_abc"));   // fork
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_abc"));      // PATCH name
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        handler.Requests.Should().HaveCount(1);
-        var forkBody = handler.Requests[0].Body;
+        handler.Requests.Should().HaveCount(3);
+        var forkBody = handler.Requests[1].Body;
 
         // BoxClient does NOT camelCase dictionary keys — env var names pass
         // through verbatim, so the daemon reads RUNTIME_ID / GLENN_RUNTIME_TOKEN.
@@ -687,7 +732,9 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson());               // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson("box_abc"));   // fork
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_abc"));      // PATCH name
 
         var job = CreateJob(handler);
 
@@ -715,7 +762,9 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson());               // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson("box_abc"));   // fork
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_abc"));      // PATCH name
 
         var job = CreateJob(handler);
 
@@ -723,7 +772,7 @@ public class RuntimeProvisionerJobTests : IDisposable
 
         // Dig the JWT back out of the captured fork body.
         // (Env var keys pass through verbatim — uppercase GLENN_RUNTIME_TOKEN.)
-        using var doc = JsonDocument.Parse(handler.Requests[0].Body);
+        using var doc = JsonDocument.Parse(handler.Requests[1].Body);
         var token = doc.RootElement
             .GetProperty("env")
             .GetProperty("GLENN_RUNTIME_TOKEN")
@@ -761,7 +810,9 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.UnprocessableEntity, "{\"error\":{\"code\":\"invalid_size\"}}");
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson()); // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.UnprocessableEntity,
+            """{"ok":false,"type":"box.error","status":422,"code":"type_too_small","message":"type too small","error":{"code":"type_too_small","message":"type too small","status":422},"requestId":"req_422b"}""");
 
         var job = CreateJob(handler);
 
@@ -841,15 +892,17 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson());               // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson("box_abc"));   // fork
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_abc"));      // PATCH name
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        // Dig the env dict out of the fork body.
-        handler.Requests.Should().HaveCount(1);
-        using var doc = JsonDocument.Parse(handler.Requests[0].Body);
+        // Dig the env dict out of the fork body (list, FORK, name-patch).
+        handler.Requests.Should().HaveCount(3);
+        using var doc = JsonDocument.Parse(handler.Requests[1].Body);
         var env = doc.RootElement.GetProperty("env");
 
         env.TryGetProperty("TUNNEL_TOKEN", out var tunnelTokenProp).Should().BeTrue(
@@ -878,14 +931,16 @@ public class RuntimeProvisionerJobTests : IDisposable
         await SeedActiveDaemonVersionAsync();
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.OK, BoxJson("box_abc"));
+        handler.Enqueue(HttpStatusCode.OK, BoxListJson());               // adopt-by-name miss
+        handler.Enqueue(HttpStatusCode.OK, BoxCreatedJson("box_abc"));   // fork
+        handler.Enqueue(HttpStatusCode.OK, BoxInfoJson("box_abc"));      // PATCH name
 
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
 
-        handler.Requests.Should().HaveCount(1);
-        using var doc = JsonDocument.Parse(handler.Requests[0].Body);
+        handler.Requests.Should().HaveCount(3);
+        using var doc = JsonDocument.Parse(handler.Requests[1].Body);
         var env = doc.RootElement.GetProperty("env");
 
         env.TryGetProperty("TUNNEL_TOKEN", out _).Should().BeFalse(

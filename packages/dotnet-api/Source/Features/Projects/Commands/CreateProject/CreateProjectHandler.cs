@@ -565,7 +565,7 @@ public sealed class CreateProjectHandler : ICommandHandler<CreateProjectCommand,
             // no longer carries a Spec field — bootstrap reads from the
             // project on every cold-boot. See `project-level-runtime-spec`.
             // Runtime MACHINE spec (CPU/RAM/disk) — snapshot the project's
-            // current default; BoxSizeMapper picks the Box size tier from the
+            // current default; BoxTypeMapper picks the Box machine type from the
             // cpu/mem pair at provision time (rounding up). See
             // Project.DefaultRuntime*.
             CpuKind = project.RuntimeCpuKind,

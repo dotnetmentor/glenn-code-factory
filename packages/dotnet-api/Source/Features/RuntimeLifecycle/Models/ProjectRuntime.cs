@@ -102,7 +102,7 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     /// <summary>
     /// Legacy CPU-class label snapshotted from <c>Project.RuntimeCpuKind</c>.
     /// Box has no CPU-class notion (its tiers are picked from
-    /// <see cref="Cpus"/> + <see cref="MemoryMb"/> via <c>BoxSizeMapper</c>);
+    /// <see cref="Cpus"/> + <see cref="MemoryMb"/> via <c>BoxTypeMapper</c>);
     /// retained for audit of the requested spec only.
     /// </summary>
     public string CpuKind { get; set; } = Project.DefaultRuntimeCpuKind;
@@ -110,7 +110,7 @@ public class ProjectRuntime : Entity, IAuditable, ISoftDelete
     /// <summary>
     /// Requested vCPU count, snapshotted from <c>Project.RuntimeCpus</c>.
     /// Together with <see cref="MemoryMb"/> this picks the Box size tier
-    /// (small 2/4, default 4/8, large 8/16) via <c>BoxSizeMapper</c> — the
+    /// (small 2/4, default 4/8, large 8/16) via <c>BoxTypeMapper</c> — the
     /// mapping rounds up so a runtime never lands on a smaller box than asked.
     /// </summary>
     public int Cpus { get; set; } = Project.DefaultRuntimeCpus;
