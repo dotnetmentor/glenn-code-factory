@@ -221,16 +221,35 @@ public static class BoxRuntimeProvisioning
         var lines = env.Select(kv => $"{kv.Key}='{kv.Value.Replace("'", "'\\''")}'");
         var fileBody = string.Join("\n", lines);
 
+        // Box's commands endpoint executes as the unprivileged `user` account
+        // (passwordless sudo) — /etc/glenn and systemctl need root, hence sudo
+        // on every privileged step.
         var command =
-            $"mkdir -p /etc/glenn && cat > {RuntimeEnvFilePath} <<'GLENN_ENV_EOF'\n"
+            $"sudo mkdir -p /etc/glenn && sudo tee {RuntimeEnvFilePath} >/dev/null <<'GLENN_ENV_EOF'\n"
             + fileBody
             + "\nGLENN_ENV_EOF\n"
-            + $"chmod 600 {RuntimeEnvFilePath} && systemctl restart {DaemonServiceName}";
+            + $"sudo chown agent:agent {RuntimeEnvFilePath} && sudo chmod 600 {RuntimeEnvFilePath}"
+            + $" && sudo systemctl restart {DaemonServiceName}";
 
         // Explicit timeout: the contract default is 30s; a systemctl restart on a
         // just-resumed box can exceed that, so give the refresh a 120s budget.
-        await box.RunCommandAsync(boxId, command, runtimeId, timeoutSeconds: 120, ct: ct);
+        var result = await box.RunCommandAsync(boxId, command, runtimeId, timeoutSeconds: 120, ct: ct);
+
+        // The commands endpoint reports shell failure via exitCode on a 200 —
+        // surface it, otherwise a failed refresh looks like success and the
+        // daemon silently boots with stale env (expired JWT → crash loop).
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Env refresh command on box {boxId} exited with {result.ExitCode?.ToString() ?? "null"}"
+                + $" (timedOut={result.TimedOut}): {Truncate(result.Stderr, 500)}");
+        }
     }
+
+    private static string Truncate(string? value, int max) =>
+        string.IsNullOrEmpty(value) ? string.Empty
+        : value.Length <= max ? value
+        : value[..max];
 
     /// <summary>
     /// Build the env-var contract the daemon boots with — shared by the provisioner

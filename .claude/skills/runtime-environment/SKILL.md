@@ -115,11 +115,17 @@ next daemon restart.
 | `DAEMON_VERSION` / `DAEMON_BUNDLE_URL` / `DAEMON_BUNDLE_SHA256` | Informational stamps — bootstrap re-resolves at boot |
 | `TUNNEL_TOKEN` / `PREVIEW_PORT` / `PREVIEW_HOSTNAME` | Cloudflare preview tunnel trio (when the branch has an assigned subdomain) |
 
-Delivery: per-fork env at fork time (primary) + `/etc/glenn/runtime.env`
-(refresh channel, written via `POST /boxes/{id}/command` — singular). The
-`glenn-daemon.service` unit loads both (`EnvironmentFile=-/etc/environment` then
-`-/etc/glenn/runtime.env`). `scripts/box-smoke-test.sh` item 10 verifies where
-Box actually lands per-fork env — check it after any Box platform change.
+Delivery: Box exposes per-fork/resume env to command processes and persists it
+at `/run/ascii-secrets/env.sh` (`export KEY=value` lines) — it does NOT write
+`/etc/environment` or the systemd environment. The template's `glenn-env-sync`
+shim (`ExecStartPre=+` in `glenn-daemon.service`) converts that file into
+`/etc/glenn/box-env.env` before every daemon start. The unit then layers
+(later file wins): `/etc/environment` → `/etc/glenn/box-env.env` →
+`/etc/glenn/runtime.env` (refresh channel, written via
+`POST /boxes/{id}/commands` — plural, `sudo` required: commands run as the
+unprivileged `user` account). `scripts/box-smoke-test.sh` item 10 pins both the
+process-env delivery and the `/run/ascii-secrets/env.sh` location — check it
+after any Box platform change.
 
 ## Respawn (crash recovery)
 

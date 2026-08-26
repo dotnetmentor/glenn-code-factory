@@ -39,7 +39,7 @@
 #   CI_PUBLISH_KEY     publish API key for POST /api/admin/runtime-templates
 #   KEEP_RUNNING=1     skip the final stop (debugging the provision interactively)
 #
-# NOTE (first-run verification): the exact Box wire shapes (create body, /command
+# NOTE (first-run verification): the exact Box wire shapes (create body, /commands
 # endpoint response, stop semantics) are pinned by scripts/box-smoke-test.sh — run
 # that FIRST on a fresh account and fix any drift here before trusting this script.
 # =====================================================================================
@@ -71,7 +71,7 @@ api() { # api METHOD PATH [JSON_BODY]
 }
 
 # Run a shell command inside the box, failing loudly on non-zero exit.
-# Uses the contract's SINGULAR /command endpoint with an explicit timeoutSeconds
+# Uses the contract's PLURAL /commands endpoint with an explicit timeoutSeconds
 # (default here 600 — the apt/npm provisioning steps need the contract maximum;
 # the API default of 30s would kill them mid-flight).
 box_exec() { # box_exec BOX_ID DESCRIPTION COMMAND [TIMEOUT_SECONDS]
@@ -79,8 +79,24 @@ box_exec() { # box_exec BOX_ID DESCRIPTION COMMAND [TIMEOUT_SECONDS]
     echo "  → $desc"
     local payload result exit_code
     payload=$(python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1], "timeoutSeconds": int(sys.argv[2])}))' "$cmd" "$timeout_s")
-    result=$(api POST "/boxes/$box_id/command" "$payload")
-    exit_code=$(echo "$result" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("exitCode", 0) if d.get("exitCode") is not None else 0)' 2>/dev/null || echo 0)
+    result=$(api POST "/boxes/$box_id/commands" "$payload")
+    # An API error envelope ({"ok":false,...}) carries NO exitCode — it must fail
+    # the build, never default to success. (The 2026-08 empty-template incident:
+    # every step 404'd against a renamed endpoint and this parser treated the
+    # error envelopes as exit 0, registering a stock-image template as Active.)
+    exit_code=$(echo "$result" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("UNPARSEABLE_RESPONSE"); sys.exit(0)
+if d.get("ok") is False:
+    print("API_ERROR:" + str(d.get("code") or "unknown"))
+elif "exitCode" not in d:
+    print("NO_EXIT_CODE_IN_RESPONSE")
+else:
+    print(d["exitCode"] if d["exitCode"] is not None else "NULL_EXIT_CODE")
+' 2>/dev/null || echo "PARSER_FAILED")
     if [[ "$exit_code" != "0" ]]; then
         echo "❌ step failed (exit $exit_code): $desc"
         echo "$result" | head -c 4000
@@ -177,6 +193,7 @@ box_exec "$BOX_ID" "Playwright + Chromium (system-wide)" \
     "sudo mkdir -p /opt/playwright-browsers && sudo chown -R agent:agent /opt/playwright-browsers && sudo npm install -g playwright@latest && sudo PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers npx playwright install --with-deps chromium && sudo npm cache clean --force && echo 'PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers' | sudo tee -a /etc/environment >/dev/null"
 
 echo "📄 Installing platform scripts + supervisord config ..."
+box_put_file "$BOX_ID" "$REPO_ROOT/docker/glenn-env-sync.sh"      /usr/local/bin/glenn-env-sync      755
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/bootstrap-daemon.sh"    /usr/local/bin/bootstrap-daemon.sh 755
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/entrypoint.sh"          /usr/local/bin/entrypoint.sh       755
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/agent-debug.sh"         /usr/local/bin/agent-debug         755
@@ -187,12 +204,17 @@ box_put_file "$BOX_ID" "$REPO_ROOT/docker/supervisord.base.conf"  /etc/superviso
 echo "⚙️  Installing the glenn-daemon systemd unit ..."
 # The unit is the load-bearing piece: enabled systemd services survive Box's
 # stop/resume/fork, so a forked runtime box boots supervisord + the daemon with no
-# outside help. Env layering, first match wins per key (systemd reads top-down):
+# outside help. Env layering — systemd reads EnvironmentFile= top-down and LATER
+# files override earlier ones per key:
+#   /etc/environment        — legacy fallback (Box does NOT write per-fork env
+#                             here — smoke-test item 10 pins that; harmless if empty)
+#   /etc/glenn/box-env.env  — fork/resume-time identity, materialized from Box's
+#                             /run/ascii-secrets/env.sh by the glenn-env-sync
+#                             ExecStartPre shim (runs as root via the `+` prefix)
 #   /etc/glenn/runtime.env  — the platform's refresh channel (provisioner/respawn
 #                             write it via the commands API; fresh JWTs land here)
-#   /etc/environment        — Box-injected account/per-fork env (spike-verified
-#                             delivery channel; harmless if empty)
-# Both files are optional (`-` prefix) so a template box with neither still boots.
+#                             — deliberately LAST so it wins on conflicts.
+# All files are optional (`-` prefix) so a template box with none still boots.
 UNIT_B64=$(base64 -w0 <<'UNIT'
 [Unit]
 Description=Glenn runtime (supervisord + agent daemon)
@@ -202,7 +224,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=agent
+ExecStartPre=+/usr/local/bin/glenn-env-sync
 EnvironmentFile=-/etc/environment
+EnvironmentFile=-/etc/glenn/box-env.env
 EnvironmentFile=-/etc/glenn/runtime.env
 Environment=NODE_ENV=production
 Environment=MISE_DATA_DIR=/data/mise

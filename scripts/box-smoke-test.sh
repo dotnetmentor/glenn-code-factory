@@ -15,7 +15,7 @@
 #   3.  POST /boxes {type} — NO name field; name via PATCH after    (CreateBoxAsync + SetNameAsync)
 #   4.  GET  /boxes/{id} — box.info envelope, `state` vocabulary    (GetBoxAsync / BoxStates)
 #   5.  GET  /boxes — box.list envelope {"boxes":[...]}             (ListBoxesAsync)
-#   6.  POST /boxes/{id}/command {command,timeoutSeconds} SINGULAR  (RunCommandAsync)
+#   6.  POST /boxes/{id}/commands {command,timeoutSeconds} PLURAL    (RunCommandAsync)
 #   7.  POST /boxes/{id}/stop → state becomes "archived"            (StopBoxAsync)
 #   8.  POST /boxes/{id}/resume → box up again, disk intact         (ResumeBoxAsync)
 #   9.  POST /boxes/{id}/fork {type,env,noEnv,ttlSeconds} — no name (ForkBoxAsync)
@@ -75,7 +75,7 @@ split_resp() { # sets RESP_BODY, RESP_CODE from api output
     RESP_BODY="${1%$'\n'*}"
 }
 
-# Build a /command body with an explicit timeout (contract default is 30s, max 600).
+# Build a /commands body with an explicit timeout (contract default is 30s, max 600).
 cmd_body() { # cmd_body COMMAND [TIMEOUT_SECONDS]
     python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1], "timeoutSeconds": int(sys.argv[2])}))' \
         "$1" "${2:-120}"
@@ -129,14 +129,14 @@ else
     bad "GET /boxes unexpected body: $(echo "$RESP_BODY" | head -c 200)"
 fi
 
-echo "── 6. Command endpoint (SINGULAR /command) + contract response fields"
-split_resp "$(api POST "/boxes/$BOX_ID/command" "$(cmd_body 'echo smoke-$((6*7)) && touch /root/smoke-marker || touch ~/smoke-marker' 120)")"
+echo "── 6. Command endpoint (PLURAL /commands) + contract response fields"
+split_resp "$(api POST "/boxes/$BOX_ID/commands" "$(cmd_body 'echo smoke-$((6*7)) && touch /root/smoke-marker || touch ~/smoke-marker' 120)")"
 if [[ "$RESP_CODE" =~ ^2 ]] && echo "$RESP_BODY" | grep -q "smoke-42"; then
-    ok "POST /boxes/{id}/command runs shell and returns stdout"
+    ok "POST /boxes/{id}/commands runs shell and returns stdout"
     EXIT_CODE=$(json_get "$RESP_BODY" 'd.get("exitCode","MISSING")')
     [[ "$EXIT_CODE" == "0" ]] && ok "command response carries exitCode=0 (camelCase per contract)" || bad "exitCode missing/nonzero: '$EXIT_CODE' — CHECK RunBoxCommandResponse shape"
 else
-    bad "command → $RESP_CODE : $(echo "$RESP_BODY" | head -c 300) — CHECK RunBoxCommandRequest/Response shapes (path must be /command, singular)"
+    bad "command → $RESP_CODE : $(echo "$RESP_BODY" | head -c 300) — CHECK RunBoxCommandRequest/Response shapes (path must be /commands, plural)"
 fi
 
 echo "── 7. Stop → archived (+ marker persists)"
@@ -162,7 +162,7 @@ for i in $(seq 1 40); do
 done
 if [[ "$LAST_STATE" =~ ^(ready|idle|running)$ ]]; then
     ok "resume → up in $(( $(date +%s) - RESUME_T0 ))s (wake latency data point)"
-    split_resp "$(api POST "/boxes/$BOX_ID/command" "$(cmd_body 'ls /root/smoke-marker ~/smoke-marker 2>/dev/null | head -1' 120)")"
+    split_resp "$(api POST "/boxes/$BOX_ID/commands" "$(cmd_body 'ls /root/smoke-marker ~/smoke-marker 2>/dev/null | head -1' 120)")"
     echo "$RESP_BODY" | grep -q "smoke-marker" && ok "disk survived stop/resume" || bad "marker file missing after resume — persistence assumption broken!"
 else
     bad "box didn't come back up after resume; last='$LAST_STATE'"
@@ -187,15 +187,25 @@ if [[ -n "$FORK_ID" ]]; then
         sleep 2
     done
     ok "fork up as '$LAST_STATE'"
-    split_resp "$(api POST "/boxes/$FORK_ID/command" "$(cmd_body 'echo PROC:$RUNTIME_ID; grep -l RUNTIME_ID /etc/environment /etc/profile.d/*.sh /run/box* 2>/dev/null | head -3; sudo systemctl show-environment 2>/dev/null | grep RUNTIME_ID' 120)")"
+    split_resp "$(api POST "/boxes/$FORK_ID/commands" "$(cmd_body 'echo PROC:$RUNTIME_ID; grep -l RUNTIME_ID /etc/environment /etc/profile.d/*.sh 2>/dev/null | head -3; sudo grep -l RUNTIME_ID /run/ascii-secrets/env.sh 2>/dev/null; sudo systemctl show-environment 2>/dev/null | grep RUNTIME_ID' 120)")"
     echo "  ── env delivery probe output (WHERE does per-fork env land?):"
     echo "$RESP_BODY" | head -c 600 | sed 's/^/     /'
-    if echo "$RESP_BODY" | grep -q "smoke-runtime-id-123"; then
-        ok "per-fork env reaches the fork (adjust glenn-daemon.service EnvironmentFile per probe above if needed)"
+    if echo "$RESP_BODY" | grep -q "PROC:smoke-runtime-id-123"; then
+        ok "per-fork env reaches command processes"
     else
         bad "per-fork env NOT visible in the fork — the provisioner env contract needs a different delivery channel (files/command refresh works regardless, but verify!)"
     fi
-    split_resp "$(api POST "/boxes/$FORK_ID/command" "$(cmd_body 'ls /root/smoke-marker ~/smoke-marker 2>/dev/null | head -1' 120)")"
+    # Box does NOT write per-fork env to /etc/environment or the systemd
+    # environment — it persists it at /run/ascii-secrets/env.sh (export lines).
+    # glenn-daemon.service depends on the glenn-env-sync ExecStartPre shim
+    # converting that file into /etc/glenn/box-env.env; if this channel moves,
+    # docker/glenn-env-sync.sh must move with it.
+    if echo "$RESP_BODY" | grep -q "/run/ascii-secrets/env.sh"; then
+        ok "per-fork env persisted at /run/ascii-secrets/env.sh (glenn-env-sync's source)"
+    else
+        bad "per-fork env NOT at /run/ascii-secrets/env.sh — glenn-env-sync (and the daemon's env delivery) is broken; find the new channel"
+    fi
+    split_resp "$(api POST "/boxes/$FORK_ID/commands" "$(cmd_body 'ls /root/smoke-marker ~/smoke-marker 2>/dev/null | head -1' 120)")"
     echo "$RESP_BODY" | grep -q "smoke-marker" && ok "fork inherited the source's disk" || bad "fork did NOT inherit source disk"
 fi
 
@@ -209,10 +219,13 @@ split_resp "$(api GET "/boxes/$BOX_ID/snapshots")"
 split_resp "$(api GET "/boxes/$BOX_ID/snapshots/latest")"
 [[ "$RESP_CODE" =~ ^(200|404)$ ]] && ok "GET /boxes/{id}/snapshots/latest → $RESP_CODE" || bad "latest snapshot → $RESP_CODE"
 
-echo "── 12b. WebGL via headless Chrome + SwiftShader (agent self-validation path)"
-# Boxes ship Chrome but no GPU. The agent's whole "look at my own frontend work"
-# loop depends on software WebGL actually producing pixels, so prove it on a
-# stock box: draw a red frame in WebGL, read the pixel back, print a verdict.
+echo "── 12b. WebGL via Playwright Chromium + SwiftShader (agent self-validation path)"
+# Boxes have no GPU. The agent's whole "look at my own frontend work" loop
+# (snap-preview) depends on software WebGL producing pixels through PLAYWRIGHT's
+# bundled Chromium — the same stack the golden template bakes. The stock image's
+# repackaged google-chrome-stable has a broken SwANGLE (Vulkan init error -3),
+# so probing it proves nothing about the platform path: install playwright-core
+# on the scratch box and probe with snap-preview's exact flags instead.
 WEBGL_HTML_B64=$(base64 -w0 <<'HTML'
 <!doctype html><canvas id="c" width="8" height="8"></canvas><script>
 const c = document.getElementById('c');
@@ -229,14 +242,37 @@ else {
 </script>
 HTML
 )
-WEBGL_CMD="echo '$WEBGL_HTML_B64' | base64 -d > /tmp/webgl-probe.html && CHROME=\$(command -v google-chrome-stable || command -v chromium-browser || command -v chromium) && timeout 90 \"\$CHROME\" --headless=new --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader --enable-unsafe-swiftshader --disable-gpu-compositing --virtual-time-budget=5000 --dump-dom file:///tmp/webgl-probe.html 2>/dev/null | grep -o 'WEBGL_[A-Z_]*[^<]*' | head -1"
-split_resp "$(api POST "/boxes/$BOX_ID/command" "$(cmd_body "$WEBGL_CMD" 180)")"
+# Mirrors docker/snap-preview.cjs: playwright chromium, headless, swiftshader
+# flags. playwright-core install is the slow part (~2-4 min on a stock box).
+WEBGL_CMD="echo '$WEBGL_HTML_B64' | base64 -d > /tmp/webgl-probe.html
+set -e
+export PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers
+mkdir -p /tmp/pw-webgl && cd /tmp/pw-webgl
+[ -f package.json ] || npm init -y >/dev/null 2>&1
+npm install playwright-core >/dev/null 2>&1
+npx playwright-core install chromium >/dev/null 2>&1
+cat > probe.js <<'PROBE_EOF'
+const { chromium } = require('playwright-core');
+(async () => {
+  const browser = await chromium.launch({ headless: true, args: [
+    '--no-sandbox', '--disable-dev-shm-usage',
+    '--use-angle=swiftshader', '--enable-unsafe-swiftshader'
+  ]});
+  const page = await browser.newPage();
+  await page.goto('file:///tmp/webgl-probe.html');
+  await page.waitForTimeout(2000);
+  console.log(await page.evaluate(() => document.body.textContent));
+  await browser.close();
+})().catch(e => { console.log('WEBGL_PROBE_ERROR ' + e.message.slice(0, 200)); process.exit(1); });
+PROBE_EOF
+node probe.js"
+split_resp "$(api POST "/boxes/$BOX_ID/commands" "$(cmd_body "$WEBGL_CMD" 600)")"
 if echo "$RESP_BODY" | grep -q "WEBGL_DRAW_OK"; then
-    ok "software WebGL renders + reads back correct pixels: $(echo "$RESP_BODY" | grep -o 'WEBGL_DRAW_OK[^\"]*' | head -c 120)"
+    ok "software WebGL renders + reads back correct pixels via Playwright Chromium: $(echo "$RESP_BODY" | grep -o 'WEBGL_DRAW_OK[^\"]*' | head -c 120)"
 elif echo "$RESP_BODY" | grep -q "WEBGL_"; then
     bad "WebGL probe ran but did not draw: $(echo "$RESP_BODY" | grep -o 'WEBGL_[^\"]*' | head -c 200) — agent visual self-validation (snap-preview) would be broken!"
 else
-    bad "WebGL probe could not run (no Chrome on stock box, or command failed): $(echo "$RESP_BODY" | head -c 300)"
+    bad "WebGL probe could not run (playwright install or node failed): $(echo "$RESP_BODY" | head -c 300)"
 fi
 
 echo "── 13. Delete (X-Ascii-Confirm-Delete confirmation header; 409 without it)"
