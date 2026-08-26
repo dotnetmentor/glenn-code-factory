@@ -115,7 +115,9 @@ else:
 box_put_file() { # box_put_file BOX_ID LOCAL_PATH REMOTE_PATH MODE
     local box_id="$1" local_path="$2" remote_path="$3" mode="$4"
     local b64
-    b64=$(base64 -w0 "$local_path")
+    # python3, not `base64 -w0 FILE`: macOS/BSD base64 takes no positional file
+    # argument, so the GNU form breaks local (non-CI) template builds.
+    b64=$(python3 -c 'import base64,sys;sys.stdout.write(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$local_path")
     box_exec "$box_id" "install $(basename "$local_path") → $remote_path" \
         "sudo mkdir -p $(dirname "$remote_path") && echo '$b64' | base64 -d | sudo tee $remote_path >/dev/null && sudo chmod $mode $remote_path"
 }
