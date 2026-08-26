@@ -296,8 +296,8 @@ export const getApiAdminBoxBoxesIdParams = zod.object({
 export const getApiAdminBoxBoxesIdResponse = zod.object({
   "id": zod.string(),
   "name": zod.string().nullish(),
-  "status": zod.string(),
-  "size": zod.string().nullish(),
+  "state": zod.string(),
+  "type": zod.string().nullish(),
   "region": zod.string().nullish(),
   "ttlSeconds": zod.number().nullish(),
   "createdAt": zod.iso.datetime({}).nullish()
@@ -342,25 +342,6 @@ export const getApiAdminBoxSnapshotsResponseItem = zod.object({
   "isOrphan": zod.boolean()
 })
 export const getApiAdminBoxSnapshotsResponse = zod.array(getApiAdminBoxSnapshotsResponseItem)
-
-
-export const deleteApiAdminBoxSnapshotsIdParams = zod.object({
-  "id": zod.string()
-})
-
-
-export const postApiAdminBoxSnapshotsBulkDeleteBody = zod.object({
-  "ids": zod.array(zod.string())
-})
-
-export const postApiAdminBoxSnapshotsBulkDeleteResponse = zod.object({
-  "requested": zod.number(),
-  "succeeded": zod.number(),
-  "failed": zod.array(zod.object({
-  "id": zod.string(),
-  "error": zod.string()
-}))
-})
 
 
 export const postApiAdminBoxTestConnectionResponse = zod.object({

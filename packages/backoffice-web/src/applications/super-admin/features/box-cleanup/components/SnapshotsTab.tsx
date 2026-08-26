@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   Alert,
   Box,
   Button,
-  Checkbox,
   CircularProgress,
   Chip,
   IconButton,
@@ -18,27 +17,17 @@ import {
   Typography,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import DeleteIcon from '@mui/icons-material/Delete'
-import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import { formatDistanceToNow, parseISO } from 'date-fns'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   type BoxSnapshotAdminRow,
-  type BulkDeleteResponse,
   getGetApiAdminBoxSnapshotsQueryKey,
-  useDeleteApiAdminBoxSnapshotsId,
   useGetApiAdminBoxSnapshots,
-  usePostApiAdminBoxSnapshotsBulkDelete,
 } from '@/api/queries-commands'
-import { useNotification } from '../../../../shared/contexts/NotificationContext'
-import {
-  BULK_DELETE_LIMIT,
-  useBoxCleanupSelection,
-} from '../hooks/useBoxCleanupSelection'
+import { useBoxCleanupSelection } from '../hooks/useBoxCleanupSelection'
 import { LinkageBadge } from './LinkageBadge'
-import { BulkDeleteDialog, type BulkDeleteItem } from './BulkDeleteDialog'
 
-const COLUMN_COUNT = 7
+const COLUMN_COUNT = 5
 const DASH = '—'
 
 function formatRelative(iso: string | null | undefined): string {
@@ -64,104 +53,26 @@ function formatBytes(bytes: number | null | undefined): string {
   return `${Math.round(bytes / 1024)} KB`
 }
 
+/**
+ * Read-only snapshot inventory. The Box API has no snapshot-delete endpoint —
+ * snapshots live and die with their box (deleting the box removes them), so
+ * cleanup happens in the Boxes tab. This tab exists to see where snapshot
+ * storage sits and to spot orphans whose box row we no longer track.
+ */
 export function SnapshotsTab() {
   const queryClient = useQueryClient()
-  const { showSuccess, showError } = useNotification()
 
   const query = useGetApiAdminBoxSnapshots()
-  const bulkDelete = usePostApiAdminBoxSnapshotsBulkDelete()
-  const singleDelete = useDeleteApiAdminBoxSnapshotsId()
-
   const rows = useMemo(() => query.data ?? [], [query.data])
 
-  const {
-    filtered,
-    filter,
-    setOrphansOnly,
-    setAge,
-    selectedIds,
-    isSelected,
-    toggleOne,
-    selectAllVisible,
-    selectVisibleOrphans,
-    clearSelection,
-    selectedCount,
-    exceedsLimit,
-  } = useBoxCleanupSelection<BoxSnapshotAdminRow>({
-    rows,
-    includeStatusFilter: false,
-  })
-
-  const [bulkOpen, setBulkOpen] = useState(false)
-  const [lastBulkResult, setLastBulkResult] = useState<BulkDeleteResponse | null>(null)
-
-  const selectedItems: BulkDeleteItem[] = useMemo(
-    () =>
-      filtered
-        .filter((r) => selectedIds.has(r.id))
-        .map((r) => ({
-          id: r.id,
-          name: r.id,
-          isOrphan: r.isOrphan,
-        })),
-    [filtered, selectedIds],
-  )
-
-  const allVisibleSelected =
-    filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id))
+  const { filtered, filter, setOrphansOnly, setAge } =
+    useBoxCleanupSelection<BoxSnapshotAdminRow>({
+      rows,
+      includeStatusFilter: false,
+    })
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: getGetApiAdminBoxSnapshotsQueryKey() })
-  }
-
-  const openBulkDialog = () => {
-    if (selectedCount === 0 || exceedsLimit) return
-    setLastBulkResult(null)
-    setBulkOpen(true)
-  }
-
-  const handleBulkConfirm = async () => {
-    try {
-      const result = await bulkDelete.mutateAsync({
-        data: { ids: selectedItems.map((it) => it.id) },
-      })
-      setLastBulkResult(result)
-      await queryClient.invalidateQueries({
-        queryKey: getGetApiAdminBoxSnapshotsQueryKey(),
-      })
-      if (result.failed.length === 0) {
-        showSuccess(`Deleted ${result.succeeded} snapshots.`)
-        clearSelection()
-        setBulkOpen(false)
-      } else {
-        showError(
-          `Deleted ${result.succeeded}. ${result.failed.length} failed.`,
-        )
-      }
-    } catch {
-      showError('Bulk delete request failed.')
-    }
-  }
-
-  const handleSingleDelete = async (row: BoxSnapshotAdminRow) => {
-    const label = row.isOrphan
-      ? `Delete orphan snapshot ${shortId(row.id)}?`
-      : `Delete LINKED snapshot ${shortId(row.id)}? Runtime ${row.linkedRuntimeId ?? '?'} still references it — resuming that runtime will break.`
-    if (!window.confirm(label)) return
-    try {
-      await singleDelete.mutateAsync({ id: row.id })
-      await queryClient.invalidateQueries({
-        queryKey: getGetApiAdminBoxSnapshotsQueryKey(),
-      })
-      showSuccess(`Deleted snapshot ${shortId(row.id)}.`)
-    } catch {
-      showError(`Could not delete snapshot ${shortId(row.id)}.`)
-    }
-  }
-
-  const handleToggleAllVisible = () => {
-    if (allVisibleSelected) clearSelection()
-    else selectAllVisible()
   }
 
   const hasRows = rows.length > 0
@@ -171,70 +82,48 @@ export function SnapshotsTab() {
 
   return (
     <Stack spacing={3}>
-      {/* Filter / toolbar row */}
-      <Stack spacing={1.5}>
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
-            Age:
-          </Typography>
-          {([
-            { key: 'all' as const, label: 'All' },
-            { key: '1d' as const, label: '>1 day' },
-            { key: '7d' as const, label: '>7 days' },
-            { key: '30d' as const, label: '>30 days' },
-          ]).map((opt) => (
-            <Chip
-              key={opt.key}
-              size="small"
-              label={opt.label}
-              onClick={() => setAge(opt.key)}
-              color={filter.age === opt.key ? 'primary' : 'default'}
-              variant={filter.age === opt.key ? 'filled' : 'outlined'}
-            />
-          ))}
-          <Box sx={{ width: 16 }} />
-          <Chip
-            size="small"
-            label="Orphans only"
-            onClick={() => setOrphansOnly(!filter.orphansOnly)}
-            color={filter.orphansOnly ? 'primary' : 'default'}
-            variant={filter.orphansOnly ? 'filled' : 'outlined'}
-          />
-        </Stack>
+      <Alert severity="info">
+        Snapshots are managed by Box and cannot be deleted directly — they are
+        removed together with their box. To reclaim snapshot storage, delete the
+        owning box in the Boxes tab.
+      </Alert>
 
-        <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap alignItems="center">
-          <Button size="small" variant="outlined" onClick={selectAllVisible}>
-            Select all visible
-          </Button>
-          <Button size="small" variant="outlined" onClick={selectVisibleOrphans}>
-            Select orphans
-          </Button>
-          <Button size="small" variant="text" onClick={clearSelection} disabled={selectedCount === 0}>
-            Clear selection
-          </Button>
-          <Box sx={{ flexGrow: 1 }} />
-          {exceedsLimit && (
-            <Typography variant="caption" color="error">
-              Select up to {BULK_DELETE_LIMIT} at a time
-            </Typography>
-          )}
-          <Button
-            variant="contained"
-            color="error"
-            startIcon={<DeleteForeverIcon />}
-            disabled={selectedCount === 0 || exceedsLimit || bulkDelete.isPending}
-            onClick={openBulkDialog}
-          >
-            Delete {selectedCount} selected
-          </Button>
-          <Tooltip title="Refresh list">
-            <span>
-              <IconButton onClick={handleRefresh} disabled={isFetching}>
-                {isFetching ? <CircularProgress size={18} /> : <RefreshIcon />}
-              </IconButton>
-            </span>
-          </Tooltip>
-        </Stack>
+      {/* Filter / toolbar row */}
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+        <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
+          Age:
+        </Typography>
+        {([
+          { key: 'all' as const, label: 'All' },
+          { key: '1d' as const, label: '>1 day' },
+          { key: '7d' as const, label: '>7 days' },
+          { key: '30d' as const, label: '>30 days' },
+        ]).map((opt) => (
+          <Chip
+            key={opt.key}
+            size="small"
+            label={opt.label}
+            onClick={() => setAge(opt.key)}
+            color={filter.age === opt.key ? 'primary' : 'default'}
+            variant={filter.age === opt.key ? 'filled' : 'outlined'}
+          />
+        ))}
+        <Box sx={{ width: 16 }} />
+        <Chip
+          size="small"
+          label="Orphans only"
+          onClick={() => setOrphansOnly(!filter.orphansOnly)}
+          color={filter.orphansOnly ? 'primary' : 'default'}
+          variant={filter.orphansOnly ? 'filled' : 'outlined'}
+        />
+        <Box sx={{ flexGrow: 1 }} />
+        <Tooltip title="Refresh list">
+          <span>
+            <IconButton onClick={handleRefresh} disabled={isFetching}>
+              {isFetching ? <CircularProgress size={18} /> : <RefreshIcon />}
+            </IconButton>
+          </span>
+        </Tooltip>
       </Stack>
 
       {error instanceof Error && (
@@ -253,21 +142,11 @@ export function SnapshotsTab() {
       <Table size="small">
         <TableHead>
           <TableRow>
-            <TableCell padding="checkbox">
-              <Checkbox
-                size="small"
-                checked={allVisibleSelected}
-                indeterminate={!allVisibleSelected && selectedCount > 0}
-                onChange={handleToggleAllVisible}
-                disabled={filtered.length === 0}
-              />
-            </TableCell>
             <TableCell>Linkage</TableCell>
             <TableCell>ID</TableCell>
             <TableCell>Box</TableCell>
             <TableCell>Size</TableCell>
             <TableCell>Created</TableCell>
-            <TableCell align="right">Actions</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -308,14 +187,7 @@ export function SnapshotsTab() {
 
           {!isLoading &&
             filtered.map((row) => (
-              <TableRow key={row.id} hover selected={isSelected(row.id)}>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    size="small"
-                    checked={isSelected(row.id)}
-                    onChange={() => toggleOne(row.id)}
-                  />
-                </TableCell>
+              <TableRow key={row.id} hover>
                 <TableCell>
                   <LinkageBadge
                     isOrphan={row.isOrphan}
@@ -358,34 +230,10 @@ export function SnapshotsTab() {
                     </Typography>
                   </Tooltip>
                 </TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Delete this snapshot">
-                    <span>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => handleSingleDelete(row)}
-                        disabled={singleDelete.isPending}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </TableCell>
               </TableRow>
             ))}
         </TableBody>
       </Table>
-
-      <BulkDeleteDialog
-        open={bulkOpen}
-        onClose={() => setBulkOpen(false)}
-        resourceKind="snapshots"
-        items={selectedItems}
-        isSubmitting={bulkDelete.isPending}
-        lastResult={lastBulkResult}
-        onConfirm={handleBulkConfirm}
-      />
     </Stack>
   )
 }
