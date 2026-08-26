@@ -283,8 +283,11 @@ echo "✅ template box archived: $BOX_ID (label: $LABEL)"
 if [[ -n "${REGISTER_URL:-}" && -n "${CI_PUBLISH_KEY:-}" ]]; then
     echo "📮 Registering template with the platform ..."
     BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # CiPublishAuthenticationHandler validates the X-Ci-Publish-Key header —
+    # NOT Authorization: Bearer (that path expects a real JWT and 401s on a raw
+    # API key). Same header publish-daemon.sh uses via ci_publish_auth_header.
     curl -fsS -X POST "$REGISTER_URL/api/admin/runtime-templates" \
-        -H "Authorization: Bearer $CI_PUBLISH_KEY" \
+        -H "X-Ci-Publish-Key: $CI_PUBLISH_KEY" \
         -H "Content-Type: application/json" \
         -d "$(python3 -c 'import json,sys; print(json.dumps({"boxId": sys.argv[1], "label": sys.argv[2], "gitSha": sys.argv[3], "builtAt": sys.argv[4], "notes": None}))' "$BOX_ID" "$LABEL" "$GIT_SHA" "$BUILT_AT")" \
         >/dev/null
