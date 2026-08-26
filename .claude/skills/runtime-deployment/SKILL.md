@@ -32,8 +32,15 @@ Two independently-shippable artifacts:
 
 | Artifact | Ships when | How | Rollout |
 |----------|-----------|-----|---------|
-| **Daemon bundle** | daemon code / SignalR contract changes | `./scripts/publish-daemon.sh` (see `daemon-deploy` skill) | auto — bootstrap re-resolves the bundle on every daemon restart; respawn/restart runtimes to force it |
-| **Golden template** | system stack changes (Node, postgres, playwright, systemd unit, bootstrap script) | `./scripts/build-box-template.sh` | new forks only — existing runtimes keep their disk; force-recreate (reset-from-scratch) to move one |
+| **Daemon bundle** | daemon code / SignalR contract changes | **CI**: `.github/workflows/publish-daemon.yml` on merge to main (path-filtered); manual fallback `./scripts/publish-daemon.sh` (see `daemon-deploy` skill) | auto — bootstrap re-resolves the bundle on every daemon restart; respawn/restart runtimes to force it |
+| **Golden template** | system stack changes (Node, postgres, playwright, systemd unit, bootstrap script) | **CI**: `.github/workflows/build-runtime-template.yml` on merge to main when `docker/**` or the build script change (+ `workflow_dispatch`); manual fallback `./scripts/build-box-template.sh` | new forks only — existing runtimes keep their disk; force-recreate (reset-from-scratch) to move one |
+
+Wire-assumption verification also has a CI surface: `.github/workflows/box-smoke-test.yml`
+(`workflow_dispatch` only) runs `box-smoke-test.sh` from a GitHub runner — use it on a
+fresh Box account or suspected wire drift without needing local credentials.
+
+CI secrets required (repo settings): `BOX_API_KEY`, `CONTROL_PLANE_API`,
+`CONTROL_PLANE_PUBLISH_API_KEY` (same value as `CiPublish__ApiKey` on the API host).
 
 ## Prerequisites
 
@@ -67,9 +74,11 @@ Rules:
   drifts from what was validated (forks take the latest snapshot).
 - `BoxAdminController` refuses to delete a registered template box; yank the
   registration first if you truly mean it.
-- Debugging a build: `KEEP_RUNNING=1` leaves the box up; stop it manually when done.
-- No CI workflow builds templates (needs a live Box account) — it's an operator
-  action; `scripts/ci/publish-paths.sh` still classifies the input paths.
+- Debugging a build: `KEEP_RUNNING=1` leaves the box up; stop it manually when
+  done (the dispatch input `keep_running` does the same from CI).
+- Normal path is CI (`build-runtime-template.yml`): merge to main touching
+  `docker/**` or the build script rebuilds + registers automatically; a failed
+  build's box self-archives via Box's default 1-hour TTL.
 
 ## Provisioning a fresh runtime to verify the stack
 
