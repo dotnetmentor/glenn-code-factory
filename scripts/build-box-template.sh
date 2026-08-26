@@ -189,8 +189,13 @@ box_exec "$BOX_ID" "mise $MISE_VERSION" \
 box_exec "$BOX_ID" "agent user (uid 1001) + sudoers + docker group" \
     "id -u agent >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/bash --uid 1001 agent; sudo mkdir -p /data /opt/agent /var/log/supervisor /etc/supervisor/conf.d /etc/glenn && sudo chown -R agent:agent /data /opt/agent /var/log/supervisor /etc/supervisor/conf.d && echo 'agent ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/agent >/dev/null && sudo chmod 0440 /etc/sudoers.d/agent && sudo visudo -c -f /etc/sudoers.d/agent && (getent group docker >/dev/null 2>&1 || sudo groupadd docker) && sudo usermod -aG docker agent"
 
-box_exec "$BOX_ID" "Playwright + Chromium (system-wide)" \
-    "sudo mkdir -p /opt/playwright-browsers && sudo chown -R agent:agent /opt/playwright-browsers && sudo npm install -g playwright@latest && sudo PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers npx playwright install --with-deps chromium && sudo npm cache clean --force && echo 'PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers' | sudo tee -a /etc/environment >/dev/null"
+# Playwright lives in a FIXED local install (/opt/snap-preview/node_modules),
+# not `npm -g`: the Box stock image ships its own node under /usr/local/bin, so
+# root's `npm install -g` (sudo secure_path → /usr/bin/npm → /usr/lib) and the
+# wrapper's `npm root -g` (PATH-dependent) can resolve DIFFERENT global roots —
+# require('playwright') then misses. A pinned path is ambiguity-free.
+box_exec "$BOX_ID" "Playwright + Chromium (pinned /opt/snap-preview install)" \
+    "sudo mkdir -p /opt/playwright-browsers /opt/snap-preview && sudo chown -R agent:agent /opt/playwright-browsers && cd /opt/snap-preview && sudo npm install playwright@latest && sudo PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers /opt/snap-preview/node_modules/.bin/playwright install --with-deps chromium && sudo npm cache clean --force && echo 'PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers' | sudo tee -a /etc/environment >/dev/null"
 
 echo "📄 Installing platform scripts + supervisord config ..."
 box_put_file "$BOX_ID" "$REPO_ROOT/docker/glenn-env-sync.sh"      /usr/local/bin/glenn-env-sync      755
