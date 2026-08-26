@@ -1,0 +1,55 @@
+name: Box API Smoke Test
+
+# =====================================================================================
+# Manual-dispatch verification of every wire assumption BoxClient makes against the
+# real Box API (auth, create, status vocabulary, fork + per-fork env delivery, TTL
+# patch, delete-confirmation header, disk persistence across stop/resume, and the
+# SwiftShader WebGL draw probe that the agent's snap-preview self-validation loop
+# depends on).
+#
+# Run this:
+#   - once on a fresh Box account BEFORE trusting provisioning,
+#   - after any Box API version bump,
+#   - whenever provisioning starts failing in ways that smell like wire drift.
+#
+# Creates two scratch boxes and deletes them at the end; a failed run's leftovers
+# self-archive via Box's default 1-hour TTL. Costs pennies.
+# =====================================================================================
+#
+# Required repository secrets:
+#   BOX_API_KEY   Box API key (box api-key create)
+# =====================================================================================
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: box-smoke-test
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run smoke test
+        env:
+          BOX_API_KEY: ${{ secrets.BOX_API_KEY }}
+        run: bash scripts/box-smoke-test.sh 2>&1 | tee smoke-output.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Box API smoke test"
+            echo
+            echo '```'
+            tail -60 smoke-output.txt 2>/dev/null || echo "no output captured"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

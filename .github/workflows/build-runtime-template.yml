@@ -1,0 +1,78 @@
+name: Build Runtime Template
+
+# =====================================================================================
+# Builds + registers the golden template box (the fork source for every project
+# runtime) whenever template-relevant paths change on main. Box-native successor to
+# the old Fly runtime-image publish flow.
+#
+# Unlike the daemon publish this is NOT a hermetic build: it provisions a live box
+# via the Box API, runs ~10-15 min of provisioning, hard-verifies the stack
+# (systemd + supervisord + snap-preview WebGL), stops it to snapshot, and registers
+# it as the Active fork source via POST /api/admin/runtime-templates.
+#
+# Failure economics: a build that dies mid-provision leaves its box running, but
+# boxes carry Box's default 1-hour TTL — the orphan archives itself and costs
+# pennies. Hence concurrency below allows no parallel builds but never cancels a
+# run mid-provision.
+#
+# Activation only affects NEW forks (fresh provisions, resets, template-fork
+# respawns). Existing runtimes keep their disks and are untouched.
+# =====================================================================================
+#
+# Required repository secrets:
+#   BOX_API_KEY                    Box API key (box api-key create)
+#   CONTROL_PLANE_API              e.g. https://orchestrator-api.onrender.com
+#   CONTROL_PLANE_PUBLISH_API_KEY  same value as CiPublish__ApiKey on Render
+# =====================================================================================
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/**'
+      - 'scripts/build-box-template.sh'
+      - '.github/workflows/build-runtime-template.yml'
+  workflow_dispatch:
+    inputs:
+      keep_running:
+        description: Leave the box running for inspection instead of snapshotting
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-runtime-template
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build, verify, snapshot, register
+        env:
+          BOX_API_KEY: ${{ secrets.BOX_API_KEY }}
+          REGISTER_URL: ${{ secrets.CONTROL_PLANE_API }}
+          CI_PUBLISH_KEY: ${{ secrets.CONTROL_PLANE_PUBLISH_API_KEY }}
+          KEEP_RUNNING: ${{ github.event.inputs.keep_running == 'true' && '1' || '0' }}
+        run: bash scripts/build-box-template.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Runtime template build"
+            echo
+            if [[ "${{ job.status }}" == "success" ]]; then
+              echo "Template built, verified (systemd + supervisord + WebGL/snap-preview), and registered for \`${{ github.sha }}\`."
+              echo "New forks use it immediately; existing runtimes are untouched."
+            else
+              echo "Build failed — the in-progress box self-archives via Box's default TTL (~1h)."
+              echo "Check Super Admin → Box Cleanup for leftovers; re-run via workflow_dispatch."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
