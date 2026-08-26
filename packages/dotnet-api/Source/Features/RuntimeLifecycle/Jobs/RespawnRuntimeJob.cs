@@ -215,7 +215,7 @@ public class RespawnRuntimeJob
             // A crashed runtime's box may be up-but-wedged (daemon dead, VM sick)
             // or already archived. Stop-if-up gives us the Box-destroy equivalent:
             // a clean VM boot from a fresh snapshot — with the disk intact.
-            if (BoxStatus.IsUp(existing.Status) || BoxStatus.IsError(existing.Status))
+            if (BoxStates.IsUp(existing.State) || BoxStates.IsError(existing.State))
             {
                 try
                 {
@@ -232,8 +232,15 @@ public class RespawnRuntimeJob
                 }
             }
 
+            // Pass the fresh env + TTL directly in the resume body (the contract
+            // supports it) so the rebooted daemon can see the new JWT even if the
+            // commands-based env-file refresh below never lands. The env-file
+            // refresh stays as belt and braces — systemd reads the env file.
             await _box.ResumeBoxAsync(
                 existing.Id,
+                new ResumeBoxRequest(
+                    Env: env,
+                    TtlSeconds: _boxOptions.Current.DefaultTtlSeconds),
                 runtimeId: runtimeId,
                 idempotencyKey: $"respawn-resume:{runtimeId:D}:{runtime.RespawnRetries}",
                 ct: ct);
@@ -274,15 +281,17 @@ public class RespawnRuntimeJob
                 return;
             }
 
+            // No name on the fork body (per the contract) — ForkOrAdoptAsync
+            // PATCHes the deterministic rt-{id} name onto the fork afterwards.
             var forkReq = new ForkBoxRequest(
-                Name: BoxRuntimeProvisioning.BuildBoxName(runtime.Id),
-                Size: BoxSizeMapper.FromSpec(runtime.Cpus, runtime.MemoryMb),
+                Type: BoxTypeMapper.FromSpec(runtime.Cpus, runtime.MemoryMb),
                 Env: env,
                 NoEnv: true,
                 TtlSeconds: _boxOptions.Current.DefaultTtlSeconds);
 
             var forked = await BoxRuntimeProvisioning.ForkOrAdoptAsync(
-                _box, _db, runtime, template.BoxId, forkReq, ct);
+                _box, _db, runtime, template.BoxId, forkReq,
+                BoxRuntimeProvisioning.BuildBoxName(runtime.Id), _logger, ct);
 
             runtime.BoxId = forked.Id;
             runtime.TemplateBoxId = template.BoxId;
@@ -330,7 +339,7 @@ public class RespawnRuntimeJob
                 var up = await BoxRuntimeProvisioning.WaitForBoxUpAsync(
                     _box, existing.Id, BoxRuntimeProvisioning.DefaultUpTimeout, ct);
 
-                if (up is not null && BoxStatus.IsUp(up.Status))
+                if (up is not null && BoxStates.IsUp(up.State))
                 {
                     await BoxRuntimeProvisioning.RefreshEnvAndRestartDaemonAsync(
                         _box, existing.Id, env, runtimeId, ct);
@@ -338,8 +347,8 @@ public class RespawnRuntimeJob
                 else
                 {
                     _logger.LogWarning(
-                        "Respawn: box {BoxId} (runtime {RuntimeId}) did not come up within the env-refresh window (last status: {Status}).",
-                        existing.Id, runtimeId, up?.Status ?? "unknown");
+                        "Respawn: box {BoxId} (runtime {RuntimeId}) did not come up within the env-refresh window (last state: {State}).",
+                        existing.Id, runtimeId, up?.State ?? "unknown");
                 }
             }
             catch (Exception ex)

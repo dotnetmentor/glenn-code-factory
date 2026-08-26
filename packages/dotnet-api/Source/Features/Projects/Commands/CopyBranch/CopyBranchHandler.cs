@@ -268,7 +268,7 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
         try
         {
             var sourceBox = await _box.GetBoxAsync(sourceRuntime.BoxId!, cancellationToken);
-            sourceWasUp = BoxStatus.IsUp(sourceBox.Status);
+            sourceWasUp = BoxStates.IsUp(sourceBox.State);
         }
         catch (BoxApiException ex) when (ex.StatusCode == 404)
         {
@@ -307,15 +307,34 @@ public sealed class CopyBranchHandler : ICommandHandler<CopyBranchCommand, Resul
             // noEnv isolation. The provisioner's existing-box path then
             // refreshes the full env (JWT, tunnel trio) and bounces the daemon
             // on its first tick — enqueued right below.
+            // The fork body carries no name (per the contract) — the deterministic
+            // rt-{id} name is PATCHed onto the fork right below.
             forkedBox = await _box.ForkBoxAsync(
                 sourceRuntime.BoxId!,
                 new ForkBoxRequest(
-                    Name: BoxRuntimeProvisioning.BuildBoxName(newRuntimeId),
-                    Size: BoxSizeMapper.FromSpec(sourceRuntime.Cpus, sourceRuntime.MemoryMb),
+                    Type: BoxTypeMapper.FromSpec(sourceRuntime.Cpus, sourceRuntime.MemoryMb),
                     Env: new Dictionary<string, string> { ["RUNTIME_ID"] = newRuntimeId.ToString() },
                     NoEnv: true),
                 idempotencyKey: $"copyBranch:{newRuntimeId:N}",
                 ct: cancellationToken);
+
+            // Best-effort: an unnamed fork still works; the name only feeds the
+            // provisioner's adopt-by-name recovery and the Box console.
+            try
+            {
+                await _box.SetNameAsync(
+                    forkedBox.Id,
+                    BoxRuntimeProvisioning.BuildBoxName(newRuntimeId),
+                    runtimeId: newRuntimeId,
+                    ct: cancellationToken);
+            }
+            catch (Exception nameEx)
+            {
+                _logger.LogWarning(
+                    nameEx,
+                    "CopyBranch: could not PATCH name onto forked box {BoxId}; continuing.",
+                    forkedBox.Id);
+            }
         }
         catch (Exception ex)
         {

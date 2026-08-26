@@ -420,7 +420,7 @@ public class RuntimeProvisionerJob
         }
 
         var env = await BuildRuntimeEnvAsync(runtime, daemon, mintResult.Value.Token, ct);
-        var desiredSize = BoxSizeMapper.FromSpec(runtime.Cpus, runtime.MemoryMb);
+        var desiredType = BoxTypeMapper.FromSpec(runtime.Cpus, runtime.MemoryMb);
 
         // ---- 2. Existing box? Reboot or resize in place ----
         if (!string.IsNullOrWhiteSpace(runtime.BoxId))
@@ -440,12 +440,12 @@ public class RuntimeProvisionerJob
 
             if (existing is not null)
             {
-                var sizeChanged = !string.IsNullOrEmpty(existing.Size)
-                    && !string.Equals(existing.Size, desiredSize, StringComparison.OrdinalIgnoreCase);
+                var typeChanged = !string.IsNullOrEmpty(existing.Type)
+                    && !string.Equals(existing.Type, desiredType, StringComparison.OrdinalIgnoreCase);
 
-                if (sizeChanged)
+                if (typeChanged)
                 {
-                    await ResizeViaForkAsync(runtime, existing, desiredSize, env, ct);
+                    await ResizeViaForkAsync(runtime, existing, desiredType, env, ct);
                 }
                 else
                 {
@@ -456,15 +456,17 @@ public class RuntimeProvisionerJob
         }
 
         // ---- 3. Fresh fork from the template ----
+        // The fork body carries no name (per the contract) — ForkOrAdoptAsync
+        // PATCHes the deterministic rt-{id} name onto the fork afterwards.
         var forkReq = new ForkBoxRequest(
-            Name: BoxRuntimeProvisioning.BuildBoxName(runtime.Id),
-            Size: desiredSize,
+            Type: desiredType,
             Env: env,
             NoEnv: true,
             TtlSeconds: _boxOptions.Current.DefaultTtlSeconds);
 
         var forked = await BoxRuntimeProvisioning.ForkOrAdoptAsync(
-            _box, _db, runtime, template.BoxId, forkReq, ct);
+            _box, _db, runtime, template.BoxId, forkReq,
+            BoxRuntimeProvisioning.BuildBoxName(runtime.Id), _logger, ct);
 
         runtime.BoxId = forked.Id;
         runtime.TemplateBoxId = template.BoxId;
@@ -507,10 +509,17 @@ public class RuntimeProvisionerJob
         Dictionary<string, string> env,
         CancellationToken ct)
     {
-        if (BoxStatus.IsArchived(existing.Status) || BoxStatus.IsError(existing.Status))
+        if (BoxStates.IsArchived(existing.State) || BoxStates.IsError(existing.State))
         {
+            // Pass the fresh env + TTL directly in the resume body (the contract
+            // supports it) so the daemon can come up with the new JWT even if the
+            // commands-based env-file refresh below never lands. The env-file
+            // refresh stays as belt and braces — systemd reads the env file.
             await _box.ResumeBoxAsync(
                 existing.Id,
+                new ResumeBoxRequest(
+                    Env: env,
+                    TtlSeconds: _boxOptions.Current.DefaultTtlSeconds),
                 runtimeId: runtime.Id,
                 idempotencyKey: $"resume-box:{runtime.Id:D}",
                 ct: ct);
@@ -548,7 +557,7 @@ public class RuntimeProvisionerJob
             var up = await BoxRuntimeProvisioning.WaitForBoxUpAsync(
                 _box, existing.Id, BoxRuntimeProvisioning.DefaultUpTimeout, ct);
 
-            if (up is not null && BoxStatus.IsUp(up.Status))
+            if (up is not null && BoxStates.IsUp(up.State))
             {
                 await BoxRuntimeProvisioning.RefreshEnvAndRestartDaemonAsync(
                     _box, existing.Id, env, runtime.Id, ct);
@@ -556,8 +565,8 @@ public class RuntimeProvisionerJob
             else
             {
                 _logger.LogWarning(
-                    "RuntimeProvisionerJob: box {BoxId} (runtime {RuntimeId}) did not come up within the env-refresh window (last status: {Status}); daemon will boot with its previous env.",
-                    existing.Id, runtime.Id, up?.Status ?? "unknown");
+                    "RuntimeProvisionerJob: box {BoxId} (runtime {RuntimeId}) did not come up within the env-refresh window (last state: {State}); daemon will boot with its previous env.",
+                    existing.Id, runtime.Id, up?.State ?? "unknown");
             }
         }
         catch (Exception ex)
@@ -577,11 +586,11 @@ public class RuntimeProvisionerJob
     private async Task ResizeViaForkAsync(
         ProjectRuntime runtime,
         BoxVm existing,
-        string desiredSize,
+        string desiredType,
         Dictionary<string, string> env,
         CancellationToken ct)
     {
-        if (!BoxStatus.IsArchived(existing.Status))
+        if (!BoxStates.IsArchived(existing.State))
         {
             try
             {
@@ -599,9 +608,11 @@ public class RuntimeProvisionerJob
         }
 
         var oldBoxId = existing.Id;
+        // Fork explicitly at the new type (a fork inherits the source's type
+        // unless specified — the whole point here is to change it). No name on
+        // the fork body; PATCH it after.
         var forkReq = new ForkBoxRequest(
-            Name: BoxRuntimeProvisioning.BuildBoxName(runtime.Id),
-            Size: desiredSize,
+            Type: desiredType,
             Env: env,
             NoEnv: true,
             TtlSeconds: _boxOptions.Current.DefaultTtlSeconds);
@@ -609,9 +620,21 @@ public class RuntimeProvisionerJob
         var replacement = await _box.ForkBoxAsync(
             oldBoxId,
             forkReq,
-            idempotencyKey: $"resize-fork:{runtime.Id:D}:{desiredSize}",
+            idempotencyKey: $"resize-fork:{runtime.Id:D}:{desiredType}",
             runtimeId: runtime.Id,
             ct: ct);
+
+        try
+        {
+            await _box.SetNameAsync(
+                replacement.Id, BoxRuntimeProvisioning.BuildBoxName(runtime.Id), runtime.Id, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "RuntimeProvisionerJob: could not PATCH name onto resized box {BoxId} (runtime {RuntimeId}).",
+                replacement.Id, runtime.Id);
+        }
 
         runtime.BoxId = replacement.Id;
 
@@ -619,7 +642,7 @@ public class RuntimeProvisionerJob
             RuntimeState.Booting,
             "provisioner:resized_via_fork",
             "system:provisioner",
-            $"{{\"oldBoxId\":\"{oldBoxId}\",\"newBoxId\":\"{replacement.Id}\",\"size\":\"{desiredSize}\"}}");
+            $"{{\"oldBoxId\":\"{oldBoxId}\",\"newBoxId\":\"{replacement.Id}\",\"type\":\"{desiredType}\"}}");
 
         if (transition.IsFailure)
         {

@@ -25,9 +25,9 @@ public record BoxAdminRow(
     bool IsOrphan);
 
 /// <summary>
-/// One row of the super-admin "Box cleanup" snapshots table. Snapshots are the
-/// persistence behind stop/resume; ones whose box is gone keep storage alive
-/// for nothing.
+/// One row of the super-admin "Box cleanup" snapshots table. Snapshots are a
+/// per-box resource (<c>GET /boxes/{boxId}/snapshots</c>) and are deleted
+/// together with their box — cleaning up an orphan means deleting the box.
 /// </summary>
 public record BoxSnapshotAdminRow(
     string Id,
@@ -38,10 +38,9 @@ public record BoxSnapshotAdminRow(
     bool IsOrphan);
 
 /// <summary>
-/// Body of <c>POST /api/admin/box/boxes/bulk-delete</c> and
-/// <c>POST /api/admin/box/snapshots/bulk-delete</c>. The super-admin Box cleanup
-/// page builds these by check-boxing rows from the corresponding list endpoint
-/// and sending the resource ids back as a single batch.
+/// Body of <c>POST /api/admin/box/boxes/bulk-delete</c>. The super-admin Box
+/// cleanup page builds these by check-boxing rows from the corresponding list
+/// endpoint and sending the resource ids back as a single batch.
 ///
 /// <para><b>Hard cap.</b> The controller refuses bodies with more than 100 ids —
 /// safety net for a UI typo or runaway "select all".</para>

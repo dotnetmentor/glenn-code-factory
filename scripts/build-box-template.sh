@@ -32,21 +32,21 @@
 # Requirements:
 #   BOX_API_KEY        Box API key (create with `box api-key create`)
 # Optional:
-#   BOX_API_BASE_URL   default https://api.ascii.dev/v1
-#   BOX_SIZE           template box size (default: small — forks can pick their own)
+#   BOX_API_BASE_URL   default https://ascii.dev/api/box/v1
+#   BOX_TYPE           template box machine type (default: small — forks can pick their own)
 #   REGISTER_URL       platform API base (e.g. https://api.glenncode.ai) — when set
 #                      together with CI_PUBLISH_KEY, registers the template
 #   CI_PUBLISH_KEY     publish API key for POST /api/admin/runtime-templates
 #   KEEP_RUNNING=1     skip the final stop (debugging the provision interactively)
 #
-# NOTE (first-run verification): the exact Box wire shapes (create body, commands
+# NOTE (first-run verification): the exact Box wire shapes (create body, /command
 # endpoint response, stop semantics) are pinned by scripts/box-smoke-test.sh — run
 # that FIRST on a fresh account and fix any drift here before trusting this script.
 # =====================================================================================
 set -euo pipefail
 
-BOX_API_BASE_URL="${BOX_API_BASE_URL:-https://api.ascii.dev/v1}"
-BOX_SIZE="${BOX_SIZE:-small}"
+BOX_API_BASE_URL="${BOX_API_BASE_URL:-https://ascii.dev/api/box/v1}"
+BOX_TYPE="${BOX_TYPE:-small}"
 CLOUDFLARED_VERSION="${CLOUDFLARED_VERSION:-2026.5.2}"
 MISE_VERSION="${MISE_VERSION:-v2025.1.5}"
 NODE_MAJOR="${NODE_MAJOR:-20}"
@@ -71,15 +71,23 @@ api() { # api METHOD PATH [JSON_BODY]
 }
 
 # Run a shell command inside the box, failing loudly on non-zero exit.
-box_exec() { # box_exec BOX_ID DESCRIPTION COMMAND
-    local box_id="$1" desc="$2" cmd="$3"
+# Uses the contract's SINGULAR /command endpoint with an explicit timeoutSeconds
+# (default here 600 — the apt/npm provisioning steps need the contract maximum;
+# the API default of 30s would kill them mid-flight).
+box_exec() { # box_exec BOX_ID DESCRIPTION COMMAND [TIMEOUT_SECONDS]
+    local box_id="$1" desc="$2" cmd="$3" timeout_s="${4:-600}"
     echo "  → $desc"
     local payload result exit_code
-    payload=$(python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1]}))' "$cmd")
-    result=$(api POST "/boxes/$box_id/commands" "$payload")
-    exit_code=$(echo "$result" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("exitCode", d.get("exit_code", 0)) or 0)' 2>/dev/null || echo 0)
+    payload=$(python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1], "timeoutSeconds": int(sys.argv[2])}))' "$cmd" "$timeout_s")
+    result=$(api POST "/boxes/$box_id/command" "$payload")
+    exit_code=$(echo "$result" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("exitCode", 0) if d.get("exitCode") is not None else 0)' 2>/dev/null || echo 0)
     if [[ "$exit_code" != "0" ]]; then
         echo "❌ step failed (exit $exit_code): $desc"
+        echo "$result" | head -c 4000
+        exit 1
+    fi
+    if echo "$result" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("timedOut") else 1)' 2>/dev/null; then
+        echo "❌ step timed out (timeoutSeconds=$timeout_s): $desc"
         echo "$result" | head -c 4000
         exit 1
     fi
@@ -96,33 +104,42 @@ box_put_file() { # box_put_file BOX_ID LOCAL_PATH REMOTE_PATH MODE
         "sudo mkdir -p $(dirname "$remote_path") && echo '$b64' | base64 -d | sudo tee $remote_path >/dev/null && sudo chmod $mode $remote_path"
 }
 
-wait_for_status() { # wait_for_status BOX_ID WANTED_PREDICATE_PYTHON
-    local box_id="$1" want="$2" status
+wait_for_state() { # wait_for_state BOX_ID WANTED_PREDICATE_PYTHON
+    # The lifecycle field on the wire is `state` (enum: init, provisioning,
+    # provisioned, cloning, ready, idle, running, archiving, archived, error);
+    # single-box responses arrive wrapped in the box.info envelope.
+    local box_id="$1" want="$2" state
     for _ in $(seq 1 60); do
-        status=$(api GET "/boxes/$box_id" | python3 -c 'import json,sys
+        state=$(api GET "/boxes/$box_id" | python3 -c 'import json,sys
 d=json.load(sys.stdin)
 d=d.get("box", d)
-print(d.get("status",""))')
-        if python3 -c "import sys; sys.exit(0 if ('$status' $want) else 1)"; then
-            echo "$status"
+print(d.get("state",""))')
+        if python3 -c "import sys; sys.exit(0 if ('$state' $want) else 1)"; then
+            echo "$state"
             return 0
         fi
         sleep 3
     done
-    echo "❌ box $box_id never reached wanted status (last: $status)" >&2
+    echo "❌ box $box_id never reached wanted state (last: $state)" >&2
     return 1
 }
 
-echo "📦 Creating template box ($BOX_SIZE) ..."
-CREATE_BODY=$(python3 -c 'import json,sys; print(json.dumps({"name": sys.argv[1], "size": sys.argv[2]}))' "template-$LABEL" "$BOX_SIZE")
+echo "📦 Creating template box ($BOX_TYPE) ..."
+# Per the contract the create body has NO name field — only type/ttlSeconds/env/...;
+# the box is named via PATCH right after.
+CREATE_BODY=$(python3 -c 'import json,sys; print(json.dumps({"type": sys.argv[1]}))' "$BOX_TYPE")
 BOX_ID=$(api POST "/boxes" "$CREATE_BODY" | python3 -c 'import json,sys
 d=json.load(sys.stdin)
 d=d.get("box", d)
 print(d["id"])')
 echo "   box id: $BOX_ID"
 
+echo "🏷️  Naming the box (PATCH /boxes/{id} {name}) ..."
+NAME_BODY=$(python3 -c 'import json,sys; print(json.dumps({"name": sys.argv[1]}))' "template-$LABEL")
+api PATCH "/boxes/$BOX_ID" "$NAME_BODY" >/dev/null
+
 echo "⏳ Waiting for the box to come up ..."
-wait_for_status "$BOX_ID" "in ('ready','idle','running')" >/dev/null
+wait_for_state "$BOX_ID" "in ('ready','idle','running')" >/dev/null
 echo "✅ box is up"
 
 echo "🔧 Provisioning (this mirrors Dockerfile.runtime-base layer by layer) ..."
@@ -231,7 +248,7 @@ fi
 
 echo "💾 Stopping the box (Box snapshots the disk — the snapshot IS the template) ..."
 api POST "/boxes/$BOX_ID/stop" "{}" >/dev/null
-wait_for_status "$BOX_ID" "== 'archived'" >/dev/null
+wait_for_state "$BOX_ID" "== 'archived'" >/dev/null
 echo "✅ template box archived: $BOX_ID (label: $LABEL)"
 
 if [[ -n "${REGISTER_URL:-}" && -n "${CI_PUBLISH_KEY:-}" ]]; then

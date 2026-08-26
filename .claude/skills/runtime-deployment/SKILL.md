@@ -99,7 +99,7 @@ clone + install dance (minutes for real projects); resume-wake in a few seconds.
 | Symptom | First look |
 |---------|-----------|
 | Pending forever | provisioner pre-flight logs: missing `Box:ApiKey` / no Active template / no daemon bundle / start-budget 429 (stays Pending by design — check `api/admin/box/operations` for `rate_limited`/`daily_limit_reached`) |
-| Booting forever | box status via drawer Box tab: `provisioning` stuck → Box-side issue; `error` → reconciler will crash+respawn it |
+| Booting forever | box `state` via drawer Box tab: stuck in a transitional state (`init`/`provisioning`/`provisioned`/`cloning`) → Box-side issue; `error` → reconciler will crash+respawn it |
 | Bootstrapping forever | daemon never called `RuntimeReady` → `runtime-debug` skill (logs via commands API) |
 | Online but degraded banner | `self-healing-runtime` skill |
 | Box archived itself unexpectedly | TTL lapsed → is `BoxTtlExtenderJob` running? (Hangfire dashboard) — that's the guardrail doing its job during a control-plane outage |

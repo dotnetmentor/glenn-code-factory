@@ -924,7 +924,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.Property(e => e.LastSupervisordSnapshot).HasColumnType("jsonb");
 
             // Per-runtime requested hardware spec — snapshotted from Project at
-            // row creation; mapped to a Box size tier by BoxSizeMapper at
+            // row creation; mapped to a Box machine type by BoxTypeMapper at
             // provision time. HasDefaultValue backfills the conservative tuple
             // on existing rows so nothing in production changes spec mid-life.
             entity.Property(e => e.CpuKind)

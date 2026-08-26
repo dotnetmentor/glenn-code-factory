@@ -77,7 +77,7 @@ public class RuntimeReconcilerJobTests : IDisposable
     private static readonly BoxOptions DefaultBoxOptions = new()
     {
         ApiKey = "box_test_key",
-        ApiBaseUrl = "https://api.ascii.dev/v1",
+        ApiBaseUrl = "https://ascii.dev/api/box/v1",
     };
 
     private RuntimeReconcilerJob CreateJob(HttpMessageHandler handler)
@@ -119,14 +119,15 @@ public class RuntimeReconcilerJobTests : IDisposable
     }
 
     /// <summary>
-    /// Format Box's box-list JSON. Status values are stringly-typed on the wire;
-    /// see <c>BoxStatus</c> for the vocabulary (ready/idle/running/archived/error/provisioning).
+    /// Format Box's box.list envelope. The lifecycle field on the wire is
+    /// `state`, stringly-typed; see <c>BoxStates</c> for the vocabulary
+    /// (init/provisioning/provisioned/cloning/ready/idle/running/archiving/archived/error).
     /// </summary>
-    private static string BoxListJson(params (string id, string status)[] boxes)
+    private static string BoxListJson(params (string id, string state)[] boxes)
     {
         var items = string.Join(",", boxes.Select(b =>
-            $$"""{"id":"{{b.id}}","name":"rt","status":"{{b.status}}","size":"small","region":"de","ttlSeconds":21600,"createdAt":"2026-05-08T10:00:00Z"}"""));
-        return $"[{items}]";
+            $$"""{"id":"{{b.id}}","name":"rt","state":"{{b.state}}","type":"small","region":"de","ttlSeconds":21600,"createdAt":"2026-05-08T10:00:00Z"}"""));
+        return $$$"""{"ok":true,"type":"box.list","boxes":[{{{items}}}],"pageInfo":{"hasNextPage":false}}""";
     }
 
     // ------------------------------------------------------------------
@@ -136,7 +137,7 @@ public class RuntimeReconcilerJobTests : IDisposable
     [Fact]
     public async Task Run_EmptyDbAndEmptyBoxList_NoOp()
     {
-        var handler = BoxListHandler("[]");
+        var handler = BoxListHandler(BoxListJson());
         var job = CreateJob(handler);
 
         await job.Run(CancellationToken.None);
@@ -198,7 +199,7 @@ public class RuntimeReconcilerJobTests : IDisposable
         // Suspending + box gone: someone deleted the box out from under us —
         // treat as suspend-complete.
         var runtime = await SeedRuntimeAsync(RuntimeState.Suspending, "box_gone_susp");
-        var handler = BoxListHandler("[]");
+        var handler = BoxListHandler(BoxListJson());
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
@@ -217,7 +218,7 @@ public class RuntimeReconcilerJobTests : IDisposable
     public async Task Run_BoxMissing_Deleting_TransitionsToDeleted()
     {
         var runtime = await SeedRuntimeAsync(RuntimeState.Deleting, "box_gone_del");
-        var handler = BoxListHandler("[]");
+        var handler = BoxListHandler(BoxListJson());
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
@@ -239,7 +240,7 @@ public class RuntimeReconcilerJobTests : IDisposable
         // Suspended is terminal-ish for the reconciler: a missing box is expected
         // eventually (TTL purge) and must not trigger any transition.
         var runtime = await SeedRuntimeAsync(RuntimeState.Suspended, "box_gone_terminal");
-        var handler = BoxListHandler("[]");
+        var handler = BoxListHandler(BoxListJson());
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
@@ -275,7 +276,7 @@ public class RuntimeReconcilerJobTests : IDisposable
         audit.Reason.Should().Be("reconciler:drift");
         audit.TriggeredBy.Should().Be("reconciler");
         audit.Metadata.Should().NotBeNull();
-        audit.Metadata!.Should().Contain("\"boxStatus\":\"ready\"");
+        audit.Metadata!.Should().Contain("\"boxState\":\"ready\"");
         audit.Metadata!.Should().Contain("\"dbState\":\"Booting\"");
     }
 
@@ -301,7 +302,7 @@ public class RuntimeReconcilerJobTests : IDisposable
         audit.FromState.Should().Be(RuntimeState.Waking);
         audit.ToState.Should().Be(RuntimeState.Bootstrapping);
         audit.Reason.Should().Be("reconciler:drift");
-        audit.Metadata!.Should().Contain("\"boxStatus\":\"running\"");
+        audit.Metadata!.Should().Contain("\"boxState\":\"running\"");
         audit.Metadata!.Should().Contain("\"dbState\":\"Waking\"");
     }
 
@@ -353,7 +354,7 @@ public class RuntimeReconcilerJobTests : IDisposable
         audit.Reason.Should().Be("reconciler:drift");
         audit.TriggeredBy.Should().Be("reconciler");
         audit.Metadata.Should().NotBeNull();
-        audit.Metadata!.Should().Contain("\"boxStatus\":\"archived\"");
+        audit.Metadata!.Should().Contain("\"boxState\":\"archived\"");
         audit.Metadata!.Should().Contain("\"dbState\":\"Online\"");
     }
 
@@ -380,7 +381,7 @@ public class RuntimeReconcilerJobTests : IDisposable
         audit.FromState.Should().Be(RuntimeState.Booting);
         audit.ToState.Should().Be(RuntimeState.Crashed);
         audit.Reason.Should().Be("reconciler:drift");
-        audit.Metadata!.Should().Contain("\"boxStatus\":\"archived\"");
+        audit.Metadata!.Should().Contain("\"boxState\":\"archived\"");
         audit.Metadata!.Should().Contain("\"dbState\":\"Booting\"");
     }
 
@@ -432,7 +433,7 @@ public class RuntimeReconcilerJobTests : IDisposable
         audit.FromState.Should().Be(RuntimeState.Waking);
         audit.ToState.Should().Be(RuntimeState.Crashed);
         audit.Reason.Should().Be("reconciler:drift");
-        audit.Metadata!.Should().Contain("\"boxStatus\":\"archived\"");
+        audit.Metadata!.Should().Contain("\"boxState\":\"archived\"");
         audit.Metadata!.Should().Contain("\"dbState\":\"Waking\"");
     }
 
@@ -453,7 +454,7 @@ public class RuntimeReconcilerJobTests : IDisposable
             .Where(e => e.RuntimeId == runtime.Id)
             .ToListAsync();
         events.Should().HaveCount(1);
-        events.Single().Metadata!.Should().Contain("\"boxStatus\":\"error\"");
+        events.Single().Metadata!.Should().Contain("\"boxState\":\"error\"");
     }
 
     [Fact]
@@ -541,7 +542,7 @@ public class RuntimeReconcilerJobTests : IDisposable
         // Pending rows are the provisioner's job — the reconciler must not touch them
         // even when they have no box yet.
         var pending = await SeedRuntimeAsync(RuntimeState.Pending, boxId: null);
-        var handler = BoxListHandler("[]");
+        var handler = BoxListHandler(BoxListJson());
 
         var job = CreateJob(handler);
         await job.Run(CancellationToken.None);
@@ -560,7 +561,8 @@ public class RuntimeReconcilerJobTests : IDisposable
         var runtime = await SeedRuntimeAsync(RuntimeState.Online, "box_safe");
 
         var handler = new ScriptedHandler();
-        handler.Enqueue(HttpStatusCode.InternalServerError, "{\"error\":{\"code\":\"upstream_blip\"}}");
+        handler.Enqueue(HttpStatusCode.InternalServerError,
+            """{"ok":false,"type":"box.error","status":500,"code":"upstream_blip","message":"blip","error":{"code":"upstream_blip","message":"blip","status":500},"requestId":"req_500"}""");
 
         var job = CreateJob(handler);
 

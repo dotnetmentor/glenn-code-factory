@@ -210,9 +210,9 @@ flagged items in `BoxClient.cs` / `build-box-template.sh` before continuing.
 | Key | Example | Notes |
 |-----|---------|--------|
 | **API Key** | `box_...` | From §2a |
-| **API Base URL** | `https://api.ascii.dev/v1` | Only change if Box moves hosts |
+| **API Base URL** | `https://ascii.dev/api/box/v1` | Only change if Box moves hosts |
 | **Default TTL (Seconds)** | `21600` | The orphan-cost guardrail — a box whose TTL lapses archives itself and billing stops. Never 0 in production. |
-| **Default Size** | `small` | 2 vCPU / 4 GB; per-project cpu/mem specs round up to a tier |
+| **Default Type** | `small` | 2 vCPU / 4 GB; per-project cpu/mem specs round up to a machine type |
 
 Test in UI: **System Settings → Box → Test connection** (or fix config until valid).
 

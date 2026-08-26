@@ -18,13 +18,15 @@ public sealed class BoxVmView
     public string? Name { get; init; }
 
     /// <summary>
-    /// Live box status (<c>"provisioning"</c>, <c>"ready"</c>, <c>"idle"</c>,
-    /// <c>"running"</c>, <c>"archived"</c>, <c>"error"</c>). Stringly-typed to
-    /// match the upstream — Box may add new states.
+    /// Live box lifecycle state (wire field <c>state</c>; enum: <c>init</c>,
+    /// <c>provisioning</c>, <c>provisioned</c>, <c>cloning</c>, <c>ready</c>,
+    /// <c>idle</c>, <c>running</c>, <c>archiving</c>, <c>archived</c>,
+    /// <c>error</c>). Stringly-typed to match the upstream — Box may add new
+    /// states. Kept as <c>Status</c> here for frontend compatibility.
     /// </summary>
     public required string Status { get; init; }
 
-    /// <summary>Box size tier (<c>small</c> / <c>default</c> / <c>large</c>), when reported.</summary>
+    /// <summary>Box machine type (<c>small</c> / <c>default</c> / <c>large</c>), when reported.</summary>
     public string? Size { get; init; }
 
     /// <summary>Box region the VM lives in (EU: de/fi/fr), when reported.</summary>

@@ -122,8 +122,8 @@ public sealed class RuntimeBoxSnapshotService : IRuntimeBoxSnapshotService
                 {
                     Id = vm.Id,
                     Name = vm.Name,
-                    Status = vm.Status,
-                    Size = vm.Size,
+                    Status = vm.State,
+                    Size = vm.Type,
                     Region = vm.Region,
                     TtlSeconds = vm.TtlSeconds,
                     CreatedAt = vm.CreatedAt,

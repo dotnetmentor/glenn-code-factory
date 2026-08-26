@@ -24,7 +24,7 @@ Box rt-<runtime-id>              (full Ubuntu VM, systemd)
   ├─ env: per-fork env + /etc/glenn/runtime.env (refresh channel)
   └─ logs: /var/log/supervisor/agent.{out,err}.log
         ▲
-        │ POST /boxes/{id}/commands  (daemon-independent side channel)
+        │ POST /boxes/{id}/command   (daemon-independent side channel)
         │ box ssh <id>               (interactive, via the box CLI)
      you + agent-debug
 ```
@@ -75,10 +75,10 @@ The commands endpoint is the workhorse (same channel the platform itself uses
 for env refresh — it works whenever the box is up, daemon dead or alive):
 
 ```bash
-BOX_API_BASE_URL=${BOX_API_BASE_URL:-https://api.ascii.dev/v1}
-run() { curl -fsS -X POST "$BOX_API_BASE_URL/boxes/$BOX_ID/commands" \
+BOX_API_BASE_URL=${BOX_API_BASE_URL:-https://ascii.dev/api/box/v1}
+run() { curl -fsS -X POST "$BOX_API_BASE_URL/boxes/$BOX_ID/command" \
   -H "Authorization: Bearer $BOX_API_KEY" -H 'Content-Type: application/json' \
-  -d "$(python3 -c 'import json,sys;print(json.dumps({"command":sys.argv[1]}))' "$1")"; }
+  -d "$(python3 -c 'import json,sys;print(json.dumps({"command":sys.argv[1],"timeoutSeconds":120}))' "$1")"; }
 
 run 'systemctl status glenn-daemon --no-pager | head -20'
 run 'tail -50 /var/log/supervisor/agent.err.log'

@@ -69,8 +69,10 @@ Deleting → Deleted (terminal)
 - All transitions via `ProjectRuntime.TransitionTo()` — never assign `runtime.State` directly.
 - Box has **no webhooks** — `RuntimeReconcilerJob` (1 min) is the only driver of
   box-observation edges (Booting→Bootstrapping when the VM is up,
-  Suspending→Suspended when the stop lands). Box statuses: `provisioning`,
-  `ready`/`idle`/`running` (up), `archived` (stopped+snapshot), `error`.
+  Suspending→Suspended when the stop lands). Box's lifecycle field is `state`
+  (NOT `status`), enum: `init`/`provisioning`/`provisioned`/`cloning`/`archiving`
+  (transitional), `ready`/`idle`/`running` (up), `archived` (stopped+snapshot),
+  `error`.
 - Only the daemon's `RuntimeReady` hub call flips Bootstrapping → Online — a VM
   being up says nothing about the daemon having bootstrapped.
 - `Suspended` has **no direct edge to Crashed** — wake first, then force-respawn from Online.
@@ -82,17 +84,21 @@ Deleting → Deleted (terminal)
 1. **Fresh fork** (no `BoxId`): resolve newest Active `RuntimeTemplate`, mint
    runtime JWT (audit-before-issuance), build env
    (`BoxRuntimeProvisioning.BuildRuntimeEnvAsync` — shared with respawn), then
-   `POST /boxes/{template}/fork` with `name: rt-{runtimeId:N}`, size from
-   `BoxSizeMapper.FromSpec(cpus, memoryMb)` (small 2/4 · default 4/8 · large
+   `POST /boxes/{template}/fork` with `type` from
+   `BoxTypeMapper.FromSpec(cpus, memoryMb)` (small 2/4 · default 4/8 · large
    8/16, rounds UP), the env dict, `noEnv: true` (fork sees none of the platform
-   account's secrets), and the TTL. Stamp `BoxId` + `TemplateBoxId` → Booting.
-2. **Reboot** (`BoxId` set, size unchanged — restart / CopyBranch handoff):
-   resume if archived → Booting → re-arm TTL → wait-up → refresh
-   `/etc/glenn/runtime.env` + `systemctl restart glenn-daemon` via the commands
-   API (fresh JWT). Env refresh is best-effort; a stale JWT surfaces as a failed
-   SignalR connect and the watcher schedules a respawn.
-3. **Disk-preserving resize** (`BoxId` set, size tier changed): stop (snapshot)
-   → fork the snapshot at the new size with fresh env → delete the old box.
+   account's secrets), and the TTL. The fork body has NO `name` field — the
+   deterministic `rt-{runtimeId:N}` name is PATCHed onto the fork afterwards
+   (`PATCH /boxes/{id} {name}`), which is what adopt-by-name matches on.
+   Stamp `BoxId` + `TemplateBoxId` → Booting.
+2. **Reboot** (`BoxId` set, type unchanged — restart / CopyBranch handoff):
+   resume if archived (fresh env + TTL ride the resume body) → Booting →
+   re-arm TTL → wait-up → refresh `/etc/glenn/runtime.env` +
+   `systemctl restart glenn-daemon` via the command API (fresh JWT). Env
+   refresh is best-effort; a stale JWT surfaces as a failed SignalR connect and
+   the watcher schedules a respawn.
+3. **Disk-preserving resize** (`BoxId` set, type changed): stop (snapshot)
+   → fork the snapshot at the new `type` with fresh env → delete the old box.
 
 **Daemon is NOT in the template's snapshot as a pinned version.**
 `bootstrap-daemon.sh` (installed by the template) resolves + downloads the bundle
@@ -110,7 +116,7 @@ next daemon restart.
 | `TUNNEL_TOKEN` / `PREVIEW_PORT` / `PREVIEW_HOSTNAME` | Cloudflare preview tunnel trio (when the branch has an assigned subdomain) |
 
 Delivery: per-fork env at fork time (primary) + `/etc/glenn/runtime.env`
-(refresh channel, written via `POST /boxes/{id}/commands`). The
+(refresh channel, written via `POST /boxes/{id}/command` — singular). The
 `glenn-daemon.service` unit loads both (`EnvironmentFile=-/etc/environment` then
 `-/etc/glenn/runtime.env`). `scripts/box-smoke-test.sh` item 10 verifies where
 Box actually lands per-fork env — check it after any Box platform change.
@@ -212,7 +218,7 @@ but resolution happens before auth is exercised).
 | JSON.stringify on event payload | Pre-serialize in daemon |
 | Supervisord conf-dir mismatch | Override both `main.ts` sites |
 | GitHub Basic not Bearer | `CloningRepoStage` |
-| `@cursor/sdk` + sqlite3 needs ≥2 GiB | Even the `small` tier (4 GB) clears it — `BoxSizeMapper` rounds up |
+| `@cursor/sdk` + sqlite3 needs ≥2 GiB | Even the `small` type (4 GB) clears it — `BoxTypeMapper` rounds up |
 | Fork of a running box takes the LAST snapshot, not live disk | Stop → fork → resume (CopyBranch does this) |
 | Per-fork env is immutable after creation | Fresh JWTs travel via `/etc/glenn/runtime.env` + `systemctl restart glenn-daemon` |
 | Start budget exhaustion (429 / daily_limit) | Transient — rows stay Pending; never mark Failed |
