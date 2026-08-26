@@ -780,11 +780,14 @@ export class SignalRClient {
    * reached Online regardless — this is the side-channel that drives the amber
    * "spec didn't fully apply" banner + the agent self-heal loop.
    *
-   * <b>Wire shape.</b> The backend's `ReportSpecHealth` hub method (added in
-   * parallel by card B1) takes a single JSON-string argument — same convention
-   * as `RecordRuntimeEvent` (the server's argument binder expects a `string`,
-   * and passing an object trips an `InvalidDataException: Error binding
-   * arguments`). We stringify the payload here at the wire boundary.
+   * <b>Wire shape.</b> The backend's `ReportSpecHealth` hub method binds a
+   * TYPED `ReportSpecHealthPayload(string Health, string? Summary,
+   * IReadOnlyList&lt;string&gt; Issues)` — NOT the `RecordRuntimeEvent`
+   * whole-payload-as-string convention. Stringifying the ENVELOPE trips the
+   * server's `InvalidDataException: Error binding arguments` (observed live on
+   * 2026-08-26). Only the individual issues are strings (each one
+   * JSON-stringified — the server side deliberately avoids `JsonElement` for
+   * Tapper codegen reasons); the envelope goes over the wire as an object.
    *
    * <b>Why `invoke()` and not a typed proxy wrapper.</b> The TypedSignalR proxy
    * is regenerated from the .NET hub; `ReportSpecHealth` lands there only once
@@ -803,7 +806,11 @@ export class SignalRClient {
     summary: string
   }): Promise<void> {
     try {
-      await this.invoke('ReportSpecHealth', JSON.stringify(report))
+      await this.invoke('ReportSpecHealth', {
+        health: report.health,
+        summary: report.summary,
+        issues: report.issues.map((issue) => JSON.stringify(issue)),
+      })
     } catch (err) {
       this.#logger.warn(
         { err, health: report.health, issueCount: report.issues.length },
