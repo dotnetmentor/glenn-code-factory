@@ -6,4 +6,9 @@
 # making the global root PATH-dependent and unreliable.
 export NODE_PATH="${NODE_PATH:-/opt/snap-preview/node_modules}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/playwright-browsers}"
+# Box VMs run a desktop, so ambient DISPLAY=:0 (+ another user's XAUTHORITY)
+# leaks into command sessions. Headless Chromium then tries GL against X it
+# can't auth to and WebGL context creation fails SILENTLY instead of falling
+# back to SwiftShader. This tool is headless by definition — never touch X.
+unset DISPLAY XAUTHORITY
 exec node /usr/local/bin/snap-preview.cjs "$@"
