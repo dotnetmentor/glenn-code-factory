@@ -3,6 +3,18 @@ set -euo pipefail
 
 # bootstrap-daemon.sh — resolve, download, and exec the daemon bundle.
 
+# Env self-heal: supervisord inherits its environment once, at ITS start. If it
+# came up before the env files landed (box agent races the unit on cold boot) or
+# survived a unit restart as an orphan, every agent retry inherits that stale
+# empty env forever. This process is re-spawned fresh on every retry, so
+# sourcing the env files here heals the whole class without a unit restart.
+if [[ -z "${MAIN_API_URL:-}" ]]; then
+    for f in /etc/glenn/box-env.env /etc/glenn/runtime.env; do
+        # shellcheck disable=SC1090
+        [[ -s "$f" ]] && set -a && . "$f" && set +a
+    done
+fi
+
 : "${MAIN_API_URL:?MAIN_API_URL env var is required}"
 
 CHANNEL="${RUNTIME_CHANNEL:-stable}"

@@ -28,11 +28,17 @@ Box VM (full Ubuntu, systemd)
   TTL: finite, re-armed every 30 min by BoxTtlExtenderJob (orphan guardrail)
 ```
 
-**Persistence (one layer, unlike the Fly era's three):** the box disk holds
-everything — apt installs, `/data` (repo, service data, mise, install hashes),
-`/opt/agent`. Stop archives the box with a snapshot (billing pauses); resume and
-fork restore/inherit the whole disk. The old `persist_rootfs` / `installVerify`
-split-brain class of bug cannot exist here.
+**Persistence (one layer, but a WHITELIST — pinned 2026-08-26):** Box's
+snapshot/restore preserves only part of the filesystem: `/opt`, `/etc`, `/usr`,
+`/var` and `/home/user` survive stop/resume and ride into forks; NEW root-level
+dirs, `/root`, and other `/home/<user>` dirs are silently DROPPED (marker
+experiment; smoke-test items 7–9 pin it). All durable platform state therefore
+lives under `/opt/glenn/**` — `/opt/glenn/data` (repo, service data, mise) and
+`/opt/glenn/agent-home` — with `/data` and `/home/agent` as symlinks that the
+`glenn-env-sync` root ExecStartPre re-creates on every daemon start (the
+symlinks themselves sit at paths restores drop). Stop archives the box with a
+snapshot (billing pauses); resume and fork restore/inherit the whitelisted
+trees.
 
 ## The TTL guardrail (why runtimes can never bill unattended)
 

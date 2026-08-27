@@ -176,6 +176,17 @@ if [[ -z "${_DOCKER_GID_ALIGNED:-}" ]] \
     if [[ -n "$SOCK_GID" && "$SOCK_GID" != "$CURRENT_DOCKER_GID" ]]; then
         sudo groupmod -g "$SOCK_GID" docker 2>/dev/null || true
     fi
+    # Orphan cleanup: a supervisord left over from a previous unit incarnation
+    # (restart raced a stop; KillMode gaps) holds the unix socket, making every
+    # fresh start die with "Another program is already listening" — the unit
+    # then crash-loops while the env-less orphan keeps FATAL-ing the agent.
+    # Kill it and clear the stale socket/pidfile before handing off. Match the
+    # PYTHON process (supervisord's interpreter) — this script's own argv
+    # contains 'supervisord -n -c /etc/supervisor', so any pattern built from
+    # the CMD text would SIGKILL the entrypoint itself (learned the hard way).
+    pkill -9 -f "[p]ython3.*supervisord" 2>/dev/null || true
+    rm -f /tmp/supervisor.sock /tmp/supervisord.pid
+
     export _DOCKER_GID_ALIGNED=1
     # `sg docker -c "..."` opens a new shell with `docker` in the effective
     # group list, then exec's the quoted command. We pass the original CMD
@@ -185,5 +196,9 @@ if [[ -z "${_DOCKER_GID_ALIGNED:-}" ]] \
     exec sg docker -c "$*"
 fi
 
-# Hand off to supervisord (or whatever CMD was passed)
+# Hand off to supervisord (or whatever CMD was passed). Same orphan cleanup as
+# the sg-docker branch above — this is the path taken when no group re-exec is
+# needed.
+pkill -9 -f "[p]ython3.*supervisord" 2>/dev/null || true
+rm -f /tmp/supervisor.sock /tmp/supervisord.pid
 exec "$@"

@@ -130,7 +130,11 @@ else
 fi
 
 echo "── 6. Command endpoint (PLURAL /commands) + contract response fields"
-split_resp "$(api POST "/boxes/$BOX_ID/commands" "$(cmd_body 'echo smoke-$((6*7)) && touch /root/smoke-marker || touch ~/smoke-marker' 120)")"
+# Markers seeded where the PLATFORM keeps durable state: /opt (the template's
+# /opt/glenn data root) and /home/user. NOT /root — Box's snapshot restore
+# provably drops /root, other /home dirs, and new root-level dirs (marker
+# experiment, 2026-08-26), which is exactly why /data is a symlink into /opt.
+split_resp "$(api POST "/boxes/$BOX_ID/commands" "$(cmd_body 'echo smoke-$((6*7)) && sudo mkdir -p /opt/smoke && sudo touch /opt/smoke/marker && touch ~/smoke-marker' 120)")"
 if [[ "$RESP_CODE" =~ ^2 ]] && echo "$RESP_BODY" | grep -q "smoke-42"; then
     ok "POST /boxes/{id}/commands runs shell and returns stdout"
     EXIT_CODE=$(json_get "$RESP_BODY" 'd.get("exitCode","MISSING")')
@@ -162,8 +166,12 @@ for i in $(seq 1 40); do
 done
 if [[ "$LAST_STATE" =~ ^(ready|idle|running)$ ]]; then
     ok "resume → up in $(( $(date +%s) - RESUME_T0 ))s (wake latency data point)"
-    split_resp "$(api POST "/boxes/$BOX_ID/commands" "$(cmd_body 'ls /root/smoke-marker ~/smoke-marker 2>/dev/null | head -1' 120)")"
-    echo "$RESP_BODY" | grep -q "smoke-marker" && ok "disk survived stop/resume" || bad "marker file missing after resume — persistence assumption broken!"
+    split_resp "$(api POST "/boxes/$BOX_ID/commands" "$(cmd_body 'ls /opt/smoke/marker ~/smoke-marker 2>/dev/null' 120)")"
+    if echo "$RESP_BODY" | grep -q "/opt/smoke/marker" && echo "$RESP_BODY" | grep -q "smoke-marker"; then
+        ok "disk survived stop/resume (/opt AND /home/user markers intact)"
+    else
+        bad "marker missing after resume: $(echo "$RESP_BODY" | head -c 150) — the /opt//home/user persistence whitelist the platform depends on has changed!"
+    fi
 else
     bad "box didn't come back up after resume; last='$LAST_STATE'"
 fi
@@ -205,8 +213,8 @@ if [[ -n "$FORK_ID" ]]; then
     else
         bad "per-fork env NOT at /run/ascii-secrets/env.sh — glenn-env-sync (and the daemon's env delivery) is broken; find the new channel"
     fi
-    split_resp "$(api POST "/boxes/$FORK_ID/commands" "$(cmd_body 'ls /root/smoke-marker ~/smoke-marker 2>/dev/null | head -1' 120)")"
-    echo "$RESP_BODY" | grep -q "smoke-marker" && ok "fork inherited the source's disk" || bad "fork did NOT inherit source disk"
+    split_resp "$(api POST "/boxes/$FORK_ID/commands" "$(cmd_body 'ls /opt/smoke/marker ~/smoke-marker 2>/dev/null' 120)")"
+    echo "$RESP_BODY" | grep -q "/opt/smoke/marker" && ok "fork inherited the source's disk (/opt marker)" || bad "fork did NOT inherit source disk"
 fi
 
 echo "── 11. TTL patch (the orphan-cost guardrail)"
