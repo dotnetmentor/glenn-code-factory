@@ -5,6 +5,7 @@ using Hangfire.States;
 using Source.Features.RuntimeLifecycle.Jobs;
 using Source.Infrastructure.Database;
 using Source.Infrastructure.ErrorHandling;
+using Source.Infrastructure.Jobs;
 using Source.Infrastructure.Services;
 using Source.Infrastructure.Security;
 
@@ -51,13 +52,40 @@ public static class HangfireExtensions
 
         services.AddHangfire(config =>
         {
-            config.UsePostgreSqlStorage(options =>
-                options.UseNpgsqlConnection(connectionString));
+            config.UsePostgreSqlStorage(
+                options => options.UseNpgsqlConnection(connectionString),
+                new PostgreSqlStorageOptions
+                {
+                    // Defaults are 15s polling with long polling OFF, which puts a
+                    // 0-15s floor under every ad-hoc Enqueue — including the
+                    // "provision this runtime NOW" kick a new branch fires, where
+                    // that delay is the user watching a spinner. Long polling uses
+                    // Postgres LISTEN/NOTIFY, so a worker wakes on the notification
+                    // rather than on a timer: pickup drops to milliseconds AND the
+                    // idle query load goes down.
+                    EnableLongPolling = true,
+
+                    // Belt and braces behind LISTEN/NOTIFY. Notifications don't
+                    // survive every deployment topology (a connection pooler in
+                    // transaction mode swallows them), and this is the fallback that
+                    // decides how bad that gets: 1s instead of 15s.
+                    QueuePollInterval = TimeSpan.FromSeconds(1),
+                });
         });
 
         services.AddHangfireServer(options =>
         {
-            options.WorkerCount = Math.Min(Environment.ProcessorCount * 2, 8);
+            // ProcessorCount * 2 reads like a sensible default and is wrong here:
+            // the production host has 1 vCPU, so it yielded TWO workers — 120
+            // worker-seconds per minute — while the minutely recurring jobs alone
+            // demanded ~150. The queue grew without bound (231,777 jobs, 20-day-old
+            // head) until the long-running sweeps moved out to
+            // ContinuousSweepService. These jobs are I/O-bound — Postgres round
+            // trips and HTTP calls to Box — so worker count should track expected
+            // concurrent I/O, not cores. The floor is what matters; the ceiling
+            // keeps a big host from opening an unreasonable number of connections.
+            options.WorkerCount = configuration.GetValue<int?>("Hangfire:WorkerCount")
+                ?? Math.Clamp(Environment.ProcessorCount * 2, 8, 20);
             options.Queues = new[] { "default", "critical", "background" };
         });
 
@@ -73,6 +101,18 @@ public static class HangfireExtensions
         services.AddScoped<RespawnRuntimeJob>();
 
         services.AddHostedService<HangfireStartupService>();
+
+        // Sweeps that need a sub-minute cadence run in-process on their own timers
+        // instead of occupying Hangfire workers for ~50 of every 60 seconds. See
+        // ContinuousSweepService for the throughput incident that forced this.
+        services.AddHostedService<HeartbeatWatcherSweepService>();
+        services.AddHostedService<IdlerSweepService>();
+        services.AddHostedService<RuntimeTokenUsageFlushSweepService>();
+
+        // Standing guardrail: drops queue entries abandoned long enough to be
+        // meaningless, so a throughput dip can never leave weeks of backlog in
+        // front of new work.
+        services.AddHostedService<HangfireQueueMaintenanceService>();
 
         return services;
     }
