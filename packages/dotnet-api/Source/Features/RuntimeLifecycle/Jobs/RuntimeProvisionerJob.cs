@@ -121,7 +121,14 @@ public class RuntimeProvisionerJob
     /// the head of <see cref="ProvisionAsync"/> makes both paths safe to
     /// converge on the same row.
     /// </summary>
-    [DisableConcurrentExecution(timeoutInSeconds: 60)]
+    // Lock per RUNTIME, not per method. The parameterless overload keys its lock on
+    // type + method name alone, which means every ad-hoc provision in the system
+    // serialises against every other one: creating a branch while an unrelated
+    // runtime is mid-reboot made the new branch wait out that reboot's box-up poll
+    // (up to ~50s) before its own fork was even issued. Two different runtimes have
+    // no reason to exclude each other — the same runtime still does, which is what
+    // {0} (the runtimeId argument) preserves.
+    [DisableConcurrentExecution("runtime-provision:{0}", timeoutSec: 60)]
     [AutomaticRetry(Attempts = 0)]
     public async Task ProvisionOne(Guid runtimeId, IJobCancellationToken hangfireCt)
     {
