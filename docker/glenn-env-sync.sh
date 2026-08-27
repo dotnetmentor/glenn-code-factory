@@ -57,9 +57,16 @@ for _ in $(seq 1 30); do
 done
 
 if [[ ! -s "$SRC" ]]; then
-    : > "$OUT"
-    chown agent:agent "$OUT"
-    chmod 600 "$OUT"
+    # No env.sh (yet): KEEP any previous box-env.env — stale identity beats an
+    # empty file (truncating here once wiped MAIN_API_URL from a boot where the
+    # box agent raced the unit, and supervisord then held the empty env for its
+    # whole lifetime). Only guarantee the file exists so systemd's `-` load
+    # stays clean.
+    if [[ ! -e "$OUT" ]]; then
+        : > "$OUT"
+        chown agent:agent "$OUT"
+        chmod 600 "$OUT"
+    fi
     exit 0
 fi
 
