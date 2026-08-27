@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Npgsql;
+using NpgsqlTypes;
 using Source.Infrastructure.Database;
 
 namespace Source.Infrastructure.Jobs;
@@ -110,7 +111,7 @@ public sealed class HangfireQueueMaintenanceService : BackgroundService
     /// </summary>
     public async Task<int> PurgeAsync(CancellationToken ct)
     {
-        var cutoff = DateTime.UtcNow - StaleAfter;
+        var cutoff = AsHangfireTimestamp(DateTime.UtcNow - StaleAfter);
         var started = Stopwatch.GetTimestamp();
 
         await using var connection = new NpgsqlConnection(_connectionString);
@@ -179,7 +180,7 @@ public sealed class HangfireQueueMaintenanceService : BackgroundService
             WHERE q.id = stale.id;
             """,
             connection);
-        cmd.Parameters.AddWithValue("cutoff", cutoff);
+        cmd.Parameters.Add(new NpgsqlParameter("cutoff", NpgsqlDbType.Timestamp) { Value = cutoff });
         cmd.Parameters.AddWithValue("batchSize", _batchSize);
         return await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -187,7 +188,7 @@ public sealed class HangfireQueueMaintenanceService : BackgroundService
     /// <summary>
     /// Stamp an expiry on jobs left in <c>Enqueued</c> with no queue entry, so
     /// Hangfire's expiration manager reclaims them (and their state and parameter
-    /// rows) on its own schedule.
+    /// rows, via the schema's ON DELETE CASCADE) on its own schedule.
     /// </summary>
     private async Task<int> ExpireOrphanedJobsAsync(
         NpgsqlConnection connection,
@@ -209,9 +210,26 @@ public sealed class HangfireQueueMaintenanceService : BackgroundService
             );
             """,
             connection);
-        cmd.Parameters.AddWithValue("cutoff", cutoff);
-        cmd.Parameters.AddWithValue("expireAt", DateTime.UtcNow);
+        cmd.Parameters.Add(new NpgsqlParameter("cutoff", NpgsqlDbType.Timestamp) { Value = cutoff });
+        cmd.Parameters.Add(new NpgsqlParameter("expireAt", NpgsqlDbType.Timestamp)
+        {
+            Value = AsHangfireTimestamp(DateTime.UtcNow),
+        });
         cmd.Parameters.AddWithValue("batchSize", _batchSize);
         return await cmd.ExecuteNonQueryAsync(ct);
     }
+
+    /// <summary>
+    /// Hangfire's <c>createdat</c> and <c>expireat</c> columns are
+    /// <c>TIMESTAMP</c> — no time zone — holding UTC by convention. Npgsql maps a
+    /// <see cref="DateTime"/> whose <see cref="DateTime.Kind"/> is
+    /// <see cref="DateTimeKind.Utc"/> to <c>timestamptz</c> instead, which Postgres
+    /// would then coerce using the session time zone: on a non-UTC session that
+    /// silently shifts the cutoff by the offset, and the purge quietly compares
+    /// against the wrong instant. Stripping the kind (and binding the parameter as
+    /// <c>NpgsqlDbType.Timestamp</c>) keeps both sides in the same units as the
+    /// values Hangfire itself writes.
+    /// </summary>
+    private static DateTime AsHangfireTimestamp(DateTime utc) =>
+        DateTime.SpecifyKind(utc, DateTimeKind.Unspecified);
 }
