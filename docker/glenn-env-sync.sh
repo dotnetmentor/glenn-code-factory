@@ -22,23 +22,29 @@ OUT=/etc/glenn/box-env.env
 mkdir -p /etc/glenn
 
 # ---------------------------------------------------------------------------
-# Boot-path self-healing (2026-08-26 finding): Box's snapshot/restore does NOT
-# bring back every path — /data and /home/agent were observed missing after
-# stop/resume AND on fresh forks of a template that verifiably had both, while
-# /opt and /etc content from the same build survived. Without /data supervisord
-# dies on chdir (agent FATAL); without /home/agent the Cursor SDK store mkdir
-# EACCESes mid-turn. The unit runs as agent and cannot create either, so this
-# root ExecStartPre is the one place that can guarantee them on every start.
-# Idempotent: no-ops when the dirs already exist with content.
+# Boot-path self-healing (2026-08-26 finding, pinned by a marker experiment):
+# Box's snapshot/restore preserves only a subset of the filesystem — /opt,
+# /etc, /usr, /var and /home/user survive stop/resume and ride into forks;
+# NEW root-level dirs, /root, and other /home/<user> dirs are silently
+# DROPPED. Durable state therefore lives under /opt/glenn/** and /data +
+# /home/agent are symlinks into it — but the symlinks themselves are
+# root/home-level entries that restores drop. Without /data supervisord dies
+# on chdir (agent FATAL, unit looks healthy); without /home/agent the Cursor
+# SDK store mkdir EACCESes mid-turn. The unit runs as agent and can create
+# neither, so this root ExecStartPre re-links them on every start.
+#
+# Legacy boxes (pre-symlink templates) may still have a REAL /data or
+# /home/agent directory — the -e guards leave those untouched; their content
+# is live and moves to /opt/glenn only via an explicit migration.
 # ---------------------------------------------------------------------------
-if [[ ! -d /data ]]; then
-    mkdir -p /data
-    chown agent:agent /data
+mkdir -p /opt/glenn/data /opt/glenn/agent-home
+if [[ ! -e /home/agent ]]; then
+    cp -rT /etc/skel /opt/glenn/agent-home 2>/dev/null || true
+    ln -sfn /opt/glenn/agent-home /home/agent
 fi
-if [[ ! -d /home/agent ]]; then
-    mkdir -p /home/agent
-    cp -rT /etc/skel /home/agent 2>/dev/null || true
-    chown -R agent:agent /home/agent
+chown agent:agent /opt/glenn /opt/glenn/data /opt/glenn/agent-home
+if [[ ! -e /data ]]; then
+    ln -sfn /opt/glenn/data /data
 fi
 
 # The box agent writes env.sh during VM boot and may race us on a cold start.

@@ -188,8 +188,16 @@ box_exec "$BOX_ID" "GitHub CLI" \
 box_exec "$BOX_ID" "mise $MISE_VERSION" \
     "curl -fsSL https://mise.run | sudo MISE_VERSION=$MISE_VERSION MISE_INSTALL_PATH=/usr/local/bin/mise sh && mise --version"
 
+# Persistence layout (2026-08-26 finding, pinned by the marker experiment):
+# Box's snapshot/restore only preserves a subset of the filesystem — /opt, /etc,
+# /usr, /var and /home/user survive stop/resume and ride into forks; NEW
+# root-level dirs, /root, and other /home/<user> dirs are silently DROPPED.
+# Everything durable therefore lives under /opt/glenn/** (data root + agent
+# home), with /data and /home/agent as symlinks. The symlinks themselves are
+# root-level/home-level entries that restores drop — glenn-env-sync (root
+# ExecStartPre) recreates them on every daemon start.
 box_exec "$BOX_ID" "agent user (uid 1001) + sudoers + docker group" \
-    "id -u agent >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/bash --uid 1001 agent; sudo mkdir -p /data /opt/agent /var/log/supervisor /etc/supervisor/conf.d /etc/glenn && sudo chown -R agent:agent /data /opt/agent /var/log/supervisor /etc/supervisor/conf.d && echo 'agent ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/agent >/dev/null && sudo chmod 0440 /etc/sudoers.d/agent && sudo visudo -c -f /etc/sudoers.d/agent && (getent group docker >/dev/null 2>&1 || sudo groupadd docker) && sudo usermod -aG docker agent"
+    "id -u agent >/dev/null 2>&1 || sudo useradd --home-dir /opt/glenn/agent-home --create-home --shell /bin/bash --uid 1001 agent; sudo mkdir -p /opt/glenn/data /opt/glenn/agent-home /opt/agent /var/log/supervisor /etc/supervisor/conf.d /etc/glenn && sudo ln -sfn /opt/glenn/data /data && sudo ln -sfn /opt/glenn/agent-home /home/agent && sudo chown -R agent:agent /opt/glenn/data /opt/glenn/agent-home /opt/agent /var/log/supervisor /etc/supervisor/conf.d && echo 'agent ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/agent >/dev/null && sudo chmod 0440 /etc/sudoers.d/agent && sudo visudo -c -f /etc/sudoers.d/agent && (getent group docker >/dev/null 2>&1 || sudo groupadd docker) && sudo usermod -aG docker agent"
 
 # Playwright lives in a FIXED local install (/opt/snap-preview/node_modules),
 # not `npm -g`: the Box stock image ships its own node under /usr/local/bin, so
