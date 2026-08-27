@@ -58,6 +58,21 @@ public static class BoxRuntimeProvisioning
                 + "The runtime will retry automatically; if this recurs, contact Box to raise the account limits.";
         }
 
+        if (code.Contains("trial_auto_stop_required", StringComparison.OrdinalIgnoreCase))
+        {
+            return
+                "The Box account is in trial mode, which caps box TTL at 2 hours. Either upgrade the account "
+                + "(Box Dashboard → Billing — lifts all trial limits) or set Box:DefaultTtlSeconds to 7200 or less "
+                + "in Super Admin → System Settings, then restart the runtime.";
+        }
+
+        if (code.Contains("trial_machine_class_not_allowed", StringComparison.OrdinalIgnoreCase))
+        {
+            return
+                "The Box account is in trial mode, which only allows small/default box types. Upgrade the account "
+                + "(Box Dashboard → Billing) or lower the project's runtime spec so it maps below the large tier.";
+        }
+
         if (!string.IsNullOrWhiteSpace(code))
         {
             return $"Box rejected the runtime request ({code}). Check Super Admin → Runtime Monitor for details.";
