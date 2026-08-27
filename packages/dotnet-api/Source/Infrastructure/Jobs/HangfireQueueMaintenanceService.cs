@@ -156,9 +156,19 @@ public sealed class HangfireQueueMaintenanceService : BackgroundService
     }
 
     /// <summary>
-    /// Remove queue entries that are still waiting and whose job is older than the
+    /// Remove queue entries that are still waiting and were enqueued before the
     /// cutoff. <c>fetchedat IS NULL</c> is the safety interlock: an entry a worker
     /// has already picked up is never touched.
+    ///
+    /// <para><b>Age is measured from when the job entered its current state, not
+    /// from when it was created.</b> Those differ for delayed jobs, and using
+    /// <c>job.createdat</c> would silently eat them: <c>TokenRotationJob</c>
+    /// schedules each rotated-token revocation an hour out, so by the time it is
+    /// enqueued it is already older than any sane staleness threshold, and the
+    /// revocation would be deleted before it could ever run. <c>job.stateid</c>
+    /// points at the current state row, whose <c>createdat</c> is the moment the
+    /// job actually became Enqueued — the only clock that answers "how long has
+    /// this been waiting for a worker".</para>
     /// </summary>
     private async Task<int> DropStaleQueueEntriesAsync(
         NpgsqlConnection connection,
@@ -172,8 +182,9 @@ public sealed class HangfireQueueMaintenanceService : BackgroundService
                 SELECT candidate.id
                 FROM {Schema}.jobqueue candidate
                 JOIN {Schema}.job j ON j.id = candidate.jobid
+                LEFT JOIN {Schema}.state s ON s.id = j.stateid
                 WHERE candidate.fetchedat IS NULL
-                  AND j.createdat < @cutoff
+                  AND COALESCE(s.createdat, j.createdat) < @cutoff
                 ORDER BY candidate.id
                 LIMIT @batchSize
             ) AS stale
@@ -202,9 +213,10 @@ public sealed class HangfireQueueMaintenanceService : BackgroundService
             WHERE id IN (
                 SELECT j.id
                 FROM {Schema}.job j
+                LEFT JOIN {Schema}.state s ON s.id = j.stateid
                 WHERE j.expireat IS NULL
                   AND j.statename = 'Enqueued'
-                  AND j.createdat < @cutoff
+                  AND COALESCE(s.createdat, j.createdat) < @cutoff
                   AND NOT EXISTS (SELECT 1 FROM {Schema}.jobqueue q WHERE q.jobid = j.id)
                 LIMIT @batchSize
             );
