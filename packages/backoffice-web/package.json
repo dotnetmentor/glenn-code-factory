@@ -32,7 +32,7 @@
     "axios": "^1.16.1",
     "date-fns": "^4.1.0",
     "exceljs": "^4.4.0",
-    "highlight.js": "^11.11.1",
+    "highlight.js": "^11.12.0",
     "react": "^19.2.6",
     "react-diff-viewer-continued": "^4.2.2",
     "react-dom": "^19.2.6",
