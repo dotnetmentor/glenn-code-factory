@@ -31,7 +31,7 @@
     "dev:web": "npm run web:dev"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
+    "concurrently": "^9.2.3",
     "dotenv-cli": "^8.0.0"
   },
   "repository": {
